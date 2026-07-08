@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
+    "build:pages": "tsc -b && BASE_PATH=/office404/ vite build",
+    "preview": "vite preview",
+    "preview:pages": "BASE_PATH=/office404/ vite preview",
+    "lint": "oxlint"
   },
   "dependencies": {
     "react": "^19.2.7",
