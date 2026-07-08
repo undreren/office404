@@ -503,6 +503,278 @@ body {
   color: var(--sanity);
 }
 
+.value--sm {
+  font-size: 0.65rem;
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+/* Actions */
+.action-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  background: var(--bg-card);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.review-result {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  background: rgba(91, 156, 245, 0.08);
+  border: 1px solid var(--code);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.pr-queue {
+  margin-top: 0.75rem;
+}
+
+.pr-queue h3 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.4rem;
+}
+
+.pr-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  margin-bottom: 0.4rem;
+  background: var(--bg-card);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+/* Projects */
+.project-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.project-card--tutorial {
+  border-color: var(--accent);
+}
+
+.project-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.project-card__header h3 {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.project-blurb {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 0.2rem;
+}
+
+.project-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.meter-row {
+  margin-bottom: 0.5rem;
+}
+
+.meter-row label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.meter-row span {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.task-list {
+  list-style: none;
+  margin-top: 0.5rem;
+}
+
+.task-item {
+  margin-bottom: 0.4rem;
+}
+
+.task-select {
+  width: 100%;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.task-item--selected .task-select {
+  border-color: var(--accent);
+}
+
+.task-item--merged .task-select {
+  opacity: 0.5;
+}
+
+.task-item__top {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.task-status {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.task-sp {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.assign-row {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+.assign-row .btn--small {
+  width: auto;
+  margin-top: 0;
+}
+
+/* Leads */
+.lead-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.lead-card header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+
+.lead-card h3 {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.lead-card p {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-bottom: 0.4rem;
+}
+
+.lead-stats {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  margin-bottom: 0.5rem;
+}
+
+/* Marketplace */
+.market-section {
+  margin-bottom: 1rem;
+}
+
+.market-section h3 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.5rem;
+}
+
+.vendor-card h4 {
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+}
+
+.vendor-card--cloud {
+  border-color: rgba(91, 156, 245, 0.3);
+}
+
+/* Agent statuses */
+.agent-card--compacted {
+  border-color: var(--danger);
+  animation: pulse-danger 1s ease infinite;
+}
+
+.agent-card--warming {
+  border-color: var(--warning);
+}
+
+.agent-card--working {
+  border-color: var(--accent-dim);
+}
+
+/* Game overlay */
+.game-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(10, 14, 20, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.game-overlay__card {
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  max-width: 360px;
+}
+
+.game-overlay__card h2 {
+  color: var(--accent);
+  margin-bottom: 0.75rem;
+}
+
+.game-overlay__card p {
+  color: var(--text-dim);
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
 /* Footer */
 .footer {
   text-align: center;

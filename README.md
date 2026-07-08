@@ -52,30 +52,47 @@ npm run preview:pages
 - **Saves** are per-origin — local dev and GitHub Pages keep separate `localStorage`.
 - A custom domain can be added later under **Settings → Pages** without code changes (set `BASE_PATH=/` when using a root domain).
 
-## Core mechanics (v0.1)
+## Core mechanics (v0.2)
+
+**Freelance survival expansion** — solo dev, multiple clients, agents, and the slow march toward $10M or a cardboard box.
 
 | Resource | Role |
 |----------|------|
-| **Tokens** | Fuel for AI agents — drains continuously per deployed agent |
-| **Sanity** | Your mental buffer — sprints drain it, zoning out restores it |
-| **Credits** | Client money — spend on agents, servers, token packs |
-| **Code Progress** | Ship features to earn credits and reputation |
+| **Cash** | Rent, tokens, hardware, apartment upgrades — paid on project completion (lump sum) |
+| **Tokens** | Fabulous5 cloud agents burn per tick; dry wallet = agents stop |
+| **Sanity** | Everything stressful drains it; **Vibe** (smoke break) restores it |
+| **Reputation** | On-time delivery up, missed deadlines & expired leads down — zero rep + no work = game over |
+| **Net worth** | Cash + refurbished rack value — hit **$10M** to retire |
 
-### Vendors
+### Player actions (one at a time)
 
-- **Anthropomorphic** — Premium output, dramatic personalities, steep token burn
-- **ObstinateAI** — Cheap but stubborn; agents occasionally refuse tasks
-- **PreCursor** — Fast and productive, with a worrying crash rate
+- **Sprint** — story points on a selected ticket; sanity ↓
+- **Vibe** — smoke break; sanity ↑; no progress
+- **Refine** — split a big ticket into two smaller ones (~80% SP each)
+- **Refactor** — no progress; project quality ↑
+- **Review / Just Merge** — PR queue: review reveals quality hit; merge or YOLO
 
-### Events
+### Agents
 
-- Agent crashes (memory wiped on reboot)
-- Server fires (agents on that rack go offline)
-- "Self-awareness" episodes
-- Token price surcharges
-- Passive client deadline pressure
+- **Local shelf models** — free, RAM-hungry, capped tick speed
+- **Fabulous5 cloud** — tokens per tick, 1 tick/sec, actually useful
+- **Context window** fills per tick; overflow → compaction → progress reverses until restart
+- One agent per ticket; parallelism via Refine only
 
-Progress saves automatically to `localStorage`. Returning after being away applies offline progress (capped at 8 hours).
+### Projects & clients
+
+- Multiple concurrent projects with per-project **quality** and **deadlines**
+- Leads expire; ghosting them hurts reputation
+- Late delivery: rep hit, late fee, extension — escalating shame
+- Scripted tutorial gig on day one
+
+### Hardware & housing
+
+- **Mark Mini → Mark STFU.io → CUDA Cluster** server racks
+- Apartment size caps rack slots; bigger flat = higher rent + more RAM
+- GPU upgrades boost local tick speed (hard capped)
+
+Progress saves automatically to `localStorage` (`office404-save-v2`). Returning after being away applies offline progress (capped at 8 hours).
 
 ## Tech stack
 
@@ -87,19 +104,19 @@ Progress saves automatically to `localStorage`. Returning after being away appli
 
 ```
 src/
-  game/          # Types, constants, vendors, store, tick logic
+  game/          # Types, constants, models, projects, store, tick logic
   components/    # UI panels
   hooks/         # Game tick & offline progress
 ```
 
 ## Roadmap ideas
 
+- **Blood, Sweat and Fears** DLC — hardware repair, more pain
 - Prestige / "Pivot to B2B" reset layer
-- Client contracts with real deadlines
 - Agent memory fragments & personality evolution
 - Mini-events and narrative choices
 - Sound design (notification pings, crash sounds, elevator muzak)
 
 ---
 
-*One-man agency · Infinite deadlines · Questionable architecture*
+*Solo freelance · Multiple deadlines · Questionable merges*

@@ -1,8 +1,11 @@
 import { ResourceBar } from './components/ResourceBar'
-import { SprintPanel } from './components/SprintPanel'
-import { DeployPanel } from './components/DeployPanel'
+import { PlayerActionsPanel } from './components/PlayerActionsPanel'
+import { ProjectsPanel } from './components/ProjectsPanel'
+import { LeadsPanel } from './components/LeadsPanel'
+import { MarketplacePanel } from './components/MarketplacePanel'
 import { ServerRack } from './components/ServerRack'
 import { EventLog } from './components/EventLog'
+import { GameOverlay } from './components/GameOverlay'
 import { useGameTick, useOfflineProgress } from './hooks/useGameTick'
 
 function App() {
@@ -13,16 +16,19 @@ function App() {
     <div className="app">
       <div className="scanlines" aria-hidden="true" />
       <ResourceBar />
+      <GameOverlay />
 
       <main className="main">
-        <SprintPanel />
+        <PlayerActionsPanel />
+        <ProjectsPanel />
+        <LeadsPanel />
         <ServerRack />
-        <DeployPanel />
+        <MarketplacePanel />
         <EventLog />
       </main>
 
       <footer className="footer">
-        <p>One-man agency · Infinite deadlines · Questionable architecture</p>
+        <p>Solo freelance · Multiple deadlines · Questionable merges</p>
       </footer>
     </div>
   )

@@ -4,10 +4,11 @@ const EVENT_ICONS: Record<string, string> = {
   crash: '💥',
   fire: '🔥',
   client: '📧',
-  token_hike: '📈',
-  awareness: '🪞',
+  token: '🪙',
   milestone: '🚀',
   system: '⚙️',
+  project: '📋',
+  lead: '📨',
 }
 
 export function EventLog() {
