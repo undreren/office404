@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="12" fill="#0a0e14"/>
+  <text x="32" y="28" text-anchor="middle" font-family="monospace" font-size="14" font-weight="bold" fill="#39d98a">404</text>
+  <text x="32" y="44" text-anchor="middle" font-family="monospace" font-size="8" fill="#6b7d99">OFFICE</text>
+  <line x1="8" y1="50" x2="56" y2="50" stroke="#ff5c5c" stroke-width="2" stroke-dasharray="4 3" opacity="0.6"/>
+</svg>
