@@ -18,6 +18,40 @@ npm run build
 npm run preview
 ```
 
+## Deployment (GitHub Pages)
+
+The game deploys automatically to GitHub Pages on every push to `main`.
+
+**Live URL:** https://undreren.github.io/office404/
+
+### One-time repo setup
+
+1. Open **Settings → Pages** in the GitHub repo
+2. Under **Build and deployment → Source**, choose **GitHub Actions**
+3. Merge to `main` — the `Deploy to GitHub Pages` workflow builds and publishes `dist/`
+
+### How it works
+
+| Piece | Purpose |
+|-------|---------|
+| `BASE_PATH=/office404/` | Vite asset paths for project-site hosting |
+| `npm run build:pages` | Production build with the GitHub Pages base path |
+| `.github/workflows/deploy-pages.yml` | CI build + deploy via `actions/deploy-pages` |
+
+Test the Pages build locally before pushing:
+
+```bash
+npm run build:pages
+npm run preview:pages
+# open http://localhost:4173/office404/
+```
+
+### Notes
+
+- **PWA install** works on the deployed URL; the service worker and manifest use the `/office404/` scope.
+- **Saves** are per-origin — local dev and GitHub Pages keep separate `localStorage`.
+- A custom domain can be added later under **Settings → Pages** without code changes (set `BASE_PATH=/` when using a root domain).
+
 ## Core mechanics (v0.1)
 
 | Resource | Role |
