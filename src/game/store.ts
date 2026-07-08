@@ -1,36 +1,59 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Agent, GameEvent, GameStore, Server, VendorId } from './types'
-import { VENDORS } from './vendors'
+import type { Agent, GameEvent, GameStore, Lead, PlayerAction, Project, Server, Task } from './types'
+import { MODELS } from './models'
 import {
-  generateAgentName,
-  generatePersonality,
-  randomAwarenessLine,
-  randomCrashLine,
-} from './personalities'
+  createTutorialProject,
+  createProjectFromLead,
+  generateLead,
+  splitTask,
+} from './projects'
+import { generateAgentName, generatePersonality } from './personalities'
 import {
-  CODE_SHIP_BASE_REWARD,
-  CODE_SHIP_THRESHOLD,
+  APARTMENT_CONFIG,
+  EXPIRED_LEAD_REP_PENALTY,
   EXTINGUISH_COST,
-  INITIAL_CREDITS,
+  FORCED_VIBE_THRESHOLD,
+  GPU_SPEED_PER_LEVEL,
+  GPU_UPGRADE_COST,
+  INITIAL_CASH,
+  INITIAL_GPU,
   INITIAL_MAX_TOKENS,
+  INITIAL_RAM,
+  INITIAL_REPUTATION,
   INITIAL_SANITY,
   INITIAL_TOKENS,
+  LATE_FEE_PERCENT,
+  LATE_REP_PENALTY_BASE,
+  LEAD_SPAWN_INTERVAL_DAYS,
+  LOCAL_TICK_HARD_CAP,
+  LOSE_REPUTATION,
   MAX_EVENTS,
-  MAX_TOKEN_CAPACITY_UPGRADE,
-  REBOOT_COST,
-  REBOOT_DURATION,
-  REPUTATION_PER_SHIP,
+  MAX_LEADS,
+  ON_TIME_REP_BONUS,
+  PLAYER_ACTION_REFACTOR_DAYS,
+  PLAYER_ACTION_REFINE_DAYS,
+  PLAYER_ACTION_REVIEW_DAYS,
+  QUALITY_BASE_HIT,
+  QUALITY_JUST_MERGE_MULT,
+  QUALITY_REFACTOR_BONUS,
+  QUALITY_REFACTOR_PRE_MERGE_MULT,
+  QUALITY_REVIEW_REDUCTION,
+  QUALITY_UNREFINED_MULT,
+  RACK_CONFIG,
+  RACK_REFURBISH_VALUE,
+  REFINE_MIN_COMPLEXITY,
+  RENT_INTERVAL_DAYS,
+  SANITY_FORCED_VIBE_MULTIPLIER,
   SANITY_PASSIVE_DRAIN,
   SANITY_SPRINT_DRAIN,
-  SANITY_ZONE_RESTORE,
+  SANITY_VIBE_RESTORE,
   SAVE_KEY,
-  SERVER_BASE_COST,
-  SERVER_CAPACITY,
-  SPRINT_CODE_BOOST,
+  SECONDS_PER_GAME_DAY,
+  SPRINT_SP_PER_DAY,
   TOKEN_PACK_AMOUNT,
   TOKEN_PACK_COST,
-  ZONE_CODE_PENALTY,
+  WIN_NET_WORTH,
 } from './constants'
 
 let idCounter = 0
@@ -39,95 +62,122 @@ function uid(prefix: string): string {
   return `${prefix}-${Date.now()}-${idCounter}`
 }
 
+function pushEvent(events: GameEvent[], type: GameEvent['type'], message: string): GameEvent[] {
+  const entry: GameEvent = { id: uid('evt'), timestamp: Date.now(), type, message }
+  return [entry, ...events].slice(0, MAX_EVENTS)
+}
+
 function createStarterServer(): Server {
   return {
     id: uid('srv'),
-    name: 'Basement Rack v0',
-    capacity: SERVER_CAPACITY,
+    name: 'Basement Mark Mini',
+    tier: 'mark_mini',
+    capacity: RACK_CONFIG.mark_mini.capacity,
+    gpuLevel: 1,
     onFire: false,
     fireDuration: 0,
   }
 }
 
 function createInitialState() {
-  const server = createStarterServer()
+  const tutorial = createTutorialProject()
   return {
+    phase: 'playing' as const,
+    cash: INITIAL_CASH,
     tokens: INITIAL_TOKENS,
     maxTokens: INITIAL_MAX_TOKENS,
     sanity: INITIAL_SANITY,
-    codeProgress: 0,
-    credits: INITIAL_CREDITS,
-    reputation: 0,
-    sprintLevel: 1,
-    servers: [server],
+    reputation: INITIAL_REPUTATION,
+    gameDay: 0,
+    rentDueInDays: RENT_INTERVAL_DAYS,
+    apartment: 'cardboard' as const,
+    apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
+    gpuUnits: INITIAL_GPU,
+    totalRam: INITIAL_RAM,
+    usedRam: 0,
+    ownedLocalModels: ['local-7b', 'local-13b', 'local-34b'] as string[],
+    servers: [createStarterServer()],
     agents: [] as Agent[],
-    mode: 'idle' as const,
-    modeTimer: 0,
-    tokenPriceMultiplier: 1,
-    deadlinePressure: 0,
-    totalCodeShipped: 0,
+    projects: [tutorial],
+    leads: [] as Lead[],
+    selectedTaskId: tutorial.tasks[0]?.id ?? null,
+    playerAction: null as PlayerAction | null,
+    reviewRevealedHit: null as number | null,
+    tutorialDone: false,
+    leadSpawnCooldown: LEAD_SPAWN_INTERVAL_DAYS,
     lastTickAt: Date.now(),
     events: [
       {
         id: uid('evt'),
         timestamp: Date.now(),
         type: 'system' as const,
-        message: 'Welcome to Office 404. Your sanity is a depreciating asset.',
+        message: 'Day 0. No local model. Petty cash. A prayer. Good luck, freelancer.',
       },
     ],
     stats: {
+      projectsCompleted: 0,
+      tasksMerged: 0,
       agentsDeployed: 0,
-      crashesSurvived: 0,
-      sprintsCompleted: 0,
-      firesExtinguished: 0,
+      compactionsSurvived: 0,
     },
   }
 }
 
-function pushEvent(
-  events: GameEvent[],
-  type: GameEvent['type'],
-  message: string,
-): GameEvent[] {
-  const entry: GameEvent = {
-    id: uid('evt'),
-    timestamp: Date.now(),
-    type,
-    message,
+function findTask(projects: Project[], taskId: string): { project: Project; task: Task } | null {
+  for (const project of projects) {
+    const task = project.tasks.find((t) => t.id === taskId)
+    if (task) return { project, task }
   }
-  return [entry, ...events].slice(0, MAX_EVENTS)
+  return null
+}
+
+function updateTask(projects: Project[], taskId: string, updater: (t: Task) => Task): Project[] {
+  return projects.map((p) => ({
+    ...p,
+    tasks: p.tasks.map((t) => (t.id === taskId ? updater(t) : t)),
+  }))
+}
+
+function computeUsedRam(agents: Agent[]): number {
+  return agents.reduce((sum, a) => sum + (MODELS[a.modelId]?.ramCost ?? 0), 0)
+}
+
+function computeNetWorth(state: Pick<GameStore, 'cash' | 'servers'>): number {
+  const rackValue = state.servers.reduce((sum, s) => sum + (RACK_REFURBISH_VALUE[s.tier] ?? 0), 0)
+  return state.cash + rackValue
+}
+
+function qualityDifficultyMult(quality: number): number {
+  return 1 + (100 - quality) / 50
+}
+
+function computeQualityHit(task: Task, project: Project, justMerge: boolean, reviewed: boolean): number {
+  let hit = QUALITY_BASE_HIT * qualityDifficultyMult(project.quality)
+  if (!task.refined) hit *= QUALITY_UNREFINED_MULT
+  if (justMerge) hit *= QUALITY_JUST_MERGE_MULT
+  if (reviewed) hit *= QUALITY_REVIEW_REDUCTION
+  return Math.max(1, hit + Math.random() * 3)
+}
+
+function agentTickSpeed(agent: Agent, gpuUnits: number): number {
+  const model = MODELS[agent.modelId]
+  if (!model) return 0
+  if (model.kind === 'cloud') return 1
+  const gpuBoost = 1 + (gpuUnits - 1) * GPU_SPEED_PER_LEVEL
+  return Math.min(LOCAL_TICK_HARD_CAP, model.localTickCap * gpuBoost)
 }
 
 function countAgentsOnServer(agents: Agent[], serverId: string): number {
-  return agents.filter((a) => a.serverId === serverId && a.status !== 'crashed').length
+  return agents.filter((a) => a.serverId === serverId).length
 }
 
-function computeCodeOutput(agents: Agent[], mode: GameStore['mode'], servers: Server[]): number {
-  let output = 0
-
-  for (const agent of agents) {
-    if (agent.status !== 'running') continue
-
-    const server = servers.find((s) => s.id === agent.serverId)
-    if (!server || server.onFire) continue
-
-    const vendor = VENDORS[agent.vendorId]
-    output += 0.35 * vendor.outputMultiplier
-  }
-
-  if (mode === 'sprinting') output *= SPRINT_CODE_BOOST
-  if (mode === 'zoning') output *= ZONE_CODE_PENALTY
-
-  return output
+function allTasksMerged(project: Project): boolean {
+  return project.tasks.every((t) => t.status === 'merged')
 }
 
-function computeTokenBurn(agents: Agent[], tokenPriceMultiplier: number): number {
-  let burn = 0
-  for (const agent of agents) {
-    if (agent.status === 'crashed') continue
-    burn += VENDORS[agent.vendorId].tokenCostPerSec * tokenPriceMultiplier
-  }
-  return burn
+function projectProgress(project: Project): number {
+  const merged = project.tasks.filter((t) => t.status === 'merged').reduce((s, t) => s + t.storyPointsRequired, 0)
+  return merged / project.totalStoryPoints
 }
 
 export const useGameStore = create<GameStore>()(
@@ -137,157 +187,351 @@ export const useGameStore = create<GameStore>()(
 
       tick(deltaSec: number) {
         const state = get()
-        const {
+        if (state.phase !== 'playing') return
+
+        const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
+        let {
+          cash,
+          tokens,
+          sanity,
+          reputation,
+          gameDay,
+          rentDueInDays,
+          apartmentLeaseRemaining,
           agents,
           servers,
-          mode,
-          tokenPriceMultiplier,
+          projects,
+          leads,
           events,
           stats,
+          playerAction,
+          leadSpawnCooldown,
+          reviewRevealedHit,
+          selectedTaskId,
+          gpuUnits,
         } = state
 
         let nextAgents = agents.map((a) => ({ ...a }))
         let nextServers = servers.map((s) => ({ ...s }))
+        let nextProjects = projects.map((p) => ({ ...p, tasks: p.tasks.map((t) => ({ ...t })) }))
+        let nextLeads = leads.map((l) => ({ ...l }))
         let nextEvents = [...events]
         let nextStats = { ...stats }
-        let tokens = state.tokens
-        let sanity = state.sanity
-        let codeProgress = state.codeProgress
-        let credits = state.credits
-        let reputation = state.reputation
-        let deadlinePressure = state.deadlinePressure
-        let tokenPrice = tokenPriceMultiplier
-        let modeTimer = Math.max(0, state.modeTimer - deltaSec)
-        let nextMode = mode
+        let nextPlayerAction = playerAction ? { ...playerAction } : null
+        let nextReviewHit = reviewRevealedHit
+        let phase: GameStore['phase'] = state.phase
 
-        if (modeTimer <= 0 && mode !== 'idle') {
-          nextMode = 'idle'
+        gameDay += dayProgress
+        rentDueInDays -= dayProgress
+        apartmentLeaseRemaining -= dayProgress
+        leadSpawnCooldown -= dayProgress
+
+        // Rent
+        if (rentDueInDays <= 0) {
+          const rent = APARTMENT_CONFIG[state.apartment].rent
+          cash -= rent
+          rentDueInDays += RENT_INTERVAL_DAYS
+          nextEvents = pushEvent(nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`)
         }
 
-        const tokenBurn = computeTokenBurn(nextAgents, tokenPrice) * deltaSec
-        tokens = Math.max(0, tokens - tokenBurn)
+        // Lead spawning
+        if (leadSpawnCooldown <= 0 && nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS) {
+          nextLeads = [generateLead(reputation), ...nextLeads]
+          leadSpawnCooldown = LEAD_SPAWN_INTERVAL_DAYS
+          nextEvents = pushEvent(nextEvents, 'lead', 'New client lead appeared. They want it yesterday.')
+        }
 
-        for (const agent of nextAgents) {
-          if (agent.status === 'running') {
-            agent.uptime += deltaSec
-            agent.totalTokensBurned += VENDORS[agent.vendorId].tokenCostPerSec * tokenPrice * deltaSec
-
-            const vendor = VENDORS[agent.vendorId]
-            if (Math.random() < vendor.stubbornChance * deltaSec) {
-              nextEvents = pushEvent(nextEvents, 'system', `${agent.name} refused the task. "Not in my system prompt."`)
-            }
-
-            if (Math.random() < vendor.crashChance * deltaSec) {
-              agent.status = 'crashed'
-              agent.rebootProgress = 0
+        // Expire leads
+        for (const lead of nextLeads) {
+          if (lead.status === 'available') {
+            lead.daysToExpire -= dayProgress
+            if (lead.daysToExpire <= 0) {
+              lead.status = 'expired'
+              reputation = Math.max(0, reputation - EXPIRED_LEAD_REP_PENALTY)
               nextEvents = pushEvent(
                 nextEvents,
-                'crash',
-                `${agent.name} crashed: ${randomCrashLine()}`,
+                'lead',
+                `${lead.clientName} ghosted you. Reputation -${EXPIRED_LEAD_REP_PENALTY}.`,
               )
-              nextStats.crashesSurvived += 1
-            } else if (Math.random() < 0.0004 * deltaSec) {
-              agent.status = 'philosophizing'
-              agent.philosophizingUntil = Date.now() + 4000
-              nextEvents = pushEvent(
-                nextEvents,
-                'awareness',
-                `${agent.name}: "${randomAwarenessLine()}"`,
-              )
-            }
-          } else if (agent.status === 'philosophizing') {
-            if (Date.now() >= agent.philosophizingUntil) {
-              agent.status = 'running'
-              agent.philosophizingUntil = 0
-            }
-          } else if (agent.status === 'rebooting') {
-            agent.rebootProgress += deltaSec
-            if (agent.rebootProgress >= REBOOT_DURATION) {
-              agent.status = 'running'
-              agent.rebootProgress = 0
-              agent.personality = generatePersonality()
-              nextEvents = pushEvent(nextEvents, 'system', `${agent.name} rebooted. Memory: wiped. Confidence: restored.`)
             }
           }
         }
 
-        for (const server of nextServers) {
-          if (server.onFire) {
-            server.fireDuration = Math.max(0, server.fireDuration - deltaSec)
-            if (server.fireDuration <= 0) {
-              server.onFire = false
-              nextEvents = pushEvent(nextEvents, 'fire', `${server.name} stopped smoldering. For now.`)
-            }
-          } else if (Math.random() < 0.00015 * deltaSec * nextAgents.length) {
-            server.onFire = true
-            server.fireDuration = 25 + Math.random() * 20
+        // Project deadlines
+        for (const project of nextProjects) {
+          if (project.status !== 'active') continue
+          project.daysRemaining -= dayProgress
+
+          if (project.daysRemaining <= 0 && !allTasksMerged(project)) {
+            project.lateCount += 1
+            project.daysRemaining += Math.round(project.durationDays * 0.35)
+            const fee = Math.round(project.payment * LATE_FEE_PERCENT * project.lateCount)
+            project.payment = Math.max(0, project.payment - fee)
+            const repHit = Math.round(LATE_REP_PENALTY_BASE * project.repPenaltyMultiplier * project.lateCount)
+            reputation = Math.max(0, reputation - repHit)
+            project.repPenaltyMultiplier += 0.25
             nextEvents = pushEvent(
               nextEvents,
-              'fire',
-              `SERVER FIRE on ${server.name}! Agents on that rack are offline.`,
+              'project',
+              `${project.clientName}: LATE. -$${fee} fee, -${repHit} rep. Extension granted. Suffering continues.`,
             )
           }
         }
 
-        if (Math.random() < 0.0002 * deltaSec) {
-          tokenPrice = Math.min(2.5, tokenPrice + 0.05)
-          nextEvents = pushEvent(
-            nextEvents,
-            'token_hike',
-            `Vendor surcharge detected. Token costs up ${Math.round((tokenPrice - 1) * 100)}%.`,
-          )
+        // Forced vibe at low sanity
+        const forcedVibe = sanity <= FORCED_VIBE_THRESHOLD
+        if (forcedVibe && (!nextPlayerAction || nextPlayerAction.type !== 'vibe')) {
+          nextPlayerAction = {
+            type: 'vibe',
+            taskId: '',
+            progress: 0,
+            duration: 999,
+            forced: true,
+          }
+          nextEvents = pushEvent(nextEvents, 'system', 'Sanity critical. Forced smoke break at half speed.')
         }
 
-        deadlinePressure = Math.min(100, deadlinePressure + 0.08 * deltaSec)
-        if (Math.random() < 0.00025 * deltaSec && deadlinePressure > 40) {
-          nextEvents = pushEvent(
-            nextEvents,
-            'client',
-            'Client pinged: "Just checking in 🙂" (translation: panic).',
-          )
-          deadlinePressure = Math.min(100, deadlinePressure + 5)
+        const playerBusy = nextPlayerAction !== null
+        const vibeMult = nextPlayerAction?.forced ? SANITY_FORCED_VIBE_MULTIPLIER : 1
+
+        // Player action progress
+        if (nextPlayerAction && nextPlayerAction.type !== 'vibe') {
+          nextPlayerAction.progress += dayProgress
+          const done = nextPlayerAction.progress >= nextPlayerAction.duration
+
+          if (done) {
+            const taskId = nextPlayerAction.taskId
+            if (nextPlayerAction.type === 'sprint') {
+              // sprint is continuous, handled below
+            } else if (nextPlayerAction.type === 'review') {
+              const found = findTask(nextProjects, taskId)
+              if (found) {
+                const hit = computeQualityHit(found.task, found.project, false, true)
+                nextReviewHit = hit
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `Review complete. Estimated quality hit: -${hit.toFixed(1)}. Merge or refactor.`,
+                )
+              }
+              nextPlayerAction = null
+            } else if (nextPlayerAction.type === 'refine') {
+              const found = findTask(nextProjects, taskId)
+              if (found && found.task.complexity >= REFINE_MIN_COMPLEXITY) {
+                const [a, b] = splitTask(found.task)
+                nextProjects = nextProjects.map((p) =>
+                  p.id === found.project.id
+                    ? { ...p, tasks: p.tasks.filter((t) => t.id !== taskId).concat([a, b]) }
+                    : p,
+                )
+                if (selectedTaskId === taskId) selectedTaskId = a.id
+                nextEvents = pushEvent(nextEvents, 'project', `Refined "${found.task.title}" into two smaller tickets.`)
+              }
+              nextPlayerAction = null
+            } else if (nextPlayerAction.type === 'refactor') {
+              const found = findTask(nextProjects, taskId)
+              if (found) {
+                const bonus = QUALITY_REFACTOR_BONUS * QUALITY_REFACTOR_PRE_MERGE_MULT
+                nextProjects = nextProjects.map((p) =>
+                  p.id === found.project.id
+                    ? { ...p, quality: Math.min(100, p.quality + bonus) }
+                    : p,
+                )
+                nextEvents = pushEvent(nextEvents, 'project', `Refactored code. Project quality +${bonus.toFixed(0)}.`)
+              }
+              nextPlayerAction = null
+            }
+          }
         }
 
-        if (nextMode === 'sprinting') {
-          sanity = Math.max(0, sanity - SANITY_SPRINT_DRAIN * deltaSec)
-        } else if (nextMode === 'zoning') {
-          sanity = Math.min(100, sanity + SANITY_ZONE_RESTORE * deltaSec)
-        } else {
-          sanity = Math.max(0, sanity - SANITY_PASSIVE_DRAIN * deltaSec)
+        // Sprint SP gain
+        if (nextPlayerAction?.type === 'sprint' && nextPlayerAction.taskId) {
+          const spGain = SPRINT_SP_PER_DAY * dayProgress
+          let becameReady = false
+          nextProjects = updateTask(nextProjects, nextPlayerAction.taskId, (t) => {
+            if (t.status === 'merged' || t.status === 'pr_ready') return t
+            const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + spGain)
+            const status = earned >= t.storyPointsRequired ? 'pr_ready' : 'in_progress'
+            if (status === 'pr_ready') becameReady = true
+            return { ...t, storyPointsEarned: earned, status }
+          })
+          if (becameReady) {
+            const found = findTask(nextProjects, nextPlayerAction.taskId)
+            if (found?.task.assignedAgentId) {
+              const aid = found.task.assignedAgentId
+              nextAgents = nextAgents.map((a) =>
+                a.id === aid ? { ...a, taskId: null, status: 'idle' as const, contextUsed: 0 } : a,
+              )
+              nextProjects = updateTask(nextProjects, nextPlayerAction.taskId, (t) => ({
+                ...t,
+                assignedAgentId: null,
+              }))
+            }
+          }
+          sanity = Math.max(0, sanity - SANITY_SPRINT_DRAIN * dayProgress)
         }
 
-        const sanityFactor = 0.5 + sanity / 200
-        const codeOutput = computeCodeOutput(nextAgents, nextMode, nextServers) * sanityFactor * deltaSec
-        codeProgress += codeOutput
+        // Vibe sanity restore
+        if (nextPlayerAction?.type === 'vibe') {
+          sanity = Math.min(100, sanity + SANITY_VIBE_RESTORE * dayProgress * vibeMult)
+          if (!forcedVibe && sanity >= 95) {
+            nextPlayerAction = null
+          }
+          if (forcedVibe && sanity >= 100) {
+            nextPlayerAction = null
+            nextEvents = pushEvent(nextEvents, 'system', 'Sanity restored. Back to the suffering.')
+          }
+        } else if (!playerBusy) {
+          sanity = Math.max(0, sanity - SANITY_PASSIVE_DRAIN * dayProgress)
+        }
 
-        while (codeProgress >= CODE_SHIP_THRESHOLD) {
-          codeProgress -= CODE_SHIP_THRESHOLD
-          const reward = CODE_SHIP_BASE_REWARD + reputation * 1.5 + nextAgents.length * 3
-          credits += reward
-          reputation += REPUTATION_PER_SHIP
-          deadlinePressure = Math.max(0, deadlinePressure - 12)
-          nextStats.sprintsCompleted += 1
-          nextEvents = pushEvent(
-            nextEvents,
-            'milestone',
-            `Shipped a feature! +${Math.round(reward)} credits. Client pretends to be impressed.`,
-          )
+        // Agent ticks
+        let tokenBurn = 0
+        for (const agent of nextAgents) {
+          const model = MODELS[agent.modelId]
+          if (!model || !agent.taskId) continue
+
+          const taskRef = findTask(nextProjects, agent.taskId)
+          if (!taskRef || taskRef.task.status === 'merged' || taskRef.task.status === 'pr_ready') continue
+
+          const server = nextServers.find((s) => s.id === agent.serverId)
+          if (!server || server.onFire) continue
+
+          if (agent.status === 'compacted') continue
+
+          if (agent.status === 'warming') {
+            agent.warmupRemaining -= dayProgress
+            if (agent.warmupRemaining <= 0) {
+              agent.status = 'working'
+              agent.warmupRemaining = 0
+            }
+            continue
+          }
+
+          if (agent.status !== 'working') continue
+
+          const tickSpeed = agentTickSpeed(agent, gpuUnits) * dayProgress
+          agent.uptime += dayProgress
+
+          if (model.kind === 'cloud') {
+            const cost = model.tokenCostPerTick * tickSpeed
+            if (tokens <= 0) continue
+            tokenBurn += cost
+            agent.totalTokensBurned += cost
+          }
+
+          agent.contextUsed += model.contextFillRate * tickSpeed
+
+          if (agent.contextUsed >= model.contextSize) {
+            agent.status = 'compacted'
+            agent.contextUsed = model.contextSize
+            nextStats.compactionsSurvived += 1
+            nextEvents = pushEvent(
+              nextEvents,
+              'crash',
+              `${agent.name} compacted! Context overflow. Tap restart.`,
+            )
+            continue
+          }
+
+          if (Math.random() < model.successChance * tickSpeed) {
+            nextProjects = updateTask(nextProjects, agent.taskId, (t) => {
+              const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + 1 * tickSpeed * 2)
+              const status = earned >= t.storyPointsRequired ? 'pr_ready' : 'in_progress'
+              return { ...t, storyPointsEarned: earned, status }
+            })
+            const updated = findTask(nextProjects, agent.taskId)
+            if (updated?.task.status === 'pr_ready') {
+              agent.taskId = null
+              agent.status = 'idle'
+              agent.contextUsed = 0
+            }
+          }
+        }
+
+        tokens = Math.max(0, tokens - tokenBurn)
+
+        // Compaction backslide
+        for (const agent of nextAgents) {
+          if (agent.status !== 'compacted' || !agent.taskId) continue
+          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
+            ...t,
+            storyPointsEarned: Math.max(0, t.storyPointsEarned - 0.5 * dayProgress),
+          }))
+        }
+
+        // Server fires
+        for (const server of nextServers) {
+          if (server.onFire) {
+            server.fireDuration = Math.max(0, server.fireDuration - dayProgress * SECONDS_PER_GAME_DAY)
+            if (server.fireDuration <= 0) {
+              server.onFire = false
+              nextEvents = pushEvent(nextEvents, 'fire', `${server.name} stopped smoldering.`)
+            }
+          } else if (Math.random() < 0.00008 * deltaSec * nextAgents.length) {
+            server.onFire = true
+            server.fireDuration = 20 + Math.random() * 15
+            nextEvents = pushEvent(nextEvents, 'fire', `SERVER FIRE on ${server.name}! Agents offline.`)
+          }
+        }
+
+        // Complete projects
+        for (const project of nextProjects) {
+          if (project.status !== 'active') continue
+          if (!allTasksMerged(project)) continue
+
+          project.status = 'completed'
+          cash += project.payment
+          const onTime = project.lateCount === 0
+          reputation += onTime ? ON_TIME_REP_BONUS : 1
+          nextStats.projectsCompleted += 1
+          if (project.isTutorial && !state.tutorialDone) {
+            nextEvents = pushEvent(
+              nextEvents,
+              'milestone',
+              `Tutorial complete! +$${project.payment}. Buy a Mark Mini. You've been deluded into hope.`,
+            )
+          } else {
+            nextEvents = pushEvent(
+              nextEvents,
+              'milestone',
+              `Shipped ${project.clientName}! +$${project.payment}${onTime ? ' (on time!)' : ' (late, but done)'}.`,
+            )
+          }
+        }
+
+        nextProjects = nextProjects.filter((p) => p.status === 'active')
+
+        const netWorth = computeNetWorth({ cash, servers: nextServers })
+        if (netWorth >= WIN_NET_WORTH) {
+          phase = 'won'
+          nextEvents = pushEvent(nextEvents, 'milestone', '$10M net worth. Sell the racks. Retire. You win.')
+        } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
+          phase = 'lost'
+          nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.')
         }
 
         set({
+          cash,
           tokens,
           sanity,
-          codeProgress,
-          credits,
           reputation,
+          gameDay,
+          rentDueInDays,
+          apartmentLeaseRemaining,
           agents: nextAgents,
           servers: nextServers,
+          projects: nextProjects,
+          leads: nextLeads,
           events: nextEvents,
           stats: nextStats,
-          mode: nextMode,
-          modeTimer,
-          tokenPriceMultiplier: tokenPrice,
-          deadlinePressure,
+          playerAction: nextPlayerAction,
+          reviewRevealedHit: nextReviewHit,
+          leadSpawnCooldown,
+          selectedTaskId,
+          phase,
+          usedRam: computeUsedRam(nextAgents),
+          tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
           lastTickAt: Date.now(),
         })
       },
@@ -295,147 +539,409 @@ export const useGameStore = create<GameStore>()(
       applyOfflineProgress(elapsedSec: number) {
         const capped = Math.min(elapsedSec, 8 * 60 * 60)
         if (capped < 5) return
-
         const ticks = Math.floor(capped)
-        for (let i = 0; i < ticks; i++) {
-          get().tick(1)
-        }
-
+        for (let i = 0; i < ticks; i++) get().tick(1)
         const remainder = capped - ticks
-        if (remainder > 0) {
-          get().tick(remainder)
-        }
-
+        if (remainder > 0) get().tick(remainder)
         set((s) => ({
-          events: pushEvent(
-            s.events,
-            'system',
-            `You were away for ${formatDuration(capped)}. The agents kept… trying.`,
-          ),
+          events: pushEvent(s.events, 'system', `Away for ${Math.floor(capped / 60)}m. Agents kept… something.`),
         }))
       },
 
-      deployAgent(vendorId: VendorId, serverId: string) {
-        const state = get()
-        const vendor = VENDORS[vendorId]
-        const server = state.servers.find((s) => s.id === serverId)
+      selectTask(taskId) {
+        set({ selectedTaskId: taskId })
+      },
 
-        if (!server || server.onFire) return false
-        if (state.credits < vendor.deployCost) return false
+      startSprint() {
+        const state = get()
+        if (state.playerAction || !state.selectedTaskId || state.sanity < 5) return
+        const found = findTask(state.projects, state.selectedTaskId)
+        if (!found || found.task.status === 'merged' || found.task.status === 'pr_ready') return
+        set({
+          playerAction: {
+            type: 'sprint',
+            taskId: state.selectedTaskId,
+            progress: 0,
+            duration: 9999,
+          },
+          reviewRevealedHit: null,
+          events: pushEvent(state.events, 'system', `Sprinting on "${found.task.title}". Caveman mode engaged.`),
+        })
+      },
+
+      startVibe() {
+        const state = get()
+        if (state.playerAction) return
+        set({
+          playerAction: { type: 'vibe', taskId: '', progress: 0, duration: 9999 },
+          events: pushEvent(state.events, 'system', 'Smoke break. Agents keep ticking. You keep existing.'),
+        })
+      },
+
+      startRefine(taskId) {
+        const state = get()
+        if (state.playerAction) return
+        const found = findTask(state.projects, taskId)
+        if (!found || found.task.complexity < REFINE_MIN_COMPLEXITY || found.task.refined) return
+        set({
+          playerAction: {
+            type: 'refine',
+            taskId,
+            progress: 0,
+            duration: PLAYER_ACTION_REFINE_DAYS,
+          },
+          events: pushEvent(state.events, 'project', `Refining "${found.task.title}"… ticket mitosis incoming.`),
+        })
+      },
+
+      startRefactor(taskId) {
+        const state = get()
+        if (state.playerAction) return
+        const found = findTask(state.projects, taskId)
+        if (!found) return
+        set({
+          playerAction: {
+            type: 'refactor',
+            taskId,
+            progress: 0,
+            duration: PLAYER_ACTION_REFACTOR_DAYS,
+          },
+          events: pushEvent(state.events, 'project', `Refactoring "${found.task.title}"… quality over progress.`),
+        })
+      },
+
+      startReview(taskId) {
+        const state = get()
+        if (state.playerAction) return
+        const found = findTask(state.projects, taskId)
+        if (!found || found.task.status !== 'pr_ready') return
+        set({
+          playerAction: {
+            type: 'review',
+            taskId,
+            progress: 0,
+            duration: PLAYER_ACTION_REVIEW_DAYS,
+          },
+          reviewRevealedHit: null,
+          events: pushEvent(state.events, 'project', `Reviewing PR for "${found.task.title}"…`),
+        })
+      },
+
+      justMerge(taskId) {
+        const state = get()
+        if (state.playerAction) return
+        const found = findTask(state.projects, taskId)
+        if (!found || found.task.status !== 'pr_ready') return
+
+        const hit = computeQualityHit(found.task, found.project, true, false)
+        const nextProjects = state.projects.map((p) =>
+          p.id === found.project.id
+            ? {
+                ...p,
+                quality: Math.max(0, p.quality - hit),
+                tasks: p.tasks.map((t) =>
+                  t.id === taskId ? { ...t, status: 'merged' as const, pendingQualityHit: hit } : t,
+                ),
+              }
+            : p,
+        )
+
+        set({
+          projects: nextProjects,
+          stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
+          events: pushEvent(
+            state.events,
+            'project',
+            `Just Merged "${found.task.title}". Quality -${hit.toFixed(1)}. YOLO.`,
+          ),
+        })
+      },
+
+      completeMerge(taskId) {
+        const state = get()
+        const found = findTask(state.projects, taskId)
+        if (!found || found.task.status !== 'pr_ready') return
+
+        const hit = state.reviewRevealedHit ?? computeQualityHit(found.task, found.project, false, true)
+        const nextProjects = state.projects.map((p) =>
+          p.id === found.project.id
+            ? {
+                ...p,
+                quality: Math.max(0, p.quality - hit),
+                tasks: p.tasks.map((t) =>
+                  t.id === taskId ? { ...t, status: 'merged' as const, pendingQualityHit: hit } : t,
+                ),
+              }
+            : p,
+        )
+
+        set({
+          projects: nextProjects,
+          reviewRevealedHit: null,
+          playerAction: null,
+          stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
+          events: pushEvent(
+            state.events,
+            'project',
+            `Merged "${found.task.title}" after review. Quality -${hit.toFixed(1)}.`,
+          ),
+        })
+      },
+
+      cancelPlayerAction() {
+        const state = get()
+        if (state.playerAction?.forced) return
+        set({ playerAction: null, reviewRevealedHit: null })
+      },
+
+      acceptLead(leadId) {
+        const state = get()
+        const lead = state.leads.find((l) => l.id === leadId)
+        if (!lead || lead.status !== 'available') return
+        if (state.reputation < lead.repRequired) return
+        if (state.projects.length >= 4) return
+
+        const project = createProjectFromLead(lead)
+        set({
+          projects: [...state.projects, project],
+          leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
+          events: pushEvent(state.events, 'lead', `Accepted ${lead.clientName}. Regret incoming.`),
+        })
+      },
+
+      rejectLead(leadId) {
+        const state = get()
+        set({
+          leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'rejected' as const } : l)),
+          events: pushEvent(state.events, 'lead', 'Lead rejected. Professional boundaries (for now).'),
+        })
+      },
+
+      assignAgent(agentId, taskId) {
+        const state = get()
+        const agent = state.agents.find((a) => a.id === agentId)
+        const found = findTask(state.projects, taskId)
+        if (!agent || !found || agent.taskId) return
+        if (found.task.status === 'merged' || found.task.status === 'pr_ready') return
+        if (found.task.assignedAgentId) return
+
+        const warmup = Math.ceil(MODELS[agent.modelId].contextSize * 0.15)
+        set({
+          agents: state.agents.map((a) =>
+            a.id === agentId
+              ? { ...a, taskId, status: 'warming' as const, warmupRemaining: warmup, contextUsed: 0 }
+              : a,
+          ),
+          projects: updateTask(state.projects, taskId, (t) => ({
+            ...t,
+            assignedAgentId: agentId,
+            status: 'in_progress',
+          })),
+          events: pushEvent(state.events, 'system', `${agent.name} assigned to "${found.task.title}".`),
+        })
+      },
+
+      unassignAgent(agentId) {
+        const state = get()
+        const agent = state.agents.find((a) => a.id === agentId)
+        if (!agent?.taskId) return
+
+        const taskId = agent.taskId
+        set({
+          agents: state.agents.map((a) =>
+            a.id === agentId
+              ? { ...a, taskId: null, status: 'idle' as const, contextUsed: 0, warmupRemaining: 0 }
+              : a,
+          ),
+          projects: updateTask(state.projects, taskId, (t) => ({
+            ...t,
+            assignedAgentId: null,
+            status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
+          })),
+          events: pushEvent(
+            state.events,
+            'system',
+            `${agent.name} yanked off task. Context wiped. Review comments are your problem now.`,
+          ),
+        })
+      },
+
+      restartAgent(agentId) {
+        const state = get()
+        const agent = state.agents.find((a) => a.id === agentId)
+        if (!agent || agent.status !== 'compacted') return
+
+        const warmup = Math.ceil(MODELS[agent.modelId].contextSize * 0.2)
+        set({
+          agents: state.agents.map((a) =>
+            a.id === agentId
+              ? { ...a, status: 'warming' as const, contextUsed: 0, warmupRemaining: warmup }
+              : a,
+          ),
+          events: pushEvent(state.events, 'system', `${agent.name} restarted. Context rebuilding…`),
+        })
+      },
+
+      deployCloudAgent(modelId, serverId) {
+        const state = get()
+        const model = MODELS[modelId]
+        const server = state.servers.find((s) => s.id === serverId)
+        if (!model || model.kind !== 'cloud' || !server || server.onFire) return false
+        if (state.cash < model.deployCost) return false
         if (countAgentsOnServer(state.agents, serverId) >= server.capacity) return false
 
         const agent: Agent = {
           id: uid('agt'),
           name: generateAgentName(),
-          vendorId,
+          modelId,
           serverId,
-          status: 'running',
+          taskId: null,
+          status: 'idle',
           personality: generatePersonality(),
-          uptime: 0,
+          contextUsed: 0,
+          warmupRemaining: 0,
           totalTokensBurned: 0,
-          rebootProgress: 0,
-          philosophizingUntil: 0,
+          uptime: 0,
         }
 
         set({
-          credits: state.credits - vendor.deployCost,
+          cash: state.cash - model.deployCost,
           agents: [...state.agents, agent],
           stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-          events: pushEvent(
-            state.events,
-            'system',
-            `Deployed ${agent.name} on ${vendor.name}. It already has opinions.`,
-          ),
+          events: pushEvent(state.events, 'system', `Deployed ${agent.name} (${model.name}). Token meter weeps.`),
         })
         return true
       },
 
-      buyServer() {
+      installLocalAgent(modelId, serverId) {
         const state = get()
-        const cost = SERVER_BASE_COST * state.servers.length
-        if (state.credits < cost) return false
+        const model = MODELS[modelId]
+        const server = state.servers.find((s) => s.id === serverId)
+        if (!model || model.kind !== 'local' || !server || server.onFire) return false
+        if (!state.ownedLocalModels.includes(modelId)) return false
+        if (state.usedRam + model.ramCost > state.totalRam) return false
+        if (countAgentsOnServer(state.agents, serverId) >= server.capacity) return false
+
+        const agent: Agent = {
+          id: uid('agt'),
+          name: generateAgentName(),
+          modelId,
+          serverId,
+          taskId: null,
+          status: 'idle',
+          personality: generatePersonality(),
+          contextUsed: 0,
+          warmupRemaining: 0,
+          totalTokensBurned: 0,
+          uptime: 0,
+        }
+
+        set({
+          agents: [...state.agents, agent],
+          usedRam: computeUsedRam([...state.agents, agent]),
+          stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
+          events: pushEvent(state.events, 'system', `Installed ${agent.name} (${model.name}). Free. Depressing.`),
+        })
+        return true
+      },
+
+      buyLocalModel(modelId) {
+        const state = get()
+        const model = MODELS[modelId]
+        if (!model || model.kind !== 'local') return false
+        if (state.ownedLocalModels.includes(modelId)) return false
+        if (model.purchaseCost > 0 && state.cash < model.purchaseCost) return false
+
+        set({
+          cash: state.cash - model.purchaseCost,
+          ownedLocalModels: [...state.ownedLocalModels, modelId],
+          events: pushEvent(state.events, 'milestone', `Acquired ${model.name}. Shelf ware unlocked.`),
+        })
+        return true
+      },
+
+      buyServer(tier) {
+        const state = get()
+        const config = RACK_CONFIG[tier]
+        const apt = APARTMENT_CONFIG[state.apartment]
+        if (!config || state.servers.length >= apt.rackSlots) return false
+        if (state.cash < config.cost) return false
 
         const server: Server = {
           id: uid('srv'),
-          name: `Cloud Rack ${state.servers.length + 1}`,
-          capacity: SERVER_CAPACITY,
+          name: config.label,
+          tier,
+          capacity: config.capacity,
+          gpuLevel: 1,
           onFire: false,
           fireDuration: 0,
         }
 
         set({
-          credits: state.credits - cost,
+          cash: state.cash - config.cost,
           servers: [...state.servers, server],
-          events: pushEvent(
-            state.events,
-            'milestone',
-            `Procured ${server.name}. Your landlord is concerned.`,
-          ),
+          events: pushEvent(state.events, 'milestone', `Procured ${server.name}. Landlord concerned.`),
         })
         return true
       },
 
-      startSprint() {
+      upgradeGpu() {
         const state = get()
-        if (state.sanity < 8) return
+        if (state.cash < GPU_UPGRADE_COST) return false
         set({
-          mode: 'sprinting',
-          modeTimer: 12,
-          events: pushEvent(state.events, 'system', 'CODE SPRINT engaged. Coffee is a lifestyle now.'),
+          cash: state.cash - GPU_UPGRADE_COST,
+          gpuUnits: state.gpuUnits + 1,
+          events: pushEvent(state.events, 'milestone', `GPU upgraded. Local ticks slightly less embarrassing.`),
         })
-      },
-
-      startZoning() {
-        const state = get()
-        set({
-          mode: 'zoning',
-          modeTimer: 10,
-          events: pushEvent(state.events, 'system', 'Zoning out. Staring at the ceiling. Productivity: debatable.'),
-        })
+        return true
       },
 
       buyTokens() {
         const state = get()
-        if (state.credits < TOKEN_PACK_COST) return false
-        if (state.maxTokens >= state.tokens + TOKEN_PACK_AMOUNT) {
-          set({
-            credits: state.credits - TOKEN_PACK_COST,
-            tokens: state.tokens + TOKEN_PACK_AMOUNT,
-            events: pushEvent(state.events, 'system', `Bought ${TOKEN_PACK_AMOUNT} tokens. The meter spins.`),
-          })
-          return true
-        }
-        return false
-      },
-
-      rebootAgent(agentId: string) {
-        const state = get()
-        const agent = state.agents.find((a) => a.id === agentId)
-        if (!agent || agent.status !== 'crashed') return false
-        if (state.credits < REBOOT_COST) return false
-
+        if (state.cash < TOKEN_PACK_COST) return false
         set({
-          credits: state.credits - REBOOT_COST,
-          agents: state.agents.map((a) =>
-            a.id === agentId ? { ...a, status: 'rebooting', rebootProgress: 0 } : a,
-          ),
-          events: pushEvent(state.events, 'system', `Rebooting ${agent.name}. Previous memories: legally deleted.`),
+          cash: state.cash - TOKEN_PACK_COST,
+          tokens: Math.min(state.maxTokens, state.tokens + TOKEN_PACK_AMOUNT),
+          events: pushEvent(state.events, 'token', `Bought ${TOKEN_PACK_AMOUNT} tokens.`),
         })
         return true
       },
 
-      extinguishFire(serverId: string) {
+      upgradeApartment() {
+        const state = get()
+        const tiers = ['cardboard', 'studio', 'loft', 'penthouse'] as const
+        const idx = tiers.indexOf(state.apartment)
+        if (idx < 0 || idx >= tiers.length - 1) return false
+        const next = tiers[idx + 1]
+        const cost = APARTMENT_CONFIG[next].upgradeCost
+        if (state.cash < cost + state.apartmentLeaseRemaining * APARTMENT_CONFIG[state.apartment].rent * 0.5)
+          return false
+
+        const payout = Math.round(state.apartmentLeaseRemaining * APARTMENT_CONFIG[state.apartment].rent * 0.5)
+        set({
+          cash: state.cash - cost - payout,
+          apartment: next,
+          apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
+          rentDueInDays: RENT_INTERVAL_DAYS,
+          totalRam: INITIAL_RAM + APARTMENT_CONFIG[next].ramBonus,
+          events: pushEvent(
+            state.events,
+            'milestone',
+            `Moved to ${APARTMENT_CONFIG[next].label}. Rent up. Rack slots up. Dignity unchanged.`,
+          ),
+        })
+        return true
+      },
+
+      extinguishFire(serverId) {
         const state = get()
         const server = state.servers.find((s) => s.id === serverId)
-        if (!server || !server.onFire) return false
-        if (state.credits < EXTINGUISH_COST) return false
-
+        if (!server?.onFire || state.cash < EXTINGUISH_COST) return false
         set({
-          credits: state.credits - EXTINGUISH_COST,
+          cash: state.cash - EXTINGUISH_COST,
           servers: state.servers.map((s) =>
             s.id === serverId ? { ...s, onFire: false, fireDuration: 0 } : s,
           ),
-          stats: { ...state.stats, firesExtinguished: state.stats.firesExtinguished + 1 },
           events: pushEvent(state.events, 'fire', `Extinguished ${server.name}. Smells like burnt ambition.`),
         })
         return true
@@ -448,20 +954,29 @@ export const useGameStore = create<GameStore>()(
     {
       name: SAVE_KEY,
       partialize: (state) => ({
+        phase: state.phase,
+        cash: state.cash,
         tokens: state.tokens,
         maxTokens: state.maxTokens,
         sanity: state.sanity,
-        codeProgress: state.codeProgress,
-        credits: state.credits,
         reputation: state.reputation,
-        sprintLevel: state.sprintLevel,
+        gameDay: state.gameDay,
+        rentDueInDays: state.rentDueInDays,
+        apartment: state.apartment,
+        apartmentLeaseRemaining: state.apartmentLeaseRemaining,
+        gpuUnits: state.gpuUnits,
+        totalRam: state.totalRam,
+        usedRam: state.usedRam,
+        ownedLocalModels: state.ownedLocalModels,
         servers: state.servers,
         agents: state.agents,
-        mode: state.mode,
-        modeTimer: state.modeTimer,
-        tokenPriceMultiplier: state.tokenPriceMultiplier,
-        deadlinePressure: state.deadlinePressure,
-        totalCodeShipped: state.totalCodeShipped,
+        projects: state.projects,
+        leads: state.leads,
+        selectedTaskId: state.selectedTaskId,
+        playerAction: state.playerAction,
+        reviewRevealedHit: state.reviewRevealedHit,
+        tutorialDone: state.tutorialDone,
+        leadSpawnCooldown: state.leadSpawnCooldown,
         lastTickAt: state.lastTickAt,
         events: state.events,
         stats: state.stats,
@@ -470,22 +985,16 @@ export const useGameStore = create<GameStore>()(
   ),
 )
 
-function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m`
-  return `${Math.floor(seconds)}s`
+export function getNetWorth(state: Pick<GameStore, 'cash' | 'servers'>): number {
+  return computeNetWorth(state)
 }
 
-export function getServerCost(serverCount: number): number {
-  return SERVER_BASE_COST * serverCount
+export function getNextApartment(state: Pick<GameStore, 'apartment'>): string | null {
+  const tiers = ['cardboard', 'studio', 'loft', 'penthouse'] as const
+  const idx = tiers.indexOf(state.apartment)
+  return idx < tiers.length - 1 ? tiers[idx + 1] : null
 }
 
-export function canUpgradeTokenCap(maxTokens: number): boolean {
-  return maxTokens < INITIAL_MAX_TOKENS + MAX_TOKEN_CAPACITY_UPGRADE * 5
-}
-
-export function upgradeTokenCap(): { cost: number; amount: number } {
-  return { cost: 150, amount: MAX_TOKEN_CAPACITY_UPGRADE }
+export function projectProgressPct(project: Project): number {
+  return projectProgress(project) * 100
 }
