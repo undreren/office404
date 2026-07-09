@@ -6,7 +6,9 @@ export type AgentStatus = 'idle' | 'working' | 'reviewing' | 'refactoring' | 're
 
 export type PlayerActionType = 'vibe'
 
-export type TaskStatus = 'open' | 'in_progress' | 'pr_ready' | 'merged'
+export type TaskStatus = 'open' | 'in_progress' | 'done' | 'pr_ready' | 'merged'
+
+export type RequirementStatus = 'open' | 'refined'
 
 export type ProjectStatus = 'active' | 'completed' | 'abandoned'
 
@@ -66,6 +68,14 @@ export interface Server {
   fireDuration: number
 }
 
+export interface Requirement {
+  id: string
+  projectId: string
+  title: string
+  storyPoints: number
+  status: RequirementStatus
+}
+
 export interface Task {
   id: string
   projectId: string
@@ -92,6 +102,7 @@ export interface Project {
   quality: number
   totalStoryPoints: number
   status: ProjectStatus
+  requirements: Requirement[]
   tasks: Task[]
   isTutorial: boolean
   lateCount: number
@@ -167,10 +178,7 @@ export interface GameActions {
   acceptLead: (leadId: string) => void
   rejectLead: (leadId: string) => void
   deliverProject: (projectId: string) => void
-  assignAgent: (agentId: string, taskId: string) => void
-  assignAgentToReview: (agentId: string, taskId: string) => void
-  assignAgentToRefine: (agentId: string, taskId: string) => void
-  assignAgentToRefactor: (agentId: string, projectId: string) => void
+  assignAgentToProject: (agentId: string, projectId: string, job: AgentJob) => void
   unassignAgent: (agentId: string) => void
   restartAgent: (agentId: string) => void
   offloadAgent: (agentId: string) => void

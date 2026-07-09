@@ -727,6 +727,58 @@ body {
   margin-top: 0.5rem;
 }
 
+.requirements-block {
+  margin: 0.75rem 0;
+}
+
+.requirements-block h4,
+.project-crew h4 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 0.4rem;
+}
+
+.requirement-list {
+  list-style: none;
+  margin-bottom: 0.35rem;
+}
+
+.requirement-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 0.3rem;
+}
+
+.requirement-item--refined {
+  opacity: 0.55;
+}
+
+.project-crew {
+  margin: 0.75rem 0;
+}
+
+.crew-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.crew-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+
 .task-item {
   margin-bottom: 0.4rem;
 }
