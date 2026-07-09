@@ -149,6 +149,10 @@ export function createProjectFromLead(lead: Lead): Project {
   }
 }
 
+export function canRefineTask(task: Task): boolean {
+  return fibIndex(task.storyPointsRequired) >= 2
+}
+
 export function splitTask(task: Task): Task[] {
   const sp = task.storyPointsRequired
   const idx = fibIndex(sp)

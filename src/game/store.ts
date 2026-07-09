@@ -6,6 +6,7 @@ import {
   createTutorialProject,
   createProjectFromLead,
   generateLead,
+  canRefineTask,
   splitTask,
 } from './projects'
 import { generateAgentName, generatePersonality } from './personalities'
@@ -32,7 +33,6 @@ import {
   QUALITY_REFACTOR_PRE_MERGE_MULT,
   RACK_CONFIG,
   RACK_REFURBISH_VALUE,
-  REFINE_MIN_STORY_POINTS,
   RENT_INTERVAL_DAYS,
   SANITY_FORCED_VIBE_MULTIPLIER,
   SANITY_PASSIVE_DRAIN,
@@ -332,8 +332,14 @@ export const useGameStore = create<GameStore>()(
               nextPlayerAction = null
             } else if (nextPlayerAction.type === 'refine') {
               const found = findTask(nextProjects, taskId)
-              if (found && found.task.storyPointsRequired >= REFINE_MIN_STORY_POINTS && !found.task.refined) {
+              if (found && canRefineTask(found.task)) {
                 const [a, b] = splitTask(found.task)
+                const parentAgentId = found.task.assignedAgentId
+                nextAgents = nextAgents.map((agent) =>
+                  agent.id === parentAgentId || agent.taskId === taskId
+                    ? { ...agent, taskId: null, status: 'idle' as const }
+                    : agent,
+                )
                 nextProjects = nextProjects.map((p) =>
                   p.id === found.project.id
                     ? { ...p, tasks: p.tasks.filter((t) => t.id !== taskId).concat([a, b]) }
@@ -589,7 +595,7 @@ export const useGameStore = create<GameStore>()(
         const state = get()
         if (state.playerAction?.forced) return
         const found = findTask(state.projects, taskId)
-        if (!found || found.task.storyPointsRequired < REFINE_MIN_STORY_POINTS || found.task.refined) return
+        if (!found || !canRefineTask(found.task)) return
         const duration = playerActionDurationDays(found.task.storyPointsRequired, found.project.quality)
         set({
           playerAction: { type: 'refine', taskId, progress: 0, duration },
