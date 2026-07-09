@@ -31,6 +31,9 @@ export const AGENT_SKILL_REFERENCE_PARAMS = 4
 /** Refine jobs complete this many times faster than code/review. */
 export const REFINE_SPEED_MULTIPLIER = 10
 
+/** Review jobs complete this many times faster than the base timed-job formula. */
+export const REVIEW_SPEED_MULTIPLIER = 5
+
 /** Test jobs complete this many times faster than code. */
 export const TEST_SPEED_MULTIPLIER = 5
 

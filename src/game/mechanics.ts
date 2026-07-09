@@ -5,6 +5,7 @@ import {
   PLAYER_ACTION_BASE_DAYS,
   QUALITY_REFACTOR_PER_DAY,
   REFINE_SPEED_MULTIPLIER,
+  REVIEW_SPEED_MULTIPLIER,
   REVIEW_COMMENT_REDUCTION_CAP,
   REVIEW_COMMENT_REDUCTION_FRACTION,
   TEST_DIFFICULTY_SP,
@@ -124,6 +125,14 @@ export function refineJobDurationDays(
   agentParams: number,
 ): number {
   return agentJobDurationDays(taskSp, projectQuality, agentParams) / REFINE_SPEED_MULTIPLIER
+}
+
+export function reviewJobDurationDays(
+  taskSp: number,
+  projectQuality: number,
+  agentParams: number,
+): number {
+  return agentJobDurationDays(taskSp, projectQuality, agentParams) / REVIEW_SPEED_MULTIPLIER
 }
 
 export function reviewAccuracy(agentParams: number, taskSp: number): number {

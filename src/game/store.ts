@@ -75,6 +75,7 @@ import {
   refactorRatePerDay,
   refineJobDurationDays,
   reviewAccuracy,
+  reviewJobDurationDays,
   storyPointIncrement,
   testSuccessRate,
 } from './mechanics'
@@ -551,7 +552,7 @@ export const useGameStore = create<GameStore>()(
             if (agent.taskId !== task.id) {
               agent.taskId = task.id
               agent.jobProgress = 0
-              agent.jobDuration = agentJobDurationDays(
+              agent.jobDuration = reviewJobDurationDays(
                 task.storyPointsRequired,
                 project.quality,
                 model.parameters,
@@ -1589,5 +1590,6 @@ export {
   reviewAccuracy,
   refactorRatePerDay,
   agentJobDurationDays,
+  reviewJobDurationDays,
   LAPTOP_HOST_ID,
 }

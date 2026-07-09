@@ -71,7 +71,7 @@ npm run preview:pages
 ### Agent jobs (assign idle agents)
 
 - **Code** — story points on tickets; bigger models succeed more often
-- **Review** — one pass per PR; spawns absurd review comments that coders must address to reduce merge damage
+- **Review** — one pass per PR (5× timed-job speed); spawns absurd review comments that coders must address to reduce merge damage
 - **Refine** — split big tickets; small models botch it sometimes
 - **Refactor** — slowly raises project quality while assigned (always available on active projects)
 - **Test** — QA on merged work; incremental queue, 5× faster than coding
