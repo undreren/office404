@@ -11,7 +11,10 @@ import {
   hiddenBugsOnProject,
   pickRefineTarget,
   pickCodingTask as pickCodingTaskFromProject,
+  pickRefactorTask,
+  pickReviewTask,
   projectHasTestWork,
+  refineTargetId,
   requirementToTask,
   splitTask,
   syncTestScope,
@@ -227,8 +230,23 @@ function syncRam(state: Pick<GameStore, 'loadedModels' | 'agents' | 'servers'>) 
   }
 }
 
-function pickCodingTask(project: Project, agentId: string): Task | null {
-  return pickCodingTaskFromProject(project, agentId)
+function pickCodingTask(project: Project, agentId: string, agents: Agent[]): Task | null {
+  return pickCodingTaskFromProject(project, agentId, agents)
+}
+
+function releaseRefineClaims(
+  agents: Agent[],
+  projectId: string,
+  targetId: string,
+  exceptAgentId: string,
+): Agent[] {
+  return agents.map((ag) => {
+    if (ag.id === exceptAgentId) return ag
+    if (ag.job === 'refine' && ag.projectId === projectId && ag.taskId === targetId) {
+      return { ...ag, taskId: null, jobProgress: 0 }
+    }
+    return ag
+  })
 }
 
 function tryProgressTask(
@@ -386,7 +404,9 @@ export const useGameStore = create<GameStore>()(
 
         let tokenBurn = 0
         const gpus = rackGpus()
-        for (const agent of nextAgents) {
+        const tokensBeforeTick = tokens
+        for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
+          let agent = nextAgents[agentIdx]
           const model = getModel(agent.modelId)
           if (!model || !agent.job) continue
           if (agent.status === 'compacted' || agent.status === 'crashed') continue
@@ -437,10 +457,11 @@ export const useGameStore = create<GameStore>()(
               taskRef.task.status === 'merged' ||
               taskRef.task.status === 'pr_ready'
             ) {
-              const nextTask = pickCodingTask(project, agent.id)
+              const nextTask = pickCodingTask(project, agent.id, nextAgents)
               if (!nextTask) continue
 
               agent.taskId = nextTask.id
+              nextAgents[agentIdx] = agent
               nextProjects = updateTask(nextProjects, nextTask.id, (t) => ({
                 ...t,
                 assignedAgentId: agent.id,
@@ -482,9 +503,10 @@ export const useGameStore = create<GameStore>()(
             const prTasks = project.tasks.filter((t) => t.status === 'pr_ready')
             if (prTasks.length === 0) continue
 
-            let task = agent.taskId ? prTasks.find((t) => t.id === agent.taskId) : undefined
-            if (!task) {
-              task = prTasks.find((t) => t.revealedQualityHit === null) ?? prTasks[0]
+            const task = pickReviewTask(project, agent.id, nextAgents)
+            if (!task) continue
+
+            if (agent.taskId !== task.id) {
               agent.taskId = task.id
               agent.jobProgress = 0
               agent.jobDuration = agentJobDurationDays(
@@ -492,11 +514,13 @@ export const useGameStore = create<GameStore>()(
                 project.quality,
                 model.parameters,
               )
+              nextAgents[agentIdx] = agent
             }
 
             fillAgentContext(agent, model, baseSpeed, deltaSec)
             if (agent.contextUsed >= model.contextSize * 1000) {
               overflow()
+              nextAgents[agentIdx] = agent
               continue
             }
 
@@ -535,10 +559,10 @@ export const useGameStore = create<GameStore>()(
               continue
             }
 
-            const target = pickRefineTarget(project)
+            const target = pickRefineTarget(project, nextAgents, agent.id)
             if (!target) continue
 
-            const targetId = target.kind === 'requirement' ? target.requirement.id : target.task.id
+            const targetId = refineTargetId(target)
             const targetSp =
               target.kind === 'requirement'
                 ? target.requirement.storyPoints
@@ -552,11 +576,13 @@ export const useGameStore = create<GameStore>()(
                 project.quality,
                 model.parameters,
               )
+              nextAgents[agentIdx] = agent
             }
 
             fillAgentContext(agent, model, baseSpeed, deltaSec)
             if (agent.contextUsed >= model.contextSize * 1000) {
               overflow()
+              nextAgents[agentIdx] = agent
               continue
             }
 
@@ -566,6 +592,13 @@ export const useGameStore = create<GameStore>()(
               if (Math.random() < success) {
                 if (target.kind === 'requirement') {
                   const task = requirementToTask(target.requirement)
+                  nextAgents = releaseRefineClaims(
+                    nextAgents,
+                    project.id,
+                    target.requirement.id,
+                    agent.id,
+                  )
+                  agent = nextAgents[agentIdx]
                   nextProjects = nextProjects.map((p) =>
                     p.id === project.id
                       ? {
@@ -585,12 +618,8 @@ export const useGameStore = create<GameStore>()(
                   )
                 } else {
                   const [a, b] = splitTask(target.task)
-                  nextAgents = nextAgents.map((ag) => {
-                    if (ag.taskId === target.task.id) {
-                      return { ...ag, taskId: null }
-                    }
-                    return ag
-                  })
+                  nextAgents = releaseRefineClaims(nextAgents, project.id, target.task.id, agent.id)
+                  agent = nextAgents[agentIdx]
                   nextProjects = nextProjects.map((p) =>
                     p.id === project.id
                       ? {
@@ -630,9 +659,10 @@ export const useGameStore = create<GameStore>()(
             const doneTasks = project.tasks.filter((t) => t.status === 'done')
             if (doneTasks.length === 0) continue
 
-            let task = agent.taskId ? doneTasks.find((t) => t.id === agent.taskId) : undefined
-            if (!task) {
-              task = doneTasks[0]
+            const task = pickRefactorTask(project, agent.id, nextAgents)
+            if (!task) continue
+
+            if (agent.taskId !== task.id) {
               agent.taskId = task.id
               agent.jobProgress = 0
               agent.jobDuration = agentJobDurationDays(
@@ -640,11 +670,13 @@ export const useGameStore = create<GameStore>()(
                 project.quality,
                 model.parameters,
               )
+              nextAgents[agentIdx] = agent
             }
 
             fillAgentContext(agent, model, baseSpeed, deltaSec)
             if (agent.contextUsed >= model.contextSize * 1000) {
               overflow()
+              nextAgents[agentIdx] = agent
               continue
             }
 
@@ -739,9 +771,22 @@ export const useGameStore = create<GameStore>()(
               nextProjects = nextProjects.map((p) => (p.id === project.id ? updatedProject : p))
             }
           }
+
+          nextAgents[agentIdx] = agent
         }
 
         tokens = Math.max(0, tokens - tokenBurn)
+        if (
+          tokensBeforeTick > 0 &&
+          tokens <= 0 &&
+          nextAgents.some((a) => a.job && getModel(a.modelId)?.kind === 'cloud')
+        ) {
+          nextEvents = pushEvent(
+            nextEvents,
+            'token',
+            'Out of tokens. Cloud agents paused until you buy more.',
+          )
+        }
 
         for (const agent of nextAgents) {
           if (agent.status !== 'compacted' || agent.job !== 'code' || !agent.taskId) continue
@@ -962,7 +1007,7 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        const codingTask = job === 'code' ? pickCodingTask(project, agentId) : null
+        const codingTask = job === 'code' ? pickCodingTask(project, agentId, state.agents) : null
 
         const nextAgents = state.agents.map((a) =>
           a.id === agentId
