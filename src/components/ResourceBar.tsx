@@ -1,5 +1,6 @@
 import { APARTMENT_CONFIG, WIN_NET_WORTH } from '../game/constants'
 import { getNetWorth, useGameStore } from '../game/store'
+import { NewGameButton } from './NewGameButton'
 
 export function ResourceBar() {
   const cash = useGameStore((s) => s.cash)
@@ -20,11 +21,14 @@ export function ResourceBar() {
 
   return (
     <header className="resource-bar">
-      <div className="resource-bar__title">
-        <span className="glitch" data-text="OFFICE 404">
-          OFFICE 404
-        </span>
-        <small>Intelligence Not Found · Day {Math.floor(gameDay)}</small>
+      <div className="resource-bar__header">
+        <div className="resource-bar__title">
+          <span className="glitch" data-text="OFFICE 404">
+            OFFICE 404
+          </span>
+          <small>Intelligence Not Found · Day {Math.floor(gameDay)}</small>
+        </div>
+        <NewGameButton />
       </div>
 
       <div className="resource-grid">

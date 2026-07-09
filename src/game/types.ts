@@ -138,7 +138,6 @@ export interface GameState {
   reviewRevealedHit: number | null
   tutorialDone: boolean
   leadSpawnCooldown: number
-  lastTickAt: number
   events: GameEvent[]
   stats: {
     projectsCompleted: number
@@ -150,7 +149,6 @@ export interface GameState {
 
 export interface GameActions {
   tick: (deltaSec: number) => void
-  applyOfflineProgress: (elapsedSec: number) => void
   selectTask: (taskId: string | null) => void
   startSprint: () => void
   startVibe: () => void
