@@ -20,6 +20,7 @@ export interface ModelDef {
   id: string
   name: string
   kind: ModelKind
+  vendor?: string
   tagline: string
   parameters: number
   contextSize: number
@@ -164,6 +165,7 @@ export interface GameActions {
   assignAgent: (agentId: string, taskId: string) => void
   unassignAgent: (agentId: string) => void
   restartAgent: (agentId: string) => void
+  offloadAgent: (agentId: string) => void
   deployCloudAgent: (modelId: string, serverId: string) => boolean
   installLocalAgent: (modelId: string, serverId: string) => boolean
   buyLocalModel: (modelId: string) => boolean

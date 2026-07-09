@@ -1,6 +1,7 @@
-import { MODELS } from '../game/models'
+import { getModel } from '../game/models'
 import { useGameStore } from '../game/store'
 import { EXTINGUISH_COST } from '../game/constants'
+import type { Task } from '../game/types'
 
 export function ServerRack() {
   const servers = useGameStore((s) => s.servers)
@@ -9,15 +10,21 @@ export function ServerRack() {
   const cash = useGameStore((s) => s.cash)
   const restartAgent = useGameStore((s) => s.restartAgent)
   const unassignAgent = useGameStore((s) => s.unassignAgent)
+  const offloadAgent = useGameStore((s) => s.offloadAgent)
   const extinguishFire = useGameStore((s) => s.extinguishFire)
 
-  function taskLabel(taskId: string | null): string {
-    if (!taskId) return 'Idle'
+  function findTask(taskId: string | null): Task | null {
+    if (!taskId) return null
     for (const p of projects) {
       const t = p.tasks.find((x) => x.id === taskId)
-      if (t) return t.title
+      if (t) return t
     }
-    return 'Unknown task'
+    return null
+  }
+
+  function taskLabel(taskId: string | null): string {
+    const task = findTask(taskId)
+    return task?.title ?? (taskId ? 'Unknown task' : 'Idle')
   }
 
   return (
@@ -26,13 +33,14 @@ export function ServerRack() {
 
       {servers.map((server) => {
         const serverAgents = agents.filter((a) => a.serverId === server.id)
+        const gpuShare = serverAgents.length > 1 ? `GPU ÷${serverAgents.length}` : 'GPU ×1'
 
         return (
           <article key={server.id} className={`rack ${server.onFire ? 'rack--fire' : ''}`}>
             <header className="rack__header">
               <h3>{server.name}</h3>
               <span>
-                {serverAgents.length}/{server.capacity} agents
+                {serverAgents.length} loaded · {gpuShare}
                 {server.onFire && <em className="fire-badge"> ON FIRE</em>}
               </span>
             </header>
@@ -50,11 +58,15 @@ export function ServerRack() {
 
             <div className="agent-grid">
               {serverAgents.length === 0 && (
-                <p className="empty-slot">Empty rack. Install or deploy an agent.</p>
+                <p className="empty-slot">Empty rack. Install or deploy a model — RAM permitting.</p>
               )}
               {serverAgents.map((agent) => {
-                const model = MODELS[agent.modelId]
+                const model = getModel(agent.modelId)
                 const contextPct = model ? (agent.contextUsed / model.contextSize) * 100 : 0
+                const task = findTask(agent.taskId)
+                const taskPct = task
+                  ? (task.storyPointsEarned / task.storyPointsRequired) * 100
+                  : 0
 
                 return (
                   <div key={agent.id} className={`agent-card agent-card--${agent.status}`}>
@@ -65,6 +77,22 @@ export function ServerRack() {
                     <p className="agent-vendor">{model?.name ?? agent.modelId}</p>
                     <p className="agent-personality">{agent.personality}</p>
                     <p className="agent-meta">Task: {taskLabel(agent.taskId)}</p>
+
+                    {task && agent.status === 'working' && (
+                      <div className="meter-row">
+                        <label>Ticket progress</label>
+                        <div className="meter meter--sm">
+                          <div
+                            className="meter__fill meter__fill--code"
+                            style={{ width: `${Math.min(100, taskPct)}%` }}
+                          />
+                        </div>
+                        <span className="task-sp">
+                          {task.storyPointsEarned.toFixed(1)} / {task.storyPointsRequired} SP
+                        </span>
+                      </div>
+                    )}
+
                     {agent.status !== 'idle' && model && (
                       <div className="meter-row">
                         <label>Context</label>
@@ -87,6 +115,11 @@ export function ServerRack() {
                     {agent.taskId && (
                       <button type="button" className="btn btn--small btn--danger" onClick={() => unassignAgent(agent.id)}>
                         Yank
+                      </button>
+                    )}
+                    {!agent.taskId && (
+                      <button type="button" className="btn btn--small" onClick={() => offloadAgent(agent.id)}>
+                        Offload
                       </button>
                     )}
                   </div>
