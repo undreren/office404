@@ -17,9 +17,18 @@ export function ProjectsPanel() {
   const assignAgent = useGameStore((s) => s.assignAgent)
   const assignAgentToRefine = useGameStore((s) => s.assignAgentToRefine)
   const assignAgentToRefactor = useGameStore((s) => s.assignAgentToRefactor)
+  const assignAgentToReview = useGameStore((s) => s.assignAgentToReview)
+  const mergePr = useGameStore((s) => s.mergePr)
+  const justMergePr = useGameStore((s) => s.justMergePr)
   const deliverProject = useGameStore((s) => s.deliverProject)
+  const playerAction = useGameStore((s) => s.playerAction)
 
   const idleAgents = agents.filter((a) => !a.job && a.status !== 'compacted')
+  const isForcedVibe = playerAction?.forced === true
+
+  function reviewingAgent(taskId: string) {
+    return agents.find((a) => a.job === 'review' && a.taskId === taskId) ?? null
+  }
 
   if (projects.length === 0) {
     return (
@@ -106,6 +115,10 @@ export function ProjectsPanel() {
                 const refinePct = refiningAgent && refiningAgent.jobDuration > 0
                   ? Math.min(100, (refiningAgent.jobProgress / refiningAgent.jobDuration) * 100)
                   : 0
+                const reviewer = reviewingAgent(task.id)
+                const reviewPct = reviewer && reviewer.jobDuration > 0
+                  ? Math.min(100, (reviewer.jobProgress / reviewer.jobDuration) * 100)
+                  : 0
 
                 return (
                   <li
@@ -123,6 +136,12 @@ export function ProjectsPanel() {
                       <span className="task-sp">
                         {formatStoryPoints(task.storyPointsEarned)} / {formatStoryPoints(task.storyPointsRequired)} SP
                         {task.refined && ' · refined'}
+                        {task.status === 'pr_ready' && task.revealedQualityHit === null && reviewer && (
+                          <> · {reviewer.name} reviewing ({Math.round(reviewPct)}%)</>
+                        )}
+                        {task.status === 'pr_ready' && task.revealedQualityHit === null && !reviewer && (
+                          <> · assign an agent to review</>
+                        )}
                         {task.status === 'pr_ready' && task.revealedQualityHit !== null && (
                           <> · review est. -{task.revealedQualityHit.toFixed(1)}</>
                         )}
@@ -167,6 +186,43 @@ export function ProjectsPanel() {
                             )
                           })
                         )}
+                      </div>
+                    )}
+
+                    {task.status === 'pr_ready' && (
+                      <div className="assign-row">
+                        {task.revealedQualityHit === null && !reviewer && idleAgents.slice(0, 3).map((a) => {
+                          const model = getModel(a.modelId)
+                          return (
+                            <button
+                              key={a.id}
+                              type="button"
+                              className="btn btn--small"
+                              onClick={() => assignAgentToReview(a.id, task.id)}
+                              disabled={isForcedVibe}
+                            >
+                              Review → {a.name} ({model?.parameters ?? '?'}B)
+                            </button>
+                          )
+                        })}
+                        {task.revealedQualityHit !== null && (
+                          <button
+                            type="button"
+                            className="btn btn--small btn--sprint"
+                            onClick={() => mergePr(task.id)}
+                            disabled={isForcedVibe}
+                          >
+                            Merge
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn--small btn--danger"
+                          onClick={() => justMergePr(task.id)}
+                          disabled={isForcedVibe}
+                        >
+                          Just Merge
+                        </button>
                       </div>
                     )}
 
