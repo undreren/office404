@@ -1,6 +1,5 @@
 import { APARTMENT_CONFIG, WIN_NET_WORTH } from '../game/constants'
 import { getNetWorth, useGameStore } from '../game/store'
-import { NewGameButton } from './NewGameButton'
 
 export function ResourceBar() {
   const cash = useGameStore((s) => s.cash)
@@ -28,7 +27,6 @@ export function ResourceBar() {
           </span>
           <small>Intelligence Not Found · Day {Math.floor(gameDay)}</small>
         </div>
-        <NewGameButton />
       </div>
 
       <div className="resource-grid">
