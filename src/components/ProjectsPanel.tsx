@@ -1,5 +1,5 @@
 import { formatStoryPoints, formatSuccessPct } from '../game/mechanics'
-import { projectHasRefineWork } from '../game/projects'
+import { allImplementationMerged, projectHasRefineWork, projectHasTestWork, syncTestScope } from '../game/projects'
 import { getModel } from '../game/models'
 import type { AgentJob } from '../game/types'
 import {
@@ -14,6 +14,7 @@ const PROJECT_JOBS: { job: AgentJob; label: string }[] = [
   { job: 'code', label: 'Code' },
   { job: 'refactor', label: 'Refactor' },
   { job: 'review', label: 'Review' },
+  { job: 'test', label: 'Test' },
 ]
 
 export function ProjectsPanel() {
@@ -48,11 +49,14 @@ export function ProjectsPanel() {
       <h2>Active Projects ({projects.length})</h2>
 
       {projects.map((project) => {
+        const synced = syncTestScope(project)
         const progress = projectProgressPct(project)
         const merged = project.tasks.filter((t) => t.status === 'merged').length
         const readyToDeliver = isReadyToDeliver(project)
         const openRequirements = project.requirements.filter((r) => r.status === 'open')
         const hasRefineWork = projectHasRefineWork(project)
+        const hasTestWork = projectHasTestWork(synced)
+        const implMerged = allImplementationMerged(synced)
         const hasCodeWork = project.tasks.some(
           (t) =>
             (t.status === 'open' || t.status === 'in_progress') &&
@@ -97,6 +101,22 @@ export function ProjectsPanel() {
               </div>
             </div>
 
+            {implMerged && (
+              <div className="meter-row">
+                <label>
+                  Test coverage ({formatStoryPoints(synced.testStoryPointsCompleted)} /{' '}
+                  {formatStoryPoints(synced.testStoryPointsRequired)} SP)
+                </label>
+                <div className="meter">
+                  <div
+                    className={`meter__fill meter__fill--sanity ${synced.testPercent < 100 ? '' : 'meter__fill--code'}`}
+                    style={{ width: `${Math.min(100, synced.testPercent)}%` }}
+                  />
+                </div>
+                <span>{Math.floor(synced.testPercent)}%</span>
+              </div>
+            )}
+
             {openRequirements.length > 0 && (
               <div className="requirements-block">
                 <h4>Requirements ({openRequirements.length} open)</h4>
@@ -126,7 +146,9 @@ export function ProjectsPanel() {
                       ? !hasCodeWork && project.tasks.length === 0
                       : job === 'refactor'
                         ? !hasPrWork
-                        : !hasReviewWork
+                        : job === 'test'
+                          ? !hasTestWork
+                          : !hasReviewWork
 
                 return (
                   <div key={job} className="crew-row">
@@ -190,6 +212,11 @@ export function ProjectsPanel() {
                           {formatStoryPoints(task.storyPointsEarned)} /{' '}
                           {formatStoryPoints(task.storyPointsRequired)} SP
                           {task.refined && ' · refined'}
+                          {task.isBugFix && ' · bug fix'}
+                          {task.bugDiscovered && ' · bug found'}
+                          {task.hasUndiscoveredBug && task.status === 'merged' && !task.bugDiscovered && (
+                            <> · untested</>
+                          )}
                           {codingAgent && ` · ${codingAgent.name} coding`}
                           {task.status === 'done' && ' · needs PR'}
                           {task.status === 'pr_ready' && task.revealedQualityHit !== null && (
@@ -229,9 +256,18 @@ export function ProjectsPanel() {
               </ul>
             )}
 
+            {implMerged && !readyToDeliver && synced.testPercent < 100 && (
+              <p className="hint">
+                Implementation merged. Assign a Test agent — QA work equals delivered SP (
+                {formatStoryPoints(synced.testStoryPointsRequired)} SP).
+              </p>
+            )}
+
             {readyToDeliver && (
               <div className="deliver-row">
-                <p className="hint">All tasks merged. Ship it before the client remembers they hired you.</p>
+                <p className="hint">
+                  All tasks merged and QA complete. Ship it — any bugs QA missed will enrage the client.
+                </p>
                 <button type="button" className="btn btn--deploy" onClick={() => deliverProject(project.id)}>
                   Deliver to {project.clientName}
                 </button>
