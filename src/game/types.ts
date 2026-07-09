@@ -164,6 +164,7 @@ export interface GameActions {
   cancelPlayerAction: () => void
   acceptLead: (leadId: string) => void
   rejectLead: (leadId: string) => void
+  deliverProject: (projectId: string) => void
   assignAgent: (agentId: string, taskId: string) => void
   unassignAgent: (agentId: string) => void
   restartAgent: (agentId: string) => void

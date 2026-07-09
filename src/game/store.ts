@@ -491,32 +491,6 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        for (const project of nextProjects) {
-          if (project.status !== 'active') continue
-          if (!project.tasks.every((t) => t.status === 'merged')) continue
-
-          project.status = 'completed'
-          cash += project.payment
-          const onTime = project.lateCount === 0
-          reputation += onTime ? ON_TIME_REP_BONUS : 1
-          nextStats.projectsCompleted += 1
-          if (project.isTutorial && !state.tutorialDone) {
-            nextEvents = pushEvent(
-              nextEvents,
-              'milestone',
-              `Tutorial complete! +$${project.payment}. Buy a Mark Mini. You've been deluded into hope.`,
-            )
-          } else {
-            nextEvents = pushEvent(
-              nextEvents,
-              'milestone',
-              `Shipped ${project.clientName}! +$${project.payment}${onTime ? ' (on time!)' : ' (late, but done)'}.`,
-            )
-          }
-        }
-
-        nextProjects = nextProjects.filter((p) => p.status === 'active')
-
         const netWorth = computeNetWorth({ cash, servers: nextServers })
         if (netWorth >= WIN_NET_WORTH) {
           phase = 'won'
@@ -720,6 +694,67 @@ export const useGameStore = create<GameStore>()(
         set({
           leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'rejected' as const } : l)),
           events: pushEvent(state.events, 'lead', 'Lead rejected. Professional boundaries (for now).'),
+        })
+      },
+
+      deliverProject(projectId) {
+        const state = get()
+        const project = state.projects.find((p) => p.id === projectId)
+        if (!project || project.status !== 'active') return
+        if (!project.tasks.every((t) => t.status === 'merged')) return
+
+        const cash = state.cash + project.payment
+        const onTime = project.lateCount === 0
+        const reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS : 1)
+        const nextStats = { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 }
+        const nextProjects = state.projects.filter((p) => p.id !== projectId)
+
+        let nextEvents = state.events
+        if (project.isTutorial && !state.tutorialDone) {
+          nextEvents = pushEvent(
+            nextEvents,
+            'milestone',
+            `Tutorial complete! +$${project.payment}. Buy a Mark Mini. You've been deluded into hope.`,
+          )
+        } else {
+          nextEvents = pushEvent(
+            nextEvents,
+            'milestone',
+            `Shipped ${project.clientName}! +$${project.payment}${onTime ? ' (on time!)' : ' (late, but done)'}.`,
+          )
+        }
+
+        let nextPlayerAction = state.playerAction
+        if (nextPlayerAction?.taskId && project.tasks.some((t) => t.id === nextPlayerAction!.taskId)) {
+          nextPlayerAction = null
+        }
+
+        let selectedTaskId = state.selectedTaskId
+        if (selectedTaskId && project.tasks.some((t) => t.id === selectedTaskId)) {
+          selectedTaskId = nextProjects[0]?.tasks[0]?.id ?? null
+        }
+
+        let phase = state.phase
+        const netWorth = computeNetWorth({ cash, servers: state.servers })
+        if (netWorth >= WIN_NET_WORTH) {
+          phase = 'won'
+          nextEvents = pushEvent(nextEvents, 'milestone', '$10M net worth. Sell the racks. Retire. You win.')
+        } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
+          phase = 'lost'
+          nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.')
+        }
+
+        set({
+          cash,
+          reputation,
+          projects: nextProjects,
+          stats: nextStats,
+          events: nextEvents,
+          playerAction: nextPlayerAction,
+          reviewRevealedHit: null,
+          selectedTaskId,
+          phase,
+          tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
         })
       },
 
@@ -1153,6 +1188,10 @@ export function getNextApartment(state: Pick<GameStore, 'apartment'>): string | 
 export function projectProgressPct(project: Project): number {
   const merged = project.tasks.filter((t) => t.status === 'merged').reduce((s, t) => s + t.storyPointsRequired, 0)
   return (merged / project.totalStoryPoints) * 100
+}
+
+export function isReadyToDeliver(project: Project): boolean {
+  return project.status === 'active' && project.tasks.every((t) => t.status === 'merged')
 }
 
 export function modelSuccessForTask(modelId: string, taskSp = 1, contextFillPctValue = 0): number {
