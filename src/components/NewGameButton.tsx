@@ -28,7 +28,7 @@ export function NewGameButton() {
     <>
       <button
         type="button"
-        className={`btn btn--small ${canRetire ? 'btn--retire' : 'btn--header-quit'} resource-bar__quit`}
+        className={`btn resource-bar__quit ${canRetire ? 'resource-bar__quit--retire' : 'resource-bar__quit--danger'}`}
         onClick={handleClick}
       >
         {canRetire ? 'Retire' : 'just give up'}
