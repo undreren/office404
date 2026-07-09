@@ -1,4 +1,4 @@
-import type { Lead, Project, Requirement, Task } from './types'
+import type { Agent, AgentJob, Lead, Project, Requirement, Task } from './types'
 import { MIN_STORY_POINTS, REFINE_MIN_STORY_POINTS, TUTORIAL_PAYMENT } from './constants'
 import { FIBONACCI, fibIndex, isFibonacci, pickLeadFibonacci } from './mechanics'
 
@@ -243,10 +243,41 @@ export type RefineTarget =
   | { kind: 'requirement'; requirement: Requirement }
   | { kind: 'task'; task: Task }
 
-/** Pick the largest refinable requirement or task on a project. */
-export function pickRefineTarget(project: Project): RefineTarget | null {
+export function refineTargetId(target: RefineTarget): string {
+  return target.kind === 'requirement' ? target.requirement.id : target.task.id
+}
+
+/** Task IDs already claimed by other agents on the same project role. */
+export function jobClaimedTaskIds(
+  agents: Agent[],
+  projectId: string,
+  job: AgentJob,
+  exceptAgentId: string,
+): Set<string> {
+  const ids = new Set<string>()
+  for (const agent of agents) {
+    if (agent.id === exceptAgentId) continue
+    if (agent.job !== job || agent.projectId !== projectId || !agent.taskId) continue
+    ids.add(agent.taskId)
+  }
+  return ids
+}
+
+/** Pick the largest unclaimed refinable requirement or task for one agent. */
+export function pickRefineTarget(project: Project, agents: Agent[], agentId: string): RefineTarget | null {
+  const claimed = jobClaimedTaskIds(agents, project.id, 'refine', agentId)
+  const self = agents.find((a) => a.id === agentId)
+
+  if (self?.taskId) {
+    const req = project.requirements.find((r) => r.id === self.taskId && canRefineRequirement(r))
+    if (req) return { kind: 'requirement', requirement: req }
+    const task = project.tasks.find((t) => t.id === self.taskId && canRefineTask(t))
+    if (task) return { kind: 'task', task }
+  }
+
   const openRequirements = project.requirements
     .filter(canRefineRequirement)
+    .filter((r) => !claimed.has(r.id))
     .sort((a, b) => b.storyPoints - a.storyPoints)
   if (openRequirements.length > 0) {
     return { kind: 'requirement', requirement: openRequirements[0] }
@@ -254,6 +285,7 @@ export function pickRefineTarget(project: Project): RefineTarget | null {
 
   const refinableTasks = project.tasks
     .filter(canRefineTask)
+    .filter((t) => !claimed.has(t.id))
     .sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
   if (refinableTasks.length > 0) {
     return { kind: 'task', task: refinableTasks[0] }
@@ -263,14 +295,18 @@ export function pickRefineTarget(project: Project): RefineTarget | null {
 }
 
 export function projectHasRefineWork(project: Project): boolean {
-  return pickRefineTarget(project) !== null
+  const openRequirements = project.requirements.some(canRefineRequirement)
+  if (openRequirements) return true
+  return project.tasks.some(canRefineTask)
 }
 
 export function countActiveTasks(project: Project): number {
   return project.tasks.filter((t) => t.status !== 'merged').length
 }
 
-export function pickCodingTask(project: Project, agentId: string): Task | null {
+export function pickCodingTask(project: Project, agentId: string, agents: Agent[]): Task | null {
+  const claimed = jobClaimedTaskIds(agents, project.id, 'code', agentId)
+
   const own = project.tasks.find(
     (t) =>
       t.assignedAgentId === agentId &&
@@ -283,11 +319,40 @@ export function pickCodingTask(project: Project, agentId: string): Task | null {
       (t) =>
         (t.status === 'open' || t.status === 'in_progress') &&
         !t.assignedAgentId &&
+        !claimed.has(t.id) &&
         t.storyPointsEarned < t.storyPointsRequired,
     )
     .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
 
   return available[0] ?? null
+}
+
+export function pickReviewTask(project: Project, agentId: string, agents: Agent[]): Task | null {
+  const claimed = jobClaimedTaskIds(agents, project.id, 'review', agentId)
+  const self = agents.find((a) => a.id === agentId)
+
+  if (self?.taskId) {
+    const current = project.tasks.find((t) => t.id === self.taskId && t.status === 'pr_ready')
+    if (current) return current
+  }
+
+  const prTasks = project.tasks.filter((t) => t.status === 'pr_ready' && !claimed.has(t.id))
+  if (prTasks.length === 0) return null
+
+  return prTasks.find((t) => t.revealedQualityHit === null) ?? prTasks[0]
+}
+
+export function pickRefactorTask(project: Project, agentId: string, agents: Agent[]): Task | null {
+  const claimed = jobClaimedTaskIds(agents, project.id, 'refactor', agentId)
+  const self = agents.find((a) => a.id === agentId)
+
+  if (self?.taskId) {
+    const current = project.tasks.find((t) => t.id === self.taskId && t.status === 'done')
+    if (current) return current
+  }
+
+  const doneTasks = project.tasks.filter((t) => t.status === 'done' && !claimed.has(t.id))
+  return doneTasks[0] ?? null
 }
 
 export function implementationTasks(project: Project): Task[] {
