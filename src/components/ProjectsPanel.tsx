@@ -1,6 +1,13 @@
-import { formatStoryPoints } from '../game/mechanics'
+import { canRefineTask } from '../game/projects'
+import { formatStoryPoints, formatSuccessPct } from '../game/mechanics'
 import { getModel } from '../game/models'
-import { isReadyToDeliver, modelSuccessForTask, projectProgressPct, useGameStore } from '../game/store'
+import {
+  isReadyToDeliver,
+  modelSuccessForTask,
+  projectProgressPct,
+  refineSuccessRate,
+  useGameStore,
+} from '../game/store'
 
 export function ProjectsPanel() {
   const projects = useGameStore((s) => s.projects)
@@ -8,7 +15,11 @@ export function ProjectsPanel() {
   const agents = useGameStore((s) => s.agents)
   const selectTask = useGameStore((s) => s.selectTask)
   const assignAgent = useGameStore((s) => s.assignAgent)
+  const assignAgentToRefine = useGameStore((s) => s.assignAgentToRefine)
+  const assignAgentToRefactor = useGameStore((s) => s.assignAgentToRefactor)
   const deliverProject = useGameStore((s) => s.deliverProject)
+
+  const idleAgents = agents.filter((a) => !a.job && a.status !== 'compacted')
 
   if (projects.length === 0) {
     return (
@@ -27,6 +38,7 @@ export function ProjectsPanel() {
         const progress = projectProgressPct(project)
         const merged = project.tasks.filter((t) => t.status === 'merged').length
         const readyToDeliver = isReadyToDeliver(project)
+        const refactorAgent = agents.find((a) => a.job === 'refactor' && a.projectId === project.id)
 
         return (
           <article
@@ -57,6 +69,28 @@ export function ProjectsPanel() {
               <span>{Math.floor(project.quality)}%</span>
             </div>
 
+            {project.quality < 100 && (
+              <div className="assign-row">
+                {refactorAgent ? (
+                  <p className="hint">{refactorAgent.name} is refactoring this codebase…</p>
+                ) : (
+                  idleAgents.slice(0, 3).map((a) => {
+                    const model = getModel(a.modelId)
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => assignAgentToRefactor(a.id, project.id)}
+                      >
+                        Refactor → {a.name} ({model?.parameters ?? '?'}B)
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            )}
+
             <div className="meter-row">
               <label>Progress ({merged}/{project.tasks.length} merged)</label>
               <div className="meter">
@@ -68,10 +102,10 @@ export function ProjectsPanel() {
               {project.tasks.map((task) => {
                 const pct = (task.storyPointsEarned / task.storyPointsRequired) * 100
                 const isSelected = selectedTaskId === task.id
-                const idleAgents = agents.filter((a) => {
-                  if (a.taskId || a.status === 'compacted') return false
-                  return !!getModel(a.modelId)
-                })
+                const refiningAgent = agents.find((a) => a.job === 'refine' && a.taskId === task.id)
+                const refinePct = refiningAgent && refiningAgent.jobDuration > 0
+                  ? Math.min(100, (refiningAgent.jobProgress / refiningAgent.jobDuration) * 100)
+                  : 0
 
                 return (
                   <li
@@ -89,6 +123,9 @@ export function ProjectsPanel() {
                       <span className="task-sp">
                         {formatStoryPoints(task.storyPointsEarned)} / {formatStoryPoints(task.storyPointsRequired)} SP
                         {task.refined && ' · refined'}
+                        {task.status === 'pr_ready' && task.revealedQualityHit !== null && (
+                          <> · review est. -{task.revealedQualityHit.toFixed(1)}</>
+                        )}
                       </span>
                     </button>
 
@@ -103,14 +140,37 @@ export function ProjectsPanel() {
                               className="btn btn--small"
                               onClick={() => assignAgent(a.id, task.id)}
                             >
-                              → {a.name} ({Math.round(rate * 100)}%)
+                              Code → {a.name} ({formatSuccessPct(rate)})
                             </button>
                           )
                         })}
                       </div>
                     )}
 
-                    {task.status !== 'merged' && task.status !== 'pr_ready' && isSelected && idleAgents.length === 0 && (
+                    {canRefineTask(task) && task.status !== 'merged' && task.status !== 'pr_ready' && isSelected && (
+                      <div className="assign-row">
+                        {refiningAgent ? (
+                          <p className="hint">{refiningAgent.name} refining… {Math.round(refinePct)}%</p>
+                        ) : (
+                          idleAgents.slice(0, 3).map((a) => {
+                            const model = getModel(a.modelId)
+                            const chance = refineSuccessRate(model?.parameters ?? 1, task.storyPointsRequired)
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                className="btn btn--small"
+                                onClick={() => assignAgentToRefine(a.id, task.id)}
+                              >
+                                Refine → {a.name} ({formatSuccessPct(chance)} ok)
+                              </button>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {task.status !== 'merged' && task.status !== 'pr_ready' && isSelected && idleAgents.length === 0 && !refiningAgent && (
                       <p className="hint">No idle agents available.</p>
                     )}
                   </li>
@@ -120,7 +180,7 @@ export function ProjectsPanel() {
 
             {readyToDeliver && (
               <div className="deliver-row">
-                <p className="hint">All tasks merged. Refactor quality if you want, then deliver when ready.</p>
+                <p className="hint">All tasks merged. Ship it before the client remembers they hired you.</p>
                 <button type="button" className="btn btn--deploy" onClick={() => deliverProject(project.id)}>
                   Deliver to {project.clientName}
                 </button>

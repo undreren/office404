@@ -28,15 +28,11 @@ import {
   MAX_ACTIVE_PROJECTS,
   MAX_LEADS,
   ON_TIME_REP_BONUS,
-  PLAYER_EFFECTIVE_PARAMS,
-  QUALITY_REFACTOR_PER_DAY,
-  QUALITY_REFACTOR_PRE_MERGE_MULT,
   RACK_CONFIG,
   RACK_REFURBISH_VALUE,
   RENT_INTERVAL_DAYS,
   SANITY_FORCED_VIBE_MULTIPLIER,
   SANITY_PASSIVE_DRAIN,
-  SANITY_SPRINT_DRAIN,
   SANITY_VIBE_RESTORE,
   SAVE_KEY,
   SECONDS_PER_GAME_DAY,
@@ -46,8 +42,10 @@ import {
 } from './constants'
 import {
   LAPTOP_HOST_ID,
+  agentJobDurationDays,
   agentTickSpeed,
   computeQualityHit,
+  computeRevealedQualityHit,
   computeHostUsedRam,
   computeTotalAvailableRam,
   computeTotalUsedRam,
@@ -57,8 +55,10 @@ import {
   getAgentParameters,
   getHostRam,
   getTaskQualityParameters,
-  playerActionDurationDays,
   ramForLoadedModel,
+  refactorRatePerDay,
+  refineSuccessRate,
+  reviewAccuracy,
   storyPointIncrement,
   tokensPerTick,
 } from './mechanics'
@@ -72,6 +72,14 @@ function uid(prefix: string): string {
 function pushEvent(events: GameEvent[], type: GameEvent['type'], message: string): GameEvent[] {
   const entry: GameEvent = { id: uid('evt'), timestamp: Date.now(), type, message }
   return [entry, ...events].slice(0, MAX_EVENTS)
+}
+
+function emptyAgentJob(): Pick<Agent, 'job' | 'taskId' | 'projectId' | 'jobProgress' | 'jobDuration' | 'status'> {
+  return { job: null, taskId: null, projectId: null, jobProgress: 0, jobDuration: 0, status: 'idle' }
+}
+
+function clearAgentJob(agent: Agent): Agent {
+  return { ...agent, ...emptyAgentJob(), contextUsed: 0 }
 }
 
 function createInitialState() {
@@ -97,7 +105,6 @@ function createInitialState() {
     leads: [] as Lead[],
     selectedTaskId: tutorial.tasks[0]?.id ?? null,
     playerAction: null as PlayerAction | null,
-    reviewRevealedHit: null as number | null,
     tutorialDone: false,
     leadSpawnCooldown: LEAD_SPAWN_INTERVAL_DAYS,
     events: [
@@ -105,7 +112,7 @@ function createInitialState() {
         id: uid('evt'),
         timestamp: Date.now(),
         type: 'system' as const,
-        message: 'Day 0. $0. Load a 1B on your laptop and sprint if you must. No free lunch.',
+        message: 'Day 0. $0. Load a 1B on your laptop. You manage; they code. You vibe.',
       },
     ],
     stats: {
@@ -233,7 +240,6 @@ export const useGameStore = create<GameStore>()(
           stats,
           playerAction,
           leadSpawnCooldown,
-          reviewRevealedHit,
           selectedTaskId,
         } = state
 
@@ -245,7 +251,6 @@ export const useGameStore = create<GameStore>()(
         let nextEvents = [...events]
         let nextStats = { ...stats }
         let nextPlayerAction = playerAction ? { ...playerAction } : null
-        let nextReviewHit = reviewRevealedHit
         let phase: GameStore['phase'] = state.phase
 
         gameDay += dayProgress
@@ -315,84 +320,6 @@ export const useGameStore = create<GameStore>()(
 
         const vibeMult = nextPlayerAction?.forced ? SANITY_FORCED_VIBE_MULTIPLIER : 1
 
-        if (nextPlayerAction && nextPlayerAction.type !== 'vibe' && nextPlayerAction.type !== 'sprint' && nextPlayerAction.type !== 'refactor') {
-          nextPlayerAction.progress += dayProgress
-          if (nextPlayerAction.progress >= nextPlayerAction.duration) {
-            const taskId = nextPlayerAction.taskId
-            if (nextPlayerAction.type === 'review') {
-              const found = findTask(nextProjects, taskId)
-              if (found) {
-                const params = getTaskQualityParameters(found.task, nextAgents)
-                const hit = computeQualityHit(found.task.storyPointsRequired, params)
-                nextReviewHit = hit
-                nextEvents = pushEvent(
-                  nextEvents,
-                  'project',
-                  `Review complete. Estimated quality hit: -${hit.toFixed(1)}. Merge or refactor.`,
-                )
-              }
-              nextPlayerAction = null
-            } else if (nextPlayerAction.type === 'refine') {
-              const found = findTask(nextProjects, taskId)
-              if (found && canRefineTask(found.task)) {
-                const [a, b] = splitTask(found.task)
-                const parentAgentId = found.task.assignedAgentId
-                nextAgents = nextAgents.map((agent) =>
-                  agent.id === parentAgentId || agent.taskId === taskId
-                    ? { ...agent, taskId: null, status: 'idle' as const }
-                    : agent,
-                )
-                nextProjects = nextProjects.map((p) =>
-                  p.id === found.project.id
-                    ? { ...p, tasks: p.tasks.filter((t) => t.id !== taskId).concat([a, b]) }
-                    : p,
-                )
-                if (selectedTaskId === taskId) selectedTaskId = a.id
-                nextEvents = pushEvent(nextEvents, 'project', `Refined "${found.task.title}" into ${formatStoryPoints(a.storyPointsRequired)}+${formatStoryPoints(b.storyPointsRequired)} SP tickets.`)
-              }
-              nextPlayerAction = null
-            }
-          }
-        }
-
-        if (nextPlayerAction?.type === 'sprint' && nextPlayerAction.taskId) {
-          const found = findTask(nextProjects, nextPlayerAction.taskId)
-          if (found && found.task.status !== 'merged' && found.task.status !== 'pr_ready') {
-            const success = effectiveSuccessRate(
-              PLAYER_EFFECTIVE_PARAMS,
-              found.task.storyPointsRequired,
-              0,
-            )
-            if (Math.random() < success) {
-              const result = tryProgressTask(nextProjects, nextPlayerAction.taskId, null)
-              nextProjects = result.projects
-              if (result.becameReady) {
-                nextPlayerAction = null
-                nextEvents = pushEvent(nextEvents, 'system', 'Sprint complete — ticket is PR ready.')
-              }
-            }
-          }
-          sanity = Math.max(0, sanity - SANITY_SPRINT_DRAIN * dayProgress)
-        }
-
-        if (nextPlayerAction?.type === 'refactor' && nextPlayerAction.taskId) {
-          const found = findTask(nextProjects, nextPlayerAction.taskId)
-          if (found && found.project.quality < 100) {
-            const bonusRate = QUALITY_REFACTOR_PER_DAY * QUALITY_REFACTOR_PRE_MERGE_MULT
-            const bonus = bonusRate * dayProgress
-            const newQuality = Math.min(100, found.project.quality + bonus)
-            nextProjects = nextProjects.map((p) =>
-              p.id === found.project.id ? { ...p, quality: newQuality } : p,
-            )
-            if (newQuality >= 100) {
-              nextPlayerAction = null
-              nextEvents = pushEvent(nextEvents, 'project', 'Quality maxed. Refactor complete.')
-            }
-          } else {
-            nextPlayerAction = null
-          }
-        }
-
         if (nextPlayerAction?.type === 'vibe') {
           sanity = Math.min(100, sanity + SANITY_VIBE_RESTORE * dayProgress * vibeMult)
           if (!forcedVibe && sanity >= 95) nextPlayerAction = null
@@ -408,10 +335,8 @@ export const useGameStore = create<GameStore>()(
         const gpus = rackGpus()
         for (const agent of nextAgents) {
           const model = getModel(agent.modelId)
-          if (!model || !agent.taskId) continue
-
-          const taskRef = findTask(nextProjects, agent.taskId)
-          if (!taskRef || taskRef.task.status === 'merged' || taskRef.task.status === 'pr_ready') continue
+          if (!model || !agent.job) continue
+          if (agent.status === 'compacted' || agent.status === 'crashed') continue
 
           if (model.kind === 'local') {
             const hostId = agent.serverId
@@ -421,9 +346,6 @@ export const useGameStore = create<GameStore>()(
               if (!server || server.onFire) continue
             }
           }
-
-          if (agent.status === 'compacted') continue
-          if (agent.status !== 'working') continue
 
           const baseSpeed = agentTickSpeed(agent, nextAgents, nextServers, gpus)
           if (baseSpeed <= 0) continue
@@ -437,34 +359,128 @@ export const useGameStore = create<GameStore>()(
             agent.totalTokensBurned += cost
           }
 
-          const fillPct = contextFillPct(agent.contextUsed, model.contextSize)
-          const tok = tokensPerTick(model.contextSize) * baseSpeed * deltaSec
-          agent.contextUsed += tok
+          if (agent.job === 'code' && agent.taskId) {
+            const taskRef = findTask(nextProjects, agent.taskId)
+            if (!taskRef || taskRef.task.status === 'merged' || taskRef.task.status === 'pr_ready') {
+              Object.assign(agent, clearAgentJob(agent))
+              continue
+            }
 
-          if (agent.contextUsed >= model.contextSize * 1000) {
-            agent.status = 'compacted'
-            agent.contextUsed = model.contextSize * 1000
-            nextStats.compactionsSurvived += 1
-            nextEvents = pushEvent(
-              nextEvents,
-              'crash',
-              `${agent.name} compacted! Context overflow. Tap restart.`,
+            const fillPct = contextFillPct(agent.contextUsed, model.contextSize)
+            const tok = tokensPerTick(model.contextSize) * baseSpeed * deltaSec
+            agent.contextUsed += tok
+
+            if (agent.contextUsed >= model.contextSize * 1000) {
+              agent.status = 'compacted'
+              agent.contextUsed = model.contextSize * 1000
+              nextStats.compactionsSurvived += 1
+              nextEvents = pushEvent(
+                nextEvents,
+                'crash',
+                `${agent.name} compacted! Context overflow. Tap restart.`,
+              )
+              continue
+            }
+
+            const success = effectiveSuccessRate(
+              model.parameters,
+              taskRef.task.storyPointsRequired,
+              fillPct,
             )
-            continue
-          }
+            if (Math.random() < success * baseSpeed) {
+              const result = tryProgressTask(nextProjects, agent.taskId, agent.id)
+              nextProjects = result.projects
+              if (result.becameReady) {
+                Object.assign(agent, clearAgentJob(agent))
+              }
+            }
+          } else if (agent.job === 'review' && agent.taskId) {
+            const taskRef = findTask(nextProjects, agent.taskId)
+            if (!taskRef || taskRef.task.status !== 'pr_ready') {
+              Object.assign(agent, clearAgentJob(agent))
+              continue
+            }
 
-          const success = effectiveSuccessRate(
-            model.parameters,
-            taskRef.task.storyPointsRequired,
-            fillPct,
-          )
-          if (Math.random() < success * baseSpeed) {
-            const result = tryProgressTask(nextProjects, agent.taskId, agent.id)
-            nextProjects = result.projects
-            if (result.becameReady) {
-              agent.taskId = null
-              agent.status = 'idle'
-              agent.contextUsed = 0
+            agent.jobProgress += dayProgress * baseSpeed
+            if (agent.jobProgress >= agent.jobDuration) {
+              const authorParams = getTaskQualityParameters(taskRef.task, nextAgents)
+              const trueHit = computeQualityHit(taskRef.task.storyPointsRequired, authorParams)
+              const revealed = computeRevealedQualityHit(
+                trueHit,
+                model.parameters,
+                taskRef.task.storyPointsRequired,
+              )
+              nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
+                ...t,
+                revealedQualityHit: revealed,
+              }))
+              Object.assign(agent, clearAgentJob(agent))
+              nextEvents = pushEvent(
+                nextEvents,
+                'project',
+                `${agent.name} finished review on "${taskRef.task.title}". Est. quality hit: -${revealed.toFixed(1)} (trust accordingly).`,
+              )
+            }
+          } else if (agent.job === 'refine' && agent.taskId) {
+            const taskRef = findTask(nextProjects, agent.taskId)
+            if (
+              !taskRef ||
+              !canRefineTask(taskRef.task) ||
+              taskRef.task.status === 'merged' ||
+              taskRef.task.status === 'pr_ready'
+            ) {
+              Object.assign(agent, clearAgentJob(agent))
+              continue
+            }
+
+            agent.jobProgress += dayProgress * baseSpeed
+            if (agent.jobProgress >= agent.jobDuration) {
+              const success = refineSuccessRate(model.parameters, taskRef.task.storyPointsRequired)
+              if (Math.random() < success) {
+                const [a, b] = splitTask(taskRef.task)
+                const parentAgentId = taskRef.task.assignedAgentId
+                nextAgents = nextAgents.map((a) =>
+                  a.id === parentAgentId || a.taskId === agent.taskId
+                    ? clearAgentJob(a)
+                    : a,
+                )
+                nextProjects = nextProjects.map((p) =>
+                  p.id === taskRef.project.id
+                    ? { ...p, tasks: p.tasks.filter((t) => t.id !== agent.taskId).concat([a, b]) }
+                    : p,
+                )
+                if (selectedTaskId === agent.taskId) selectedTaskId = a.id
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `${agent.name} refined "${taskRef.task.title}" into ${formatStoryPoints(a.storyPointsRequired)}+${formatStoryPoints(b.storyPointsRequired)} SP.`,
+                )
+                Object.assign(agent, clearAgentJob(agent))
+              } else {
+                agent.jobProgress = 0
+                Object.assign(agent, clearAgentJob(agent))
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `${agent.name} botched refining "${taskRef.task.title}". Ticket survived. Barely.`,
+                )
+              }
+            }
+          } else if (agent.job === 'refactor' && agent.projectId) {
+            const project = nextProjects.find((p) => p.id === agent.projectId)
+            if (!project || project.status !== 'active' || project.quality >= 100) {
+              Object.assign(agent, clearAgentJob(agent))
+              continue
+            }
+
+            const bonus = refactorRatePerDay(model.parameters) * dayProgress * baseSpeed
+            const newQuality = Math.min(100, project.quality + bonus)
+            nextProjects = nextProjects.map((p) =>
+              p.id === project.id ? { ...p, quality: newQuality } : p,
+            )
+            if (newQuality >= 100) {
+              Object.assign(agent, clearAgentJob(agent))
+              nextEvents = pushEvent(nextEvents, 'project', `${agent.name} maxed project quality. Refactor complete.`)
             }
           }
         }
@@ -472,7 +488,7 @@ export const useGameStore = create<GameStore>()(
         tokens = Math.max(0, tokens - tokenBurn)
 
         for (const agent of nextAgents) {
-          if (agent.status !== 'compacted' || !agent.taskId) continue
+          if (agent.status !== 'compacted' || agent.job !== 'code' || !agent.taskId) continue
           nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
             ...t,
             storyPointsEarned: Math.max(0, t.storyPointsEarned - 1 * dayProgress),
@@ -520,7 +536,6 @@ export const useGameStore = create<GameStore>()(
           events: nextEvents,
           stats: nextStats,
           playerAction: nextPlayerAction,
-          reviewRevealedHit: nextReviewHit,
           leadSpawnCooldown,
           selectedTaskId,
           phase,
@@ -531,27 +546,6 @@ export const useGameStore = create<GameStore>()(
 
       selectTask(taskId) {
         set({ selectedTaskId: taskId })
-      },
-
-      startSprint() {
-        const state = get()
-        if (state.playerAction?.forced) return
-        if (state.playerAction?.type === 'sprint') {
-          set({ playerAction: null })
-          return
-        }
-        if (!state.selectedTaskId || state.sanity < 5) return
-        const found = findTask(state.projects, state.selectedTaskId)
-        if (!found || found.task.status === 'merged' || found.task.status === 'pr_ready') return
-        set({
-          playerAction: {
-            type: 'sprint',
-            taskId: state.selectedTaskId,
-            progress: 0,
-            duration: 9999,
-          },
-          events: pushEvent(state.events, 'system', `Sprinting on "${found.task.title}". Caveman mode engaged.`),
-        })
       },
 
       startVibe() {
@@ -567,47 +561,38 @@ export const useGameStore = create<GameStore>()(
         })
       },
 
-      startRefine(taskId) {
+      mergePr(taskId) {
         const state = get()
         if (state.playerAction?.forced) return
         const found = findTask(state.projects, taskId)
-        if (!found || !canRefineTask(found.task)) return
-        const duration = playerActionDurationDays(found.task.storyPointsRequired, found.project.quality)
+        if (!found || found.task.status !== 'pr_ready' || found.task.revealedQualityHit === null) return
+
+        const params = getTaskQualityParameters(found.task, state.agents)
+        const hit = computeQualityHit(found.task.storyPointsRequired, params)
+        const nextProjects = state.projects.map((p) =>
+          p.id === found.project.id
+            ? {
+                ...p,
+                quality: Math.max(0, p.quality - hit),
+                tasks: p.tasks.map((t) =>
+                  t.id === taskId ? { ...t, status: 'merged' as const, pendingQualityHit: hit } : t,
+                ),
+              }
+            : p,
+        )
+
         set({
-          playerAction: { type: 'refine', taskId, progress: 0, duration },
-          events: pushEvent(state.events, 'project', `Refining "${found.task.title}"… ticket mitosis incoming.`),
+          projects: nextProjects,
+          stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
+          events: pushEvent(
+            state.events,
+            'project',
+            `Merged "${found.task.title}". Quality -${hit.toFixed(1)} (review guessed -${found.task.revealedQualityHit.toFixed(1)}).`,
+          ),
         })
       },
 
-      startRefactor(taskId) {
-        const state = get()
-        if (state.playerAction?.forced) return
-        if (state.playerAction?.type === 'refactor' && state.playerAction.taskId === taskId) {
-          set({ playerAction: null })
-          return
-        }
-        const found = findTask(state.projects, taskId)
-        if (!found || found.project.quality >= 100) return
-        set({
-          playerAction: { type: 'refactor', taskId, progress: 0, duration: 9999 },
-          events: pushEvent(state.events, 'project', `Refactoring "${found.task.title}"… quality over progress.`),
-        })
-      },
-
-      startReview(taskId) {
-        const state = get()
-        if (state.playerAction?.forced) return
-        const found = findTask(state.projects, taskId)
-        if (!found || found.task.status !== 'pr_ready') return
-        const duration = playerActionDurationDays(found.task.storyPointsRequired, found.project.quality)
-        set({
-          playerAction: { type: 'review', taskId, progress: 0, duration },
-          reviewRevealedHit: null,
-          events: pushEvent(state.events, 'project', `Reviewing PR for "${found.task.title}"…`),
-        })
-      },
-
-      justMerge(taskId) {
+      justMergePr(taskId) {
         const state = get()
         if (state.playerAction?.forced) return
         const found = findTask(state.projects, taskId)
@@ -633,39 +618,7 @@ export const useGameStore = create<GameStore>()(
           events: pushEvent(
             state.events,
             'project',
-            `Just Merged "${found.task.title}". Quality -${hit.toFixed(1)}.`,
-          ),
-        })
-      },
-
-      completeMerge(taskId) {
-        const state = get()
-        const found = findTask(state.projects, taskId)
-        if (!found || found.task.status !== 'pr_ready') return
-
-        const params = getTaskQualityParameters(found.task, state.agents)
-        const hit = state.reviewRevealedHit ?? computeQualityHit(found.task.storyPointsRequired, params)
-        const nextProjects = state.projects.map((p) =>
-          p.id === found.project.id
-            ? {
-                ...p,
-                quality: Math.max(0, p.quality - hit),
-                tasks: p.tasks.map((t) =>
-                  t.id === taskId ? { ...t, status: 'merged' as const, pendingQualityHit: hit } : t,
-                ),
-              }
-            : p,
-        )
-
-        set({
-          projects: nextProjects,
-          reviewRevealedHit: null,
-          playerAction: null,
-          stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-          events: pushEvent(
-            state.events,
-            'project',
-            `Merged "${found.task.title}" after review. Quality -${hit.toFixed(1)}.`,
+            `Just Merged "${found.task.title}" without review. Quality -${hit.toFixed(1)}.`,
           ),
         })
       },
@@ -673,7 +626,7 @@ export const useGameStore = create<GameStore>()(
       cancelPlayerAction() {
         const state = get()
         if (state.playerAction?.forced) return
-        set({ playerAction: null, reviewRevealedHit: null })
+        set({ playerAction: null })
       },
 
       acceptLead(leadId) {
@@ -753,7 +706,6 @@ export const useGameStore = create<GameStore>()(
           stats: nextStats,
           events: nextEvents,
           playerAction: nextPlayerAction,
-          reviewRevealedHit: null,
           selectedTaskId,
           phase,
           tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
@@ -764,7 +716,7 @@ export const useGameStore = create<GameStore>()(
         const state = get()
         const agent = state.agents.find((a) => a.id === agentId)
         const found = findTask(state.projects, taskId)
-        if (!agent || !found || agent.taskId) return
+        if (!agent || !found || agent.job) return
         if (found.task.status === 'merged' || found.task.status === 'pr_ready') return
         if (found.task.assignedAgentId) return
 
@@ -788,7 +740,16 @@ export const useGameStore = create<GameStore>()(
 
         const nextAgents = state.agents.map((a) =>
           a.id === agentId
-            ? { ...a, taskId, status: 'working' as const, contextUsed: 0 }
+            ? {
+                ...a,
+                job: 'code' as const,
+                taskId,
+                projectId: null,
+                jobProgress: 0,
+                jobDuration: 0,
+                status: 'working' as const,
+                contextUsed: 0,
+              }
             : a,
         )
 
@@ -804,31 +765,141 @@ export const useGameStore = create<GameStore>()(
         })
       },
 
-      unassignAgent(agentId) {
+      assignAgentToReview(agentId, taskId) {
         const state = get()
         const agent = state.agents.find((a) => a.id === agentId)
-        if (!agent?.taskId) return
+        const found = findTask(state.projects, taskId)
+        if (!agent || !found || agent.job) return
+        if (found.task.status !== 'pr_ready' || found.task.revealedQualityHit !== null) return
 
-        const taskId = agent.taskId
+        const duration = agentJobDurationDays(
+          found.task.storyPointsRequired,
+          found.project.quality,
+          getAgentParameters(agent),
+        )
+
         const nextAgents = state.agents.map((a) =>
           a.id === agentId
-            ? { ...a, taskId: null, status: 'idle' as const, contextUsed: 0 }
+            ? {
+                ...a,
+                job: 'review' as const,
+                taskId,
+                projectId: null,
+                jobProgress: 0,
+                jobDuration: duration,
+                status: 'reviewing' as const,
+                contextUsed: 0,
+              }
             : a,
         )
 
         set({
           agents: nextAgents,
-          projects: updateTask(state.projects, taskId, (t) => ({
+          events: pushEvent(
+            state.events,
+            'project',
+            `${agent.name} reviewing "${found.task.title}"… accuracy not guaranteed.`,
+          ),
+        })
+      },
+
+      assignAgentToRefine(agentId, taskId) {
+        const state = get()
+        const agent = state.agents.find((a) => a.id === agentId)
+        const found = findTask(state.projects, taskId)
+        if (!agent || !found || agent.job) return
+        if (!canRefineTask(found.task)) return
+        if (found.task.status === 'merged' || found.task.status === 'pr_ready') return
+
+        const duration = agentJobDurationDays(
+          found.task.storyPointsRequired,
+          found.project.quality,
+          getAgentParameters(agent),
+        )
+
+        const nextAgents = state.agents.map((a) =>
+          a.id === agentId
+            ? {
+                ...a,
+                job: 'refine' as const,
+                taskId,
+                projectId: null,
+                jobProgress: 0,
+                jobDuration: duration,
+                status: 'refining' as const,
+                contextUsed: 0,
+              }
+            : a,
+        )
+
+        set({
+          agents: nextAgents,
+          events: pushEvent(
+            state.events,
+            'project',
+            `${agent.name} attempting to refine "${found.task.title}". Mitosis is scary.`,
+          ),
+        })
+      },
+
+      assignAgentToRefactor(agentId, projectId) {
+        const state = get()
+        const agent = state.agents.find((a) => a.id === agentId)
+        const project = state.projects.find((p) => p.id === projectId)
+        if (!agent || !project || agent.job) return
+        if (project.status !== 'active' || project.quality >= 100) return
+
+        const nextAgents = state.agents.map((a) =>
+          a.id === agentId
+            ? {
+                ...a,
+                job: 'refactor' as const,
+                taskId: null,
+                projectId,
+                jobProgress: 0,
+                jobDuration: 0,
+                status: 'refactoring' as const,
+                contextUsed: 0,
+              }
+            : a,
+        )
+
+        set({
+          agents: nextAgents,
+          events: pushEvent(
+            state.events,
+            'project',
+            `${agent.name} refactoring ${project.clientName} codebase. Slowly.`,
+          ),
+        })
+      },
+
+      unassignAgent(agentId) {
+        const state = get()
+        const agent = state.agents.find((a) => a.id === agentId)
+        if (!agent?.job) return
+
+        let nextProjects = state.projects
+        if (agent.job === 'code' && agent.taskId) {
+          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
             ...t,
             assignedAgentId: null,
             status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
-          })),
+          }))
+        } else if (agent.job === 'review' && agent.taskId) {
+          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
+            ...t,
+            revealedQualityHit: null,
+          }))
+        }
+
+        const nextAgents = state.agents.map((a) => (a.id === agentId ? clearAgentJob(a) : a))
+
+        set({
+          agents: nextAgents,
+          projects: nextProjects,
           ...syncRam({ loadedModels: state.loadedModels, agents: nextAgents, servers: state.servers }),
-          events: pushEvent(
-            state.events,
-            'system',
-            `${agent.name} yanked off task. Context wiped.`,
-          ),
+          events: pushEvent(state.events, 'system', `${agent.name} pulled off duty. Context wiped.`),
         })
       },
 
@@ -853,11 +924,16 @@ export const useGameStore = create<GameStore>()(
         if (!agent) return
 
         let nextProjects = state.projects
-        if (agent.taskId) {
+        if (agent.job === 'code' && agent.taskId) {
           nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
             ...t,
             assignedAgentId: null,
             status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
+          }))
+        } else if (agent.job === 'review' && agent.taskId) {
+          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
+            ...t,
+            revealedQualityHit: null,
           }))
         }
 
@@ -887,8 +963,7 @@ export const useGameStore = create<GameStore>()(
           modelId,
           loadedModelId: null,
           serverId: null,
-          taskId: null,
-          status: 'idle',
+          ...emptyAgentJob(),
           personality: generatePersonality(),
           contextUsed: 0,
           totalTokensBurned: 0,
@@ -935,8 +1010,7 @@ export const useGameStore = create<GameStore>()(
           modelId,
           loadedModelId: loaded.id,
           serverId: hostId,
-          taskId: null,
-          status: 'idle',
+          ...emptyAgentJob(),
           personality: generatePersonality(),
           contextUsed: 0,
           totalTokensBurned: 0,
@@ -971,8 +1045,7 @@ export const useGameStore = create<GameStore>()(
           modelId: loaded.modelId,
           loadedModelId: loaded.id,
           serverId: loaded.hostId,
-          taskId: null,
-          status: 'idle',
+          ...emptyAgentJob(),
           personality: generatePersonality(),
           contextUsed: 0,
           totalTokensBurned: 0,
@@ -1117,18 +1190,30 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
-      version: 6,
+      version: 7,
       migrate: (persisted, version) => {
-        const s = persisted as Partial<GameStore>
+        const s = persisted as Partial<GameStore> & { reviewRevealedHit?: number | null }
         if (version < 6) {
           return createInitialState() as unknown as GameStore
         }
         if (s.agents) {
-          s.agents = s.agents.map((a) => ({
-            ...a,
-            modelId: migrateModelId(a.modelId),
-            loadedModelId: a.loadedModelId ?? null,
-          }))
+          s.agents = s.agents.map((a) => {
+            const base = {
+              ...a,
+              modelId: migrateModelId(a.modelId),
+              loadedModelId: a.loadedModelId ?? null,
+              projectId: a.projectId ?? null,
+              jobProgress: a.jobProgress ?? 0,
+              jobDuration: a.jobDuration ?? 0,
+            }
+            if (version < 7) {
+              if (base.taskId && base.status === 'working') {
+                return { ...base, job: 'code' as const, status: 'working' as const }
+              }
+              return { ...base, ...emptyAgentJob() }
+            }
+            return base
+          })
         }
         if (s.projects) {
           s.projects = s.projects.map((p) => ({
@@ -1136,8 +1221,15 @@ export const useGameStore = create<GameStore>()(
             tasks: p.tasks.map((t) => ({
               ...t,
               completedByAgentId: t.completedByAgentId ?? null,
+              revealedQualityHit: t.revealedQualityHit ?? null,
             })),
           }))
+        }
+        if (version < 7) {
+          if (s.playerAction && s.playerAction.type !== 'vibe') {
+            s.playerAction = null
+          }
+          delete s.reviewRevealedHit
         }
         if (!s.loadedModels) s.loadedModels = []
         if (s.ownedLocalModels) {
@@ -1166,7 +1258,6 @@ export const useGameStore = create<GameStore>()(
         leads: state.leads,
         selectedTaskId: state.selectedTaskId,
         playerAction: state.playerAction,
-        reviewRevealedHit: state.reviewRevealedHit,
         tutorialDone: state.tutorialDone,
         leadSpawnCooldown: state.leadSpawnCooldown,
         events: state.events,
@@ -1201,25 +1292,18 @@ export function modelSuccessForTask(modelId: string, taskSp = 1, contextFillPctV
   return effectiveSuccessRate(model.parameters, taskSp, contextFillPctValue)
 }
 
-export function playerSuccessForTask(taskSp: number): number {
-  return effectiveSuccessRate(PLAYER_EFFECTIVE_PARAMS, taskSp, 0)
-}
-
-export function projectedQualityHit(
-  task: Task,
-  agents: Agent[],
-): number {
+export function projectedQualityHit(task: Task, agents: Agent[]): number {
   const params = getTaskQualityParameters(task, agents)
   return computeQualityHit(task.storyPointsRequired, params)
-}
-
-export function playerProjectedQualityHit(taskSp: number): number {
-  return computeQualityHit(taskSp, PLAYER_EFFECTIVE_PARAMS)
 }
 
 export {
   effectiveSuccessRate,
   computeQualityHit,
   getAgentParameters,
+  reviewAccuracy,
+  refineSuccessRate,
+  refactorRatePerDay,
+  agentJobDurationDays,
   LAPTOP_HOST_ID,
 }

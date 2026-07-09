@@ -15,11 +15,8 @@ export const INITIAL_SANITY = 80
 export const INITIAL_REPUTATION = 5
 export const RENT_INTERVAL_DAYS = 30
 
-export const PLAYER_EFFECTIVE_PARAMS = 8
-
 export const SANITY_PASSIVE_DRAIN = 0.08
-export const SANITY_SPRINT_DRAIN = 2.5
-export const SANITY_VIBE_RESTORE = 3.5
+export const SANITY_VIBE_RESTORE = 5
 export const SANITY_FORCED_VIBE_MULTIPLIER = 0.5
 export const FORCED_VIBE_THRESHOLD = 1
 
@@ -28,7 +25,8 @@ export const VIBE_MIN_DAYS = 1
 
 export const QUALITY_BASE_HIT = 8
 export const QUALITY_REFACTOR_PER_DAY = 12
-export const QUALITY_REFACTOR_PRE_MERGE_MULT = 0.5
+/** Local 4B is the baseline for review/refine/refactor speed. */
+export const AGENT_SKILL_REFERENCE_PARAMS = 4
 
 /** Smallest SP ticket that can still be refined (1 → 0.5+0.5). */
 export const REFINE_MIN_STORY_POINTS = 1

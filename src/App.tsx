@@ -29,7 +29,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        <p>Solo freelance · Multiple deadlines · Questionable merges</p>
+        <p>Solo freelance · Agents do the work · You vibe</p>
       </footer>
     </div>
   )
