@@ -654,6 +654,55 @@ body {
   font-size: 0.75rem;
 }
 
+.review-comment-list {
+  list-style: none;
+  margin: 0.35rem 0 0.5rem 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.review-comment {
+  padding: 0.45rem 0.55rem;
+  background: rgba(91, 156, 245, 0.06);
+  border: 1px dashed var(--code);
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+
+.review-comment--resolved {
+  opacity: 0.72;
+  border-style: solid;
+  border-color: var(--accent-dim);
+}
+
+.review-comment__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.2rem;
+}
+
+.review-comment__label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--code);
+  font-weight: 600;
+}
+
+.review-comment__status {
+  font-size: 0.62rem;
+  color: var(--accent);
+}
+
+.review-comment__text {
+  margin-bottom: 0.3rem;
+  color: var(--text);
+  font-style: italic;
+}
+
 .pr-queue {
   margin-top: 0.75rem;
 }

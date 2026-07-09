@@ -26,7 +26,7 @@ export function CloudAgentsPanel() {
     if (!agent.job) return 'Idle'
     const project = projects.find((p) => p.id === agent.projectId)
     const client = project?.clientName ?? 'project'
-    if (agent.job === 'refactor') return `Opening PRs: ${client}`
+    if (agent.job === 'refactor') return `Refactoring: ${client}`
     if (agent.job === 'refine') return `Refining scope: ${client}`
     if (agent.job === 'review') return `Reviewing PRs: ${client}`
     if (agent.job === 'test') return `Testing delivery: ${client}`
@@ -82,16 +82,11 @@ export function CloudAgentsPanel() {
                 </div>
               )}
 
-              {(agent.job === 'review' || agent.job === 'refine' || agent.job === 'refactor') &&
+              {(agent.job === 'review' || agent.job === 'refine') &&
                 agent.jobDuration > 0 && (
                 <div className="meter-row">
                   <label>
-                    {agent.job === 'review'
-                      ? 'Review'
-                      : agent.job === 'refine'
-                        ? 'Refine'
-                        : 'PR'}{' '}
-                    progress
+                    {agent.job === 'review' ? 'Review' : 'Refine'} progress
                   </label>
                   <div className="meter meter--sm">
                     <div

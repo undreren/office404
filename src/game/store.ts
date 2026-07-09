@@ -1,19 +1,20 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Agent, GameEvent, GameStore, Lead, LoadedModel, PlayerAction, Project, Server, Task } from './types'
+import type { Agent, GameEvent, GameStore, Lead, LoadedModel, PlayerAction, Project, Server, Task, TaskStatus } from './types'
 import { getModel, migrateModelId } from './models'
 import {
   countActiveTasks,
   createBugFixTask,
   createProjectFromLead,
+  createReviewCommentTasks,
   createTutorialProject,
   generateLead,
   hiddenBugsOnProject,
   pickRefineTarget,
   pickCodingTask as pickCodingTaskFromProject,
-  pickRefactorTask,
   pickReviewTask,
   projectHasTestWork,
+  resolvedReviewComments,
   refineTargetId,
   requirementToTask,
   splitTask,
@@ -59,6 +60,7 @@ import {
   computePrQualityFromReview,
   computeQualityHit,
   computeRevealedQualityHit,
+  computeReviewCommentReduction,
   computeHostUsedRam,
   computeTotalAvailableRam,
   computeTotalUsedRam,
@@ -68,13 +70,13 @@ import {
   getAgentParameters,
   getHostRam,
   getTaskQualityParameters,
-  improveReviewEstimate,
   jobStatusFor,
   ramForLoadedModel,
   refactorRatePerDay,
   refineJobDurationDays,
   reviewAccuracy,
   storyPointIncrement,
+  testSuccessRate,
 } from './mechanics'
 
 let idCounter = 0
@@ -161,13 +163,20 @@ function mergeTaskOnProject(
 ): { projects: Project[]; eventMessage: string; introducedBug: boolean } | null {
   const found = findTask(projects, taskId)
   if (!found || found.task.status !== 'pr_ready') return null
-  if (reviewed && found.task.revealedQualityHit === null) return null
+  if (reviewed && !found.task.reviewed) return null
 
   const params = getTaskQualityParameters(found.task, agents)
   const taskCount = countActiveTasks(found.project)
-  const hit = computeQualityHit(found.task.storyPointsRequired, params, taskCount)
+  const baseHit = computeQualityHit(found.task.storyPointsRequired, params, taskCount)
+  const resolvedCount = reviewed
+    ? resolvedReviewComments(found.project, taskId).length
+    : 0
+  const commentReduction = reviewed
+    ? computeReviewCommentReduction(baseHit, resolvedCount)
+    : 0
+  const hit = Math.max(0.5, baseHit - commentReduction)
   const prQuality = computePrQualityFromReview(
-    hit,
+    baseHit,
     reviewed ? found.task.revealedQualityHit : null,
   )
   const bugChance = computeBugChance(
@@ -178,18 +187,27 @@ function mergeTaskOnProject(
   )
   const introducedBug = Math.random() < bugChance
 
+  const commentTasks = found.project.tasks.filter(
+    (t) => t.isReviewComment && t.parentTaskId === taskId,
+  )
+  const unresolvedComments = commentTasks.filter(
+    (t) => t.storyPointsEarned < t.storyPointsRequired,
+  )
+
   const nextProjects = projects.map((p) => {
     if (p.id !== found.project.id) return p
-    const updatedTasks = p.tasks.map((t) =>
-      t.id === taskId
-        ? {
-            ...t,
-            status: 'merged' as const,
-            pendingQualityHit: hit,
-            hasUndiscoveredBug: introducedBug,
-          }
-        : t,
-    )
+    const updatedTasks = p.tasks
+      .filter((t) => !(t.isReviewComment && t.parentTaskId === taskId))
+      .map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              status: 'merged' as const,
+              pendingQualityHit: hit,
+              hasUndiscoveredBug: introducedBug,
+            }
+          : t,
+      )
     return syncTestScope({
       ...p,
       quality: Math.max(0, p.quality - hit),
@@ -201,10 +219,18 @@ function mergeTaskOnProject(
     reviewed && found.task.revealedQualityHit !== null
       ? `review guessed -${found.task.revealedQualityHit.toFixed(1)}`
       : 'no review'
+  const reductionNote =
+    reviewed && commentReduction > 0
+      ? `, comments saved ${commentReduction.toFixed(1)}`
+      : ''
+  const orphanNote =
+    unresolvedComments.length > 0
+      ? ` ${unresolvedComments.length} review comment${unresolvedComments.length > 1 ? 's' : ''} left to rot in GitHub purgatory.`
+      : ''
   const bugNote = introducedBug ? ' A bug slithered in.' : ''
   const eventMessage = reviewed
-    ? `Merged "${found.task.title}". Quality -${hit.toFixed(1)} (${reviewNote}).${bugNote}`
-    : `Just Merged "${found.task.title}" without review. Quality -${hit.toFixed(1)}.${bugNote}`
+    ? `Merged "${found.task.title}". Quality -${hit.toFixed(1)} (${reviewNote}${reductionNote}).${orphanNote}${bugNote}`
+    : `Just Merged "${found.task.title}" without review. Quality -${hit.toFixed(1)}.${orphanNote}${bugNote}`
 
   return { projects: nextProjects, eventMessage, introducedBug }
 }
@@ -252,23 +278,33 @@ function tryProgressTask(
   projects: Project[],
   taskId: string,
   completedByAgentId: string | null,
-): { projects: Project[]; becameDone: boolean } {
+): { projects: Project[]; becameDone: boolean; becamePrReady: boolean } {
   let becameDone = false
+  let becamePrReady = false
   const next = updateTask(projects, taskId, (t) => {
-    if (t.status === 'merged' || t.status === 'pr_ready' || t.status === 'done') return t
+    if (t.status === 'merged' || t.status === 'pr_ready') return t
+    if (t.isReviewComment && t.status === 'done') return t
     const increment = storyPointIncrement(t.storyPointsRequired, t.storyPointsEarned)
     const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + increment)
-    const status = earned >= t.storyPointsRequired ? 'done' : 'in_progress'
-    if (status === 'done') becameDone = true
+    const complete = earned >= t.storyPointsRequired
+    const status: TaskStatus = complete
+      ? t.isReviewComment
+        ? 'done'
+        : 'pr_ready'
+      : 'in_progress'
+    if (complete) {
+      if (t.isReviewComment) becameDone = true
+      else becamePrReady = true
+    }
     return {
       ...t,
       storyPointsEarned: earned,
       status,
-      completedByAgentId: status === 'done' ? completedByAgentId : t.completedByAgentId,
-      assignedAgentId: status === 'done' ? null : t.assignedAgentId,
+      completedByAgentId: complete ? completedByAgentId : t.completedByAgentId,
+      assignedAgentId: complete ? null : t.assignedAgentId,
     }
   })
-  return { projects: next, becameDone }
+  return { projects: next, becameDone, becamePrReady }
 }
 
 function canFitLoadOnHost(
@@ -452,9 +488,9 @@ export const useGameStore = create<GameStore>()(
             let taskRef = agent.taskId ? findTask(nextProjects, agent.taskId) : null
             if (
               !taskRef ||
-              taskRef.task.status === 'done' ||
               taskRef.task.status === 'merged' ||
-              taskRef.task.status === 'pr_ready'
+              taskRef.task.status === 'pr_ready' ||
+              (taskRef.task.isReviewComment && taskRef.task.status === 'done')
             ) {
               const nextTask = pickCodingTask(project, agent.id, nextAgents)
               if (!nextTask) continue
@@ -483,12 +519,19 @@ export const useGameStore = create<GameStore>()(
             if (Math.random() < success * baseSpeed) {
               const result = tryProgressTask(nextProjects, agent.taskId!, agent.id)
               nextProjects = result.projects
-              if (result.becameDone) {
+              if (result.becamePrReady) {
                 agent.taskId = null
                 nextEvents = pushEvent(
                   nextEvents,
                   'project',
-                  `${agent.name} finished coding "${taskRef.task.title}". Waiting for a PR.`,
+                  `${agent.name} finished "${taskRef.task.title}". PR opened — ready for review.`,
+                )
+              } else if (result.becameDone) {
+                agent.taskId = null
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `${agent.name} addressed review comment: "${taskRef.task.title}".`,
                 )
               }
             }
@@ -499,7 +542,7 @@ export const useGameStore = create<GameStore>()(
               continue
             }
 
-            const prTasks = project.tasks.filter((t) => t.status === 'pr_ready')
+            const prTasks = project.tasks.filter((t) => t.status === 'pr_ready' && !t.reviewed)
             if (prTasks.length === 0) continue
 
             const task = pickReviewTask(project, agent.id, nextAgents)
@@ -528,27 +571,39 @@ export const useGameStore = create<GameStore>()(
               const taskCount = countActiveTasks(project)
               const authorParams = getTaskQualityParameters(task, nextAgents)
               const trueHit = computeQualityHit(task.storyPointsRequired, authorParams, taskCount)
-              const revealed =
-                task.revealedQualityHit === null
-                  ? computeRevealedQualityHit(trueHit, model.parameters, task.storyPointsRequired)
-                  : improveReviewEstimate(
-                      task.revealedQualityHit,
-                      trueHit,
-                      model.parameters,
-                      task.storyPointsRequired,
-                    )
+              const revealed = computeRevealedQualityHit(
+                trueHit,
+                model.parameters,
+                task.storyPointsRequired,
+              )
+              const comments = createReviewCommentTasks(task, model.parameters, model.kind === 'cloud')
 
-              nextProjects = updateTask(nextProjects, task.id, (t) => ({
-                ...t,
-                revealedQualityHit: revealed,
-              }))
+              nextProjects = nextProjects.map((p) =>
+                p.id === project.id
+                  ? {
+                      ...p,
+                      tasks: [
+                        ...p.tasks.map((t) =>
+                          t.id === task.id
+                            ? { ...t, revealedQualityHit: revealed, reviewed: true }
+                            : t,
+                        ),
+                        ...comments,
+                      ],
+                    }
+                  : p,
+              )
               agent.jobProgress = 0
               agent.taskId = null
 
+              const commentNote =
+                comments.length > 0
+                  ? ` Left ${comments.length} review comment${comments.length > 1 ? 's' : ''}.`
+                  : ''
               nextEvents = pushEvent(
                 nextEvents,
                 'project',
-                `${agent.name} reviewed "${task.title}". Est. quality hit: -${revealed.toFixed(1)}.`,
+                `${agent.name} reviewed "${task.title}". Est. quality hit: -${revealed.toFixed(1)}.${commentNote}`,
               )
             }
           } else if (agent.job === 'refine' && agent.projectId) {
@@ -649,23 +704,6 @@ export const useGameStore = create<GameStore>()(
               continue
             }
 
-            const doneTasks = project.tasks.filter((t) => t.status === 'done')
-            if (doneTasks.length === 0) continue
-
-            const task = pickRefactorTask(project, agent.id, nextAgents)
-            if (!task) continue
-
-            if (agent.taskId !== task.id) {
-              agent.taskId = task.id
-              agent.jobProgress = 0
-              agent.jobDuration = agentJobDurationDays(
-                task.storyPointsRequired,
-                project.quality,
-                model.parameters,
-              )
-              nextAgents[agentIdx] = agent
-            }
-
             fillAgentContext(agent, model, baseSpeed, deltaSec)
             if (agent.contextUsed >= model.contextSize * 1000) {
               overflow()
@@ -673,18 +711,12 @@ export const useGameStore = create<GameStore>()(
               continue
             }
 
-            agent.jobProgress += dayProgress * baseSpeed
-            if (agent.jobProgress >= agent.jobDuration) {
-              nextProjects = updateTask(nextProjects, task.id, (t) => ({
-                ...t,
-                status: 'pr_ready',
-              }))
-              agent.jobProgress = 0
-              agent.taskId = null
-              nextEvents = pushEvent(
-                nextEvents,
-                'project',
-                `${agent.name} opened PR for "${task.title}".`,
+            const qualityGain = refactorRatePerDay(model.parameters) * dayProgress * baseSpeed
+            if (qualityGain > 0) {
+              nextProjects = nextProjects.map((p) =>
+                p.id === project.id
+                  ? { ...p, quality: Math.min(100, p.quality + qualityGain) }
+                  : p,
               )
             }
           } else if (agent.job === 'test' && agent.projectId) {
@@ -708,11 +740,7 @@ export const useGameStore = create<GameStore>()(
               continue
             }
 
-            const success = effectiveSuccessRate(
-              model.parameters,
-              synced.testStoryPointsRequired,
-              fillPct,
-            )
+            const success = testSuccessRate(model.parameters, fillPct)
             if (Math.random() < success * baseSpeed) {
               const increment = storyPointIncrement(
                 synced.testStoryPointsRequired,
@@ -1044,7 +1072,7 @@ export const useGameStore = create<GameStore>()(
                 ? 'refining scope'
                 : job === 'test'
                   ? 'testing delivery'
-                  : 'opening PRs'
+                  : 'improving codebase quality'
 
         set({
           agents: nextAgents,
@@ -1108,11 +1136,6 @@ export const useGameStore = create<GameStore>()(
             ...t,
             assignedAgentId: null,
             status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
-          }))
-        } else if (agent.job === 'review' && agent.taskId) {
-          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
-            ...t,
-            revealedQualityHit: null,
           }))
         }
 
@@ -1369,7 +1392,7 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
-      version: 9,
+      version: 10,
       migrate: (persisted, version) => {
         const s = persisted as Partial<GameStore> & { reviewRevealedHit?: number | null }
         if (version < 6) {
@@ -1431,6 +1454,8 @@ export const useGameStore = create<GameStore>()(
                 bugDiscovered: t.bugDiscovered ?? false,
                 isBugFix: t.isBugFix ?? false,
                 sourceTaskId: t.sourceTaskId ?? null,
+                isReviewComment: t.isReviewComment ?? false,
+                reviewed: t.reviewed ?? false,
                 status,
               }
             })
@@ -1442,6 +1467,29 @@ export const useGameStore = create<GameStore>()(
               testStoryPointsRequired: p.testStoryPointsRequired ?? 0,
               testStoryPointsCompleted: p.testStoryPointsCompleted ?? 0,
             }
+          })
+        }
+        if (version < 10 && s.projects) {
+          s.projects = s.projects.map((p) => {
+            const tasks = p.tasks.map((t) => {
+              let status = t.status
+              if (!t.isReviewComment && !t.isBugFix && status === 'done') {
+                status = 'pr_ready'
+              }
+              return {
+                ...t,
+                isReviewComment: t.isReviewComment ?? false,
+                reviewed: t.reviewed ?? (t.revealedQualityHit !== null && t.revealedQualityHit !== undefined),
+                status,
+              }
+            })
+            return syncTestScope({
+              ...p,
+              tasks,
+              testPercent: p.testPercent ?? 0,
+              testStoryPointsRequired: p.testStoryPointsRequired ?? 0,
+              testStoryPointsCompleted: p.testStoryPointsCompleted ?? 0,
+            })
           })
         }
         if (version < 9 && s.projects) {
@@ -1511,11 +1559,12 @@ export function projectProgressPct(project: Project): number {
 
 export function isReadyToDeliver(project: Project): boolean {
   const synced = syncTestScope(project)
+  const shippableTasks = project.tasks.filter((t) => !t.isReviewComment)
   return (
     project.status === 'active' &&
     project.requirements.every((r) => r.status === 'refined') &&
-    project.tasks.length > 0 &&
-    project.tasks.every((t) => t.status === 'merged') &&
+    shippableTasks.length > 0 &&
+    shippableTasks.every((t) => t.status === 'merged') &&
     synced.testStoryPointsRequired > 0 &&
     synced.testStoryPointsCompleted >= synced.testStoryPointsRequired
   )

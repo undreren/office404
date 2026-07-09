@@ -71,13 +71,14 @@ npm run preview:pages
 ### Agent jobs (assign idle agents)
 
 - **Code** — story points on tickets; bigger models succeed more often
-- **Review** — estimates merge quality hit; small models lie to you
+- **Review** — one pass per PR; spawns absurd review comments that coders must address to reduce merge damage
 - **Refine** — split big tickets; small models botch it sometimes
-- **Refactor** — project quality ↑; cloud models actually help
+- **Refactor** — slowly raises project quality while assigned (always available on active projects)
+- **Test** — QA on merged work; incremental queue, 5× faster than coding
 
 ### Manager actions
 
-- **Merge / Just Merge** — sign off on PRs (true quality hit applied on merge)
+- **Merge / Just Merge** — sign off on PRs after review (resolved comments reduce quality hit; Just Merge skips all of that)
 
 ### Agents
 
