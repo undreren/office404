@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { APARTMENT_CONFIG, GPU_UPGRADE_COST, RACK_CONFIG, TOKEN_PACK_AMOUNT, TOKEN_PACK_COST } from '../game/constants'
-import { CLOUD_MODEL_LIST, CLOUD_VENDORS, LOCAL_MODEL_LIST } from '../game/models'
+import { CLOUD_MODEL_LIST, CLOUD_VENDORS, getModel, LOCAL_MODEL_LIST } from '../game/models'
 import { getNextApartment, useGameStore } from '../game/store'
 import type { RackTier } from '../game/types'
 
@@ -26,12 +26,8 @@ export function MarketplacePanel() {
   const rackSlotsLeft = apt.rackSlots - servers.length
   const activeServerId = servers.some((s) => s.id === selectedServerId) ? selectedServerId : (servers[0]?.id ?? '')
 
-  function agentsOnServer(serverId: string): number {
-    return agents.filter((a) => a.serverId === serverId).length
-  }
-
-  function handleCloudDeploy(modelId: string) {
-    if (activeServerId) deployCloudAgent(modelId, activeServerId)
+  function localAgentsOnServer(serverId: string): number {
+    return agents.filter((a) => a.serverId === serverId && getModel(a.modelId)?.kind === 'local').length
   }
 
   function handleLocalInstall(modelId: string) {
@@ -44,7 +40,7 @@ export function MarketplacePanel() {
 
       {servers.length > 0 && (
         <div className="server-picker">
-          <label htmlFor="deploy-server">Deploy to rack</label>
+          <label htmlFor="deploy-server">Install local model on rack</label>
           <select
             id="deploy-server"
             value={activeServerId}
@@ -52,11 +48,11 @@ export function MarketplacePanel() {
           >
             {servers.map((s) => (
               <option key={s.id} value={s.id} disabled={s.onFire}>
-                {s.name} ({agentsOnServer(s.id)} loaded{s.onFire ? ' — ON FIRE' : ''})
+                {s.name} ({localAgentsOnServer(s.id)} loaded{s.onFire ? ' — ON FIRE' : ''})
               </option>
             ))}
           </select>
-          <p className="hint">Models on the same rack share GPU — more models = slower ticks.</p>
+          <p className="hint">Local models on the same rack share GPU — more models = slower ticks.</p>
         </div>
       )}
 
@@ -90,7 +86,7 @@ export function MarketplacePanel() {
 
       <div className="market-section">
         <h3>Cloud Vendors</h3>
-        <p className="hint">Each token is a billable tragedy. Pick your poison.</p>
+        <p className="hint">Hosted off-rack at full tick speed. Each token is a billable tragedy.</p>
         {(Object.values(CLOUD_VENDORS) as (typeof CLOUD_VENDORS)[keyof typeof CLOUD_VENDORS][]).map((vendor) => {
           const model = CLOUD_MODEL_LIST.find((m) => m.vendor === vendor.id)
           if (!model) return null
@@ -111,8 +107,8 @@ export function MarketplacePanel() {
               <button
                 type="button"
                 className="btn btn--deploy"
-                onClick={() => handleCloudDeploy(model.id)}
-                disabled={cash < model.deployCost || !activeServerId}
+                onClick={() => deployCloudAgent(model.id)}
+                disabled={cash < model.deployCost}
               >
                 Deploy
               </button>

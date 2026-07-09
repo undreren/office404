@@ -3,6 +3,7 @@ import { PlayerActionsPanel } from './components/PlayerActionsPanel'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { LeadsPanel } from './components/LeadsPanel'
 import { MarketplacePanel } from './components/MarketplacePanel'
+import { CloudAgentsPanel } from './components/CloudAgentsPanel'
 import { ServerRack } from './components/ServerRack'
 import { EventLog } from './components/EventLog'
 import { GameOverlay } from './components/GameOverlay'
@@ -22,6 +23,7 @@ function App() {
         <ProjectsPanel />
         <LeadsPanel />
         <ServerRack />
+        <CloudAgentsPanel />
         <MarketplacePanel />
         <EventLog />
       </main>
