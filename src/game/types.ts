@@ -167,6 +167,7 @@ export interface GameActions {
   installLocalAgent: (modelId: string, serverId: string) => boolean
   buyLocalModel: (modelId: string) => boolean
   buyServer: (tier: RackTier) => boolean
+  sellServer: (serverId: string) => boolean
   upgradeGpu: () => boolean
   buyTokens: () => boolean
   upgradeApartment: () => boolean
