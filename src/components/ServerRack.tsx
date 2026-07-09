@@ -163,7 +163,7 @@ function HostRack({
                     <label>Context</label>
                     <div className="meter meter--sm">
                       <div
-                        className={`meter__fill ${fillPct > 80 ? 'meter__fill--critical' : 'meter__fill--tokens'}`}
+                        className={`meter__fill meter__fill--tokens ${fillPct > 80 ? 'meter__fill--critical' : ''}`}
                         style={{ width: `${Math.min(100, fillPct)}%` }}
                       />
                     </div>
