@@ -647,6 +647,21 @@ body {
   border-color: var(--accent);
 }
 
+.project-card--ready {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(57, 217, 138, 0.15);
+}
+
+.deliver-row {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.deliver-row .hint {
+  margin-bottom: 0.5rem;
+}
+
 .project-card__header {
   display: flex;
   justify-content: space-between;

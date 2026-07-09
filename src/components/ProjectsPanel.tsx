@@ -1,6 +1,6 @@
 import { canAgentHandleTask } from '../game/mechanics'
 import { getModel } from '../game/models'
-import { modelSuccessForTask, projectProgressPct, useGameStore } from '../game/store'
+import { isReadyToDeliver, modelSuccessForTask, projectProgressPct, useGameStore } from '../game/store'
 
 export function ProjectsPanel() {
   const projects = useGameStore((s) => s.projects)
@@ -8,6 +8,7 @@ export function ProjectsPanel() {
   const agents = useGameStore((s) => s.agents)
   const selectTask = useGameStore((s) => s.selectTask)
   const assignAgent = useGameStore((s) => s.assignAgent)
+  const deliverProject = useGameStore((s) => s.deliverProject)
 
   if (projects.length === 0) {
     return (
@@ -25,9 +26,13 @@ export function ProjectsPanel() {
       {projects.map((project) => {
         const progress = projectProgressPct(project)
         const merged = project.tasks.filter((t) => t.status === 'merged').length
+        const readyToDeliver = isReadyToDeliver(project)
 
         return (
-          <article key={project.id} className={`project-card ${project.isTutorial ? 'project-card--tutorial' : ''}`}>
+          <article
+            key={project.id}
+            className={`project-card ${project.isTutorial ? 'project-card--tutorial' : ''} ${readyToDeliver ? 'project-card--ready' : ''}`}
+          >
             <header className="project-card__header">
               <div>
                 <h3>{project.clientName}</h3>
@@ -114,6 +119,15 @@ export function ProjectsPanel() {
                 )
               })}
             </ul>
+
+            {readyToDeliver && (
+              <div className="deliver-row">
+                <p className="hint">All tasks merged. Refactor quality if you want, then deliver when ready.</p>
+                <button type="button" className="btn btn--deploy" onClick={() => deliverProject(project.id)}>
+                  Deliver to {project.clientName}
+                </button>
+              </div>
+            )}
           </article>
         )
       })}
