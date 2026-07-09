@@ -320,6 +320,12 @@ body {
   color: var(--accent);
 }
 
+.btn--retire {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(57, 217, 138, 0.12);
+}
+
 .btn--danger {
   width: 100%;
   margin-bottom: 0.5rem;

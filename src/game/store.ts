@@ -987,6 +987,17 @@ export const useGameStore = create<GameStore>()(
         return true
       },
 
+      retire() {
+        const state = get()
+        if (state.phase !== 'playing') return
+        const netWorth = computeNetWorth({ cash: state.cash, servers: state.servers })
+        if (netWorth < WIN_NET_WORTH) return
+        set({
+          phase: 'won',
+          events: pushEvent(state.events, 'milestone', '$10M net worth. Sell the racks. Retire. You win.'),
+        })
+      },
+
       resetGame() {
         set(createInitialState())
       },
