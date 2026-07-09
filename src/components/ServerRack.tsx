@@ -54,13 +54,13 @@ function HostRack({
 
   function dutyLabel(agent: (typeof agents)[number]): string {
     if (!agent.job) return 'Idle'
-    if (agent.job === 'refactor') {
-      const project = projects.find((p) => p.id === agent.projectId)
-      return `Refactoring ${project?.clientName ?? 'project'}`
-    }
+    const project = projects.find((p) => p.id === agent.projectId)
+    const client = project?.clientName ?? 'project'
+    if (agent.job === 'refactor') return `Opening PRs: ${client}`
+    if (agent.job === 'refine') return `Refining scope: ${client}`
+    if (agent.job === 'review') return `Reviewing PRs: ${client}`
     const task = findTask(agent.taskId)
-    const prefix = agent.job === 'review' ? 'Reviewing' : agent.job === 'refine' ? 'Refining' : 'Coding'
-    return `${prefix}: ${task?.title ?? 'task'}`
+    return `Coding: ${task?.title ?? client}`
   }
 
   function renderLoadedModel(lm: LoadedModel) {
@@ -118,9 +118,17 @@ function HostRack({
                   </div>
                 )}
 
-                {(agent.job === 'review' || agent.job === 'refine') && agent.jobDuration > 0 && (
+                {(agent.job === 'review' || agent.job === 'refine' || agent.job === 'refactor') &&
+                  agent.jobDuration > 0 && (
                   <div className="meter-row">
-                    <label>{agent.job === 'review' ? 'Review' : 'Refine'} progress</label>
+                    <label>
+                      {agent.job === 'review'
+                        ? 'Review'
+                        : agent.job === 'refine'
+                          ? 'Refine'
+                          : 'PR'}
+                      {' '}progress
+                    </label>
                     <div className="meter meter--sm">
                       <div
                         className="meter__fill meter__fill--code"

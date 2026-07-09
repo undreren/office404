@@ -1,25 +1,38 @@
-import { canRefineTask } from '../game/projects'
 import { formatStoryPoints, formatSuccessPct } from '../game/mechanics'
+import { projectHasRefineWork } from '../game/projects'
 import { getModel } from '../game/models'
+import type { AgentJob } from '../game/types'
 import {
   isReadyToDeliver,
   modelSuccessForTask,
   projectProgressPct,
-  refineSuccessRate,
   useGameStore,
 } from '../game/store'
+
+const PROJECT_JOBS: { job: AgentJob; label: string }[] = [
+  { job: 'refine', label: 'Refine' },
+  { job: 'code', label: 'Code' },
+  { job: 'refactor', label: 'Refactor' },
+  { job: 'review', label: 'Review' },
+]
 
 export function ProjectsPanel() {
   const projects = useGameStore((s) => s.projects)
   const selectedTaskId = useGameStore((s) => s.selectedTaskId)
   const agents = useGameStore((s) => s.agents)
   const selectTask = useGameStore((s) => s.selectTask)
-  const assignAgent = useGameStore((s) => s.assignAgent)
-  const assignAgentToRefine = useGameStore((s) => s.assignAgentToRefine)
-  const assignAgentToRefactor = useGameStore((s) => s.assignAgentToRefactor)
+  const assignAgentToProject = useGameStore((s) => s.assignAgentToProject)
+  const mergePr = useGameStore((s) => s.mergePr)
+  const justMergePr = useGameStore((s) => s.justMergePr)
   const deliverProject = useGameStore((s) => s.deliverProject)
+  const playerAction = useGameStore((s) => s.playerAction)
 
   const idleAgents = agents.filter((a) => !a.job && a.status !== 'compacted')
+  const isForcedVibe = playerAction?.forced === true
+
+  function projectAgents(projectId: string, job: AgentJob) {
+    return agents.filter((a) => a.job === job && a.projectId === projectId)
+  }
 
   if (projects.length === 0) {
     return (
@@ -38,7 +51,15 @@ export function ProjectsPanel() {
         const progress = projectProgressPct(project)
         const merged = project.tasks.filter((t) => t.status === 'merged').length
         const readyToDeliver = isReadyToDeliver(project)
-        const refactorAgent = agents.find((a) => a.job === 'refactor' && a.projectId === project.id)
+        const openRequirements = project.requirements.filter((r) => r.status === 'open')
+        const hasRefineWork = projectHasRefineWork(project)
+        const hasCodeWork = project.tasks.some(
+          (t) =>
+            (t.status === 'open' || t.status === 'in_progress') &&
+            t.storyPointsEarned < t.storyPointsRequired,
+        )
+        const hasPrWork = project.tasks.some((t) => t.status === 'done')
+        const hasReviewWork = project.tasks.some((t) => t.status === 'pr_ready')
 
         return (
           <article
@@ -69,114 +90,144 @@ export function ProjectsPanel() {
               <span>{Math.floor(project.quality)}%</span>
             </div>
 
-            {project.quality < 100 && (
-              <div className="assign-row">
-                {refactorAgent ? (
-                  <p className="hint">{refactorAgent.name} is refactoring this codebase…</p>
-                ) : (
-                  idleAgents.slice(0, 3).map((a) => {
-                    const model = getModel(a.modelId)
-                    return (
-                      <button
-                        key={a.id}
-                        type="button"
-                        className="btn btn--small"
-                        onClick={() => assignAgentToRefactor(a.id, project.id)}
-                      >
-                        Refactor → {a.name} ({model?.parameters ?? '?'}B)
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            )}
-
             <div className="meter-row">
-              <label>Progress ({merged}/{project.tasks.length} merged)</label>
+              <label>Progress ({merged}/{project.tasks.length || '—'} merged)</label>
               <div className="meter">
                 <div className="meter__fill meter__fill--code" style={{ width: `${progress}%` }} />
               </div>
             </div>
 
-            <ul className="task-list">
-              {project.tasks.map((task) => {
-                const pct = (task.storyPointsEarned / task.storyPointsRequired) * 100
-                const isSelected = selectedTaskId === task.id
-                const refiningAgent = agents.find((a) => a.job === 'refine' && a.taskId === task.id)
-                const refinePct = refiningAgent && refiningAgent.jobDuration > 0
-                  ? Math.min(100, (refiningAgent.jobProgress / refiningAgent.jobDuration) * 100)
-                  : 0
+            {openRequirements.length > 0 && (
+              <div className="requirements-block">
+                <h4>Requirements ({openRequirements.length} open)</h4>
+                <ul className="requirement-list">
+                  {project.requirements.map((req) => (
+                    <li
+                      key={req.id}
+                      className={`requirement-item requirement-item--${req.status}`}
+                    >
+                      <span>{req.title}</span>
+                      <span>{formatStoryPoints(req.storyPoints)} SP · {req.status}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="hint">Assign a Refine agent to turn requirements into tasks.</p>
+              </div>
+            )}
+
+            <div className="project-crew">
+              <h4>Project crew</h4>
+              {PROJECT_JOBS.map(({ job, label }) => {
+                const assigned = projectAgents(project.id, job)
+                const disabled =
+                  job === 'refine'
+                    ? !hasRefineWork
+                    : job === 'code'
+                      ? !hasCodeWork && project.tasks.length === 0
+                      : job === 'refactor'
+                        ? !hasPrWork
+                        : !hasReviewWork
 
                 return (
-                  <li
-                    key={task.id}
-                    className={`task-item task-item--${task.status} ${isSelected ? 'task-item--selected' : ''}`}
-                  >
-                    <button type="button" className="task-select" onClick={() => selectTask(task.id)}>
-                      <div className="task-item__top">
-                        <strong>{task.title}</strong>
-                        <span className="task-status">{task.status.replace('_', ' ')}</span>
-                      </div>
-                      <div className="meter meter--sm">
-                        <div className="meter__fill meter__fill--code" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="task-sp">
-                        {formatStoryPoints(task.storyPointsEarned)} / {formatStoryPoints(task.storyPointsRequired)} SP
-                        {task.refined && ' · refined'}
-                        {task.status === 'pr_ready' && task.revealedQualityHit !== null && (
-                          <> · review est. -{task.revealedQualityHit.toFixed(1)}</>
-                        )}
+                  <div key={job} className="crew-row">
+                    <span className="crew-label">{label}</span>
+                    {assigned.length > 0 ? (
+                      <span className="hint">
+                        {assigned.map((a) => a.name).join(', ')}
                       </span>
-                    </button>
-
-                    {task.status !== 'merged' && task.status !== 'pr_ready' && !task.assignedAgentId && idleAgents.length > 0 && isSelected && (
+                    ) : (
                       <div className="assign-row">
-                        {idleAgents.slice(0, 4).map((a) => {
-                          const rate = modelSuccessForTask(a.modelId, task.storyPointsRequired)
+                        {idleAgents.slice(0, 2).map((a) => {
+                          const model = getModel(a.modelId)
+                          const hint =
+                            job === 'code' && project.tasks[0]
+                              ? formatSuccessPct(
+                                  modelSuccessForTask(a.modelId, project.tasks[0].storyPointsRequired),
+                                )
+                              : `${model?.parameters ?? '?'}B`
                           return (
                             <button
                               key={a.id}
                               type="button"
                               className="btn btn--small"
-                              onClick={() => assignAgent(a.id, task.id)}
+                              disabled={disabled}
+                              onClick={() => assignAgentToProject(a.id, project.id, job)}
                             >
-                              Code → {a.name} ({formatSuccessPct(rate)})
+                              {label} → {a.name} ({hint})
                             </button>
                           )
                         })}
                       </div>
                     )}
-
-                    {canRefineTask(task) && task.status !== 'merged' && task.status !== 'pr_ready' && isSelected && (
-                      <div className="assign-row">
-                        {refiningAgent ? (
-                          <p className="hint">{refiningAgent.name} refining… {Math.round(refinePct)}%</p>
-                        ) : (
-                          idleAgents.slice(0, 3).map((a) => {
-                            const model = getModel(a.modelId)
-                            const chance = refineSuccessRate(model?.parameters ?? 1, task.storyPointsRequired)
-                            return (
-                              <button
-                                key={a.id}
-                                type="button"
-                                className="btn btn--small"
-                                onClick={() => assignAgentToRefine(a.id, task.id)}
-                              >
-                                Refine → {a.name} ({formatSuccessPct(chance)} ok)
-                              </button>
-                            )
-                          })
-                        )}
-                      </div>
-                    )}
-
-                    {task.status !== 'merged' && task.status !== 'pr_ready' && isSelected && idleAgents.length === 0 && !refiningAgent && (
-                      <p className="hint">No idle agents available.</p>
-                    )}
-                  </li>
+                  </div>
                 )
               })}
-            </ul>
+            </div>
+
+            {project.tasks.length > 0 && (
+              <ul className="task-list">
+                {project.tasks.map((task) => {
+                  const pct = (task.storyPointsEarned / task.storyPointsRequired) * 100
+                  const isSelected = selectedTaskId === task.id
+                  const codingAgent = agents.find(
+                    (a) => a.job === 'code' && a.taskId === task.id,
+                  )
+
+                  return (
+                    <li
+                      key={task.id}
+                      className={`task-item task-item--${task.status} ${isSelected ? 'task-item--selected' : ''}`}
+                    >
+                      <button type="button" className="task-select" onClick={() => selectTask(task.id)}>
+                        <div className="task-item__top">
+                          <strong>{task.title}</strong>
+                          <span className="task-status">{task.status.replace('_', ' ')}</span>
+                        </div>
+                        <div className="meter meter--sm">
+                          <div className="meter__fill meter__fill--code" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="task-sp">
+                          {formatStoryPoints(task.storyPointsEarned)} /{' '}
+                          {formatStoryPoints(task.storyPointsRequired)} SP
+                          {task.refined && ' · refined'}
+                          {codingAgent && ` · ${codingAgent.name} coding`}
+                          {task.status === 'done' && ' · needs PR'}
+                          {task.status === 'pr_ready' && task.revealedQualityHit !== null && (
+                            <> · review est. -{task.revealedQualityHit.toFixed(1)}</>
+                          )}
+                          {task.status === 'pr_ready' && task.revealedQualityHit === null && (
+                            <> · awaiting review</>
+                          )}
+                        </span>
+                      </button>
+
+                      {task.status === 'pr_ready' && (
+                        <div className="assign-row">
+                          {task.revealedQualityHit !== null && (
+                            <button
+                              type="button"
+                              className="btn btn--small btn--sprint"
+                              onClick={() => mergePr(task.id)}
+                              disabled={isForcedVibe}
+                            >
+                              Merge
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn btn--small btn--danger"
+                            onClick={() => justMergePr(task.id)}
+                            disabled={isForcedVibe}
+                          >
+                            Just Merge
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
 
             {readyToDeliver && (
               <div className="deliver-row">

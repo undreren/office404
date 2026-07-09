@@ -1,4 +1,4 @@
-import type { Lead, Project, Task } from './types'
+import type { Lead, Project, Requirement, Task } from './types'
 import { MIN_STORY_POINTS, REFINE_MIN_STORY_POINTS, TUTORIAL_PAYMENT } from './constants'
 import { FIBONACCI, fibIndex, isFibonacci, pickLeadFibonacci } from './mechanics'
 
@@ -24,22 +24,17 @@ const BLURBS = [
   'Make the app 10x faster without changing anything.',
 ]
 
-const TASK_TITLES = [
-  'Fix auth redirect loop',
-  'Add dark mode (critical)',
-  'Write unit tests (lol)',
-  'Migrate database schema',
-  'Implement webhook handler',
-  'Debug production-only bug',
-  'Add rate limiting',
-  'Refactor god object',
-  'Update API documentation',
-  'Fix mobile layout',
-  'Add logging',
-  'Optimize N+1 queries',
-  'Implement caching layer',
-  'Add error boundaries',
-  'Ship feature flag system',
+const REQUIREMENT_TITLES = [
+  'Users must be able to log in',
+  'Dashboard needs to not look like 2009',
+  'API must return JSON sometimes',
+  'Mobile layout cannot be a war crime',
+  'Admin panel with god-mode toggles',
+  'Webhooks that actually fire',
+  'Rate limiting for the one angry user',
+  'Dark mode (legally mandated)',
+  'Error messages humans can parse',
+  'Caching layer because DB cried',
 ]
 
 let idCounter = 0
@@ -54,6 +49,20 @@ function pick<T>(arr: T[]): T {
 
 function randInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+export function createRequirement(
+  projectId: string,
+  title: string,
+  storyPoints: number,
+): Requirement {
+  return {
+    id: uid('req'),
+    projectId,
+    title,
+    storyPoints,
+    status: 'open',
+  }
 }
 
 export function createTask(
@@ -80,22 +89,39 @@ export function createTask(
   }
 }
 
+function createRequirementsForProject(projectId: string, totalSp: number): Requirement[] {
+  const idx = fibIndex(totalSp)
+  if (idx <= 1 || totalSp <= 3) {
+    return [createRequirement(projectId, pick(REQUIREMENT_TITLES), totalSp)]
+  }
+
+  const spA = FIBONACCI[idx - 1]
+  const spB = totalSp - spA
+  const titles = [...REQUIREMENT_TITLES]
+  const titleA = pick(titles)
+  const titleB = pick(titles.filter((t) => t !== titleA))
+  return [
+    createRequirement(projectId, titleA, spA),
+    createRequirement(projectId, titleB, spB),
+  ]
+}
+
 export function createTutorialProject(): Project {
   const projectId = uid('proj')
   const sp = 5
-  const tasks = [createTask(projectId, 'Fix login button', sp, fibIndex(sp))]
 
   return {
     id: projectId,
     clientName: 'Friendly Neighbor App',
-    blurb: 'Tutorial gig. One ticket. Suspiciously the only cash you have.',
+    blurb: 'Tutorial gig. One requirement. Refine it into work before anyone codes.',
     payment: TUTORIAL_PAYMENT,
     durationDays: 20,
     daysRemaining: 20,
     quality: 88,
     totalStoryPoints: sp,
     status: 'active',
-    tasks,
+    requirements: [createRequirement(projectId, 'Users must be able to log in', sp)],
+    tasks: [],
     isTutorial: true,
     lateCount: 0,
     repPenaltyMultiplier: 1,
@@ -131,7 +157,6 @@ export function generateLead(reputation: number): Lead {
 export function createProjectFromLead(lead: Lead): Project {
   const projectId = uid('proj')
   const sp = lead.totalStoryPoints
-  const tasks = [createTask(projectId, pick(TASK_TITLES), sp, fibIndex(sp))]
 
   return {
     id: projectId,
@@ -143,15 +168,34 @@ export function createProjectFromLead(lead: Lead): Project {
     quality: 75,
     totalStoryPoints: sp,
     status: 'active',
-    tasks,
+    requirements: createRequirementsForProject(projectId, sp),
+    tasks: [],
     isTutorial: false,
     lateCount: 0,
     repPenaltyMultiplier: 1 + lead.durationDays / 40,
   }
 }
 
+export function canRefineRequirement(requirement: Requirement): boolean {
+  return requirement.status === 'open'
+}
+
 export function canRefineTask(task: Task): boolean {
-  return task.storyPointsRequired >= REFINE_MIN_STORY_POINTS && isFibonacci(task.storyPointsRequired)
+  return (
+    task.storyPointsRequired >= REFINE_MIN_STORY_POINTS &&
+    isFibonacci(task.storyPointsRequired) &&
+    task.status !== 'merged' &&
+    task.status !== 'pr_ready' &&
+    task.status !== 'done'
+  )
+}
+
+export function requirementToTask(requirement: Requirement): Task {
+  const sp = requirement.storyPoints
+  return {
+    ...createTask(requirement.projectId, requirement.title, sp, fibIndex(sp)),
+    refined: true,
+  }
 }
 
 export function splitTask(task: Task): Task[] {
@@ -178,4 +222,55 @@ export function splitTask(task: Task): Task[] {
       refined: true,
     },
   ]
+}
+
+export type RefineTarget =
+  | { kind: 'requirement'; requirement: Requirement }
+  | { kind: 'task'; task: Task }
+
+/** Pick the largest refinable requirement or task on a project. */
+export function pickRefineTarget(project: Project): RefineTarget | null {
+  const openRequirements = project.requirements
+    .filter(canRefineRequirement)
+    .sort((a, b) => b.storyPoints - a.storyPoints)
+  if (openRequirements.length > 0) {
+    return { kind: 'requirement', requirement: openRequirements[0] }
+  }
+
+  const refinableTasks = project.tasks
+    .filter(canRefineTask)
+    .sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
+  if (refinableTasks.length > 0) {
+    return { kind: 'task', task: refinableTasks[0] }
+  }
+
+  return null
+}
+
+export function projectHasRefineWork(project: Project): boolean {
+  return pickRefineTarget(project) !== null
+}
+
+export function countActiveTasks(project: Project): number {
+  return project.tasks.filter((t) => t.status !== 'merged').length
+}
+
+export function pickCodingTask(project: Project, agentId: string): Task | null {
+  const own = project.tasks.find(
+    (t) =>
+      t.assignedAgentId === agentId &&
+      (t.status === 'open' || t.status === 'in_progress'),
+  )
+  if (own) return own
+
+  const available = project.tasks
+    .filter(
+      (t) =>
+        (t.status === 'open' || t.status === 'in_progress') &&
+        !t.assignedAgentId &&
+        t.storyPointsEarned < t.storyPointsRequired,
+    )
+    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+
+  return available[0] ?? null
 }

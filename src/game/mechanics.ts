@@ -1,4 +1,4 @@
-import { AGENT_SKILL_REFERENCE_PARAMS, PLAYER_ACTION_BASE_DAYS, QUALITY_REFACTOR_PER_DAY } from './constants'
+import { AGENT_SKILL_REFERENCE_PARAMS, PLAYER_ACTION_BASE_DAYS, QUALITY_REFACTOR_PER_DAY, REFINE_SPEED_MULTIPLIER } from './constants'
 import type { Agent, LoadedModel, Server } from './types'
 import { getModel } from './models'
 
@@ -50,9 +50,15 @@ export function formatSuccessPct(rate: number): string {
   return `${Math.round(rate * 100)}%`
 }
 
-export function computeQualityHit(taskSp: number, modelParameters: number): number {
+export function computeQualityHit(
+  taskSp: number,
+  modelParameters: number,
+  activeTaskCount = 1,
+): number {
   const ratio = taskSp / Math.max(1, modelParameters)
-  return Math.max(0.5, ratio * 8)
+  const base = Math.max(0.5, ratio * 8)
+  const fragmentation = 1 + Math.log2(Math.max(1, activeTaskCount)) * 0.2
+  return base * fragmentation
 }
 
 export function agentJobDurationDays(
@@ -63,6 +69,14 @@ export function agentJobDurationDays(
   const qualityFactor = Math.max(0.01, projectQuality / 100)
   const skillFactor = Math.max(0.25, agentParams / AGENT_SKILL_REFERENCE_PARAMS)
   return (PLAYER_ACTION_BASE_DAYS * fibIndex(taskSp)) / qualityFactor / skillFactor
+}
+
+export function refineJobDurationDays(
+  taskSp: number,
+  projectQuality: number,
+  agentParams: number,
+): number {
+  return agentJobDurationDays(taskSp, projectQuality, agentParams) / REFINE_SPEED_MULTIPLIER
 }
 
 export function reviewAccuracy(agentParams: number, taskSp: number): number {
@@ -80,8 +94,31 @@ export function computeRevealedQualityHit(trueHit: number, agentParams: number, 
   return Math.max(0.5, trueHit * underestimate + noise)
 }
 
+/** Each review pass moves the estimate closer to the true quality hit. */
+export function improveReviewEstimate(
+  currentRevealed: number,
+  trueHit: number,
+  agentParams: number,
+  taskSp: number,
+): number {
+  const accuracy = reviewAccuracy(agentParams, taskSp)
+  const delta = (currentRevealed - trueHit) * accuracy * 0.35
+  return Math.max(trueHit * 0.5, currentRevealed - delta)
+}
+
 export function refactorRatePerDay(agentParams: number): number {
   return QUALITY_REFACTOR_PER_DAY * (agentParams / AGENT_SKILL_REFERENCE_PARAMS)
+}
+
+export function fillAgentContext(
+  agent: Agent,
+  model: { contextSize: number },
+  baseSpeed: number,
+  deltaSec: number,
+): number {
+  const tok = tokensPerTick(model.contextSize) * baseSpeed * deltaSec
+  agent.contextUsed += tok
+  return contextFillPct(agent.contextUsed, model.contextSize)
 }
 
 export function agentIsBusy(agent: Agent): boolean {

@@ -28,6 +28,9 @@ export const QUALITY_REFACTOR_PER_DAY = 12
 /** Local 4B is the baseline for review/refine/refactor speed. */
 export const AGENT_SKILL_REFERENCE_PARAMS = 4
 
+/** Refine jobs complete this many times faster than code/review. */
+export const REFINE_SPEED_MULTIPLIER = 10
+
 /** Smallest SP ticket that can still be refined (1 → 0.5+0.5). */
 export const REFINE_MIN_STORY_POINTS = 1
 /** Smallest leaf ticket after refinement. */

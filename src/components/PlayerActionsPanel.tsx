@@ -1,4 +1,3 @@
-import { getModel } from '../game/models'
 import { useGameStore } from '../game/store'
 import { NewGameButton } from './NewGameButton'
 
@@ -9,7 +8,6 @@ export function PlayerActionsPanel() {
   const startVibe = useGameStore((s) => s.startVibe)
   const mergePr = useGameStore((s) => s.mergePr)
   const justMergePr = useGameStore((s) => s.justMergePr)
-  const assignAgentToReview = useGameStore((s) => s.assignAgentToReview)
 
   const prReadyTasks = projects.flatMap((p) =>
     p.tasks.filter((t) => t.status === 'pr_ready').map((t) => ({ ...t, project: p })),
@@ -18,10 +16,8 @@ export function PlayerActionsPanel() {
   const isForcedVibe = playerAction?.forced === true
   const isVibing = playerAction?.type === 'vibe'
 
-  const idleAgents = agents.filter((a) => !a.job && a.status !== 'compacted')
-
-  function reviewingAgent(taskId: string) {
-    return agents.find((a) => a.job === 'review' && a.taskId === taskId) ?? null
+  function reviewingProject(projectId: string) {
+    return agents.find((a) => a.job === 'review' && a.projectId === projectId) ?? null
   }
 
   return (
@@ -55,10 +51,7 @@ export function PlayerActionsPanel() {
         <div className="pr-queue">
           <h3>PRs Waiting ({prReadyTasks.length})</h3>
           {prReadyTasks.map(({ id, title, project, revealedQualityHit }) => {
-            const reviewer = reviewingAgent(id)
-            const reviewPct = reviewer && reviewer.jobDuration > 0
-              ? Math.min(100, (reviewer.jobProgress / reviewer.jobDuration) * 100)
-              : 0
+            const reviewer = reviewingProject(project.id)
 
             return (
               <div key={id} className="pr-item">
@@ -68,27 +61,13 @@ export function PlayerActionsPanel() {
                     <em> · review est. -{revealedQualityHit.toFixed(1)}</em>
                   )}
                   {revealedQualityHit === null && !reviewer && (
-                    <em> · assign an agent to review</em>
+                    <em> · assign a Review agent on the project</em>
                   )}
                   {reviewer && revealedQualityHit === null && (
-                    <em> · {reviewer.name} reviewing ({Math.round(reviewPct)}%)</em>
+                    <em> · {reviewer.name} reviewing PRs</em>
                   )}
                 </span>
                 <div className="action-row">
-                  {revealedQualityHit === null && !reviewer && idleAgents.slice(0, 3).map((a) => {
-                    const model = getModel(a.modelId)
-                    return (
-                      <button
-                        key={a.id}
-                        type="button"
-                        className="btn btn--small"
-                        onClick={() => assignAgentToReview(a.id, id)}
-                        disabled={isForcedVibe}
-                      >
-                        Review → {a.name} ({model?.parameters ?? '?'}B)
-                      </button>
-                    )
-                  })}
                   {revealedQualityHit !== null && (
                     <button type="button" className="btn btn--small btn--sprint" onClick={() => mergePr(id)} disabled={isForcedVibe}>
                       Merge
