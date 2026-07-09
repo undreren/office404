@@ -32,7 +32,9 @@ export function ServerRack() {
       <h2>Server Farm</h2>
 
       {servers.map((server) => {
-        const serverAgents = agents.filter((a) => a.serverId === server.id)
+        const serverAgents = agents.filter(
+          (a) => a.serverId === server.id && getModel(a.modelId)?.kind === 'local',
+        )
         const gpuShare = serverAgents.length > 1 ? `GPU ÷${serverAgents.length}` : 'GPU ×1'
 
         return (
@@ -58,7 +60,7 @@ export function ServerRack() {
 
             <div className="agent-grid">
               {serverAgents.length === 0 && (
-                <p className="empty-slot">Empty rack. Install or deploy a model — RAM permitting.</p>
+                <p className="empty-slot">Empty rack. Install a local model — RAM permitting.</p>
               )}
               {serverAgents.map((agent) => {
                 const model = getModel(agent.modelId)

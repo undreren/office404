@@ -805,6 +805,15 @@ body {
   border-color: var(--accent-dim);
 }
 
+.agent-card--cloud {
+  border-color: rgba(91, 156, 245, 0.35);
+}
+
+.cloud-agents-panel .agent-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
 /* Game overlay */
 .game-overlay {
   position: fixed;

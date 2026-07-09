@@ -37,7 +37,7 @@ export interface Agent {
   id: string
   name: string
   modelId: string
-  serverId: string
+  serverId: string | null
   taskId: string | null
   status: AgentStatus
   personality: string
@@ -163,7 +163,7 @@ export interface GameActions {
   unassignAgent: (agentId: string) => void
   restartAgent: (agentId: string) => void
   offloadAgent: (agentId: string) => void
-  deployCloudAgent: (modelId: string, serverId: string) => boolean
+  deployCloudAgent: (modelId: string) => boolean
   installLocalAgent: (modelId: string, serverId: string) => boolean
   buyLocalModel: (modelId: string) => boolean
   buyServer: (tier: RackTier) => boolean

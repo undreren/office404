@@ -157,22 +157,27 @@ function computeQualityHit(task: Task, project: Project, justMerge: boolean, rev
   return Math.max(1, hit + Math.random() * 3)
 }
 
+function isLocalAgent(agent: Agent): boolean {
+  return getModel(agent.modelId)?.kind === 'local'
+}
+
 function gpuShareMultiplier(agents: Agent[], serverId: string): number {
-  const count = countAgentsOnServer(agents, serverId)
+  const count = countLocalAgentsOnServer(agents, serverId)
   return count <= 1 ? 1 : 1 / count
 }
 
 function agentTickSpeed(agent: Agent, agents: Agent[], gpuUnits: number): number {
   const model = getModel(agent.modelId)
   if (!model) return 0
+  if (model.kind === 'cloud') return model.localTickCap
+  if (!agent.serverId) return 0
   const share = gpuShareMultiplier(agents, agent.serverId)
-  if (model.kind === 'cloud') return share
   const gpuBoost = 1 + (gpuUnits - 1) * GPU_SPEED_PER_LEVEL
   return Math.min(LOCAL_TICK_HARD_CAP, model.localTickCap * gpuBoost * share)
 }
 
-function countAgentsOnServer(agents: Agent[], serverId: string): number {
-  return agents.filter((a) => a.serverId === serverId).length
+function countLocalAgentsOnServer(agents: Agent[], serverId: string): number {
+  return agents.filter((a) => a.serverId === serverId && isLocalAgent(a)).length
 }
 
 function allTasksMerged(project: Project): boolean {
@@ -407,8 +412,10 @@ export const useGameStore = create<GameStore>()(
           const taskRef = findTask(nextProjects, agent.taskId)
           if (!taskRef || taskRef.task.status === 'merged' || taskRef.task.status === 'pr_ready') continue
 
-          const server = nextServers.find((s) => s.id === agent.serverId)
-          if (!server || server.onFire) continue
+          if (model.kind === 'local') {
+            const server = nextServers.find((s) => s.id === agent.serverId)
+            if (!server || server.onFire) continue
+          }
 
           if (agent.status === 'compacted') continue
           if (agent.status !== 'working') continue
@@ -808,23 +815,22 @@ export const useGameStore = create<GameStore>()(
           events: pushEvent(
             state.events,
             'system',
-            `Offloaded ${agent.name} (${model?.name ?? 'model'}). ${model?.kind === 'local' ? 'RAM' : 'GPU slot'} freed.`,
+            `Offloaded ${agent.name} (${model?.name ?? 'model'}). ${model?.kind === 'local' ? 'RAM freed.' : 'Cloud instance terminated.'}`,
           ),
         })
       },
 
-      deployCloudAgent(modelId, serverId) {
+      deployCloudAgent(modelId) {
         const state = get()
         const model = getModel(modelId)
-        const server = state.servers.find((s) => s.id === serverId)
-        if (!model || model.kind !== 'cloud' || !server || server.onFire) return false
+        if (!model || model.kind !== 'cloud') return false
         if (state.cash < model.deployCost) return false
 
         const agent: Agent = {
           id: uid('agt'),
           name: generateAgentName(),
           modelId,
-          serverId,
+          serverId: null,
           taskId: null,
           status: 'idle',
           personality: generatePersonality(),
@@ -837,7 +843,7 @@ export const useGameStore = create<GameStore>()(
           cash: state.cash - model.deployCost,
           agents: [...state.agents, agent],
           stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-          events: pushEvent(state.events, 'system', `Deployed ${agent.name} (${model.name}). Token meter weeps.`),
+          events: pushEvent(state.events, 'system', `Deployed ${agent.name} (${model.name}) to the cloud. Token meter weeps.`),
         })
         return true
       },
@@ -991,7 +997,7 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
-      version: 4,
+      version: 5,
       migrate: (persisted, version) => {
         const s = persisted as Partial<GameStore>
         if (s.agents) {
@@ -1001,6 +1007,9 @@ export const useGameStore = create<GameStore>()(
               agent.status = 'working'
             }
             delete (agent as { warmupRemaining?: number }).warmupRemaining
+            if (version < 5 && getModel(agent.modelId)?.kind === 'cloud') {
+              agent.serverId = null
+            }
             return agent
           })
         }
