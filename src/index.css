@@ -13,6 +13,7 @@
   --sanity: #b388ff;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -69,7 +70,7 @@ body {
   top: 0;
   z-index: 100;
   background: linear-gradient(180deg, var(--bg) 85%, transparent);
-  padding: 1rem 1rem 0.75rem;
+  padding: calc(0.75rem + var(--safe-top)) 1rem 0.75rem;
   border-bottom: 1px solid var(--border);
 }
 
@@ -92,6 +93,26 @@ body {
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.resource-bar__quit {
+  flex-shrink: 0;
+  width: auto;
+  margin: 0;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+
+.btn--header-quit {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger);
+  background: transparent;
+  opacity: 0.75;
+}
+
+.btn--header-quit:active:not(:disabled) {
+  opacity: 1;
 }
 
 .glitch {
@@ -777,6 +798,16 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--accent);
+}
+
+.crew-row__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.crew-row__assigned {
+  margin: 0;
 }
 
 .task-item {

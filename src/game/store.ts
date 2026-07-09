@@ -24,7 +24,6 @@ import {
   BUG_SHIPPED_SANITY_PENALTY,
   EXPIRED_LEAD_REP_PENALTY,
   EXTINGUISH_COST,
-  FORCED_VIBE_THRESHOLD,
   INITIAL_CASH,
   INITIAL_MAX_TOKENS,
   INITIAL_REPUTATION,
@@ -41,8 +40,6 @@ import {
   RACK_CONFIG,
   RACK_REFURBISH_VALUE,
   RENT_INTERVAL_DAYS,
-  SANITY_FORCED_VIBE_MULTIPLIER,
-  SANITY_PASSIVE_DRAIN,
   SANITY_VIBE_RESTORE,
   SAVE_KEY,
   SECONDS_PER_GAME_DAY,
@@ -385,30 +382,7 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        const forcedVibe = sanity <= FORCED_VIBE_THRESHOLD
-        if (forcedVibe && (!nextPlayerAction || nextPlayerAction.type !== 'vibe')) {
-          nextPlayerAction = {
-            type: 'vibe',
-            taskId: '',
-            progress: 0,
-            duration: 999,
-            forced: true,
-          }
-          nextEvents = pushEvent(nextEvents, 'system', 'Sanity critical. Forced smoke break at half speed.')
-        }
-
-        const vibeMult = nextPlayerAction?.forced ? SANITY_FORCED_VIBE_MULTIPLIER : 1
-
-        if (nextPlayerAction?.type === 'vibe') {
-          sanity = Math.min(100, sanity + SANITY_VIBE_RESTORE * dayProgress * vibeMult)
-          if (!forcedVibe && sanity >= 95) nextPlayerAction = null
-          if (forcedVibe && sanity >= 100) {
-            nextPlayerAction = null
-            nextEvents = pushEvent(nextEvents, 'system', 'Sanity restored. Back to the suffering.')
-          }
-        } else if (!nextPlayerAction) {
-          sanity = Math.max(0, sanity - SANITY_PASSIVE_DRAIN * dayProgress)
-        }
+        sanity = Math.min(100, sanity + SANITY_VIBE_RESTORE * dayProgress)
 
         let tokenBurn = 0
         const gpus = rackGpus()
@@ -831,21 +805,11 @@ export const useGameStore = create<GameStore>()(
       },
 
       startVibe() {
-        const state = get()
-        if (state.playerAction?.forced) return
-        if (state.playerAction?.type === 'vibe' && !state.playerAction.forced) {
-          set({ playerAction: null })
-          return
-        }
-        set({
-          playerAction: { type: 'vibe', taskId: '', progress: 0, duration: 9999 },
-          events: pushEvent(state.events, 'system', 'Smoke break. Agents keep ticking. You keep existing.'),
-        })
+        // Always vibing — no toggle needed.
       },
 
       mergePr(taskId) {
         const state = get()
-        if (state.playerAction?.forced) return
         const result = mergeTaskOnProject(state.projects, taskId, state.agents, true)
         if (!result) return
 
@@ -858,7 +822,6 @@ export const useGameStore = create<GameStore>()(
 
       justMergePr(taskId) {
         const state = get()
-        if (state.playerAction?.forced) return
         const result = mergeTaskOnProject(state.projects, taskId, state.agents, false)
         if (!result) return
 
@@ -870,8 +833,6 @@ export const useGameStore = create<GameStore>()(
       },
 
       cancelPlayerAction() {
-        const state = get()
-        if (state.playerAction?.forced) return
         set({ playerAction: null })
       },
 

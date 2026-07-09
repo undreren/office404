@@ -14,15 +14,11 @@ export function ResourceBar() {
   const servers = useGameStore((s) => s.servers)
   const usedRam = useGameStore((s) => s.usedRam)
   const totalRam = useGameStore((s) => s.totalRam)
-  const playerAction = useGameStore((s) => s.playerAction)
-  const startVibe = useGameStore((s) => s.startVibe)
 
   const tokenPct = Math.min(100, (tokens / maxTokens) * 100)
   const netWorth = getNetWorth({ cash, servers })
   const winPct = Math.min(100, (netWorth / WIN_NET_WORTH) * 100)
   const rentAmount = APARTMENT_CONFIG[apartment].rent
-  const isForcedVibe = playerAction?.forced === true
-  const isVibing = playerAction?.type === 'vibe'
 
   return (
     <header className="resource-bar">
@@ -60,7 +56,7 @@ export function ResourceBar() {
           </span>
         </div>
 
-        <div className="resource resource--vibe">
+        <div className="resource">
           <label>Sanity</label>
           <div className="meter">
             <div
@@ -68,17 +64,7 @@ export function ResourceBar() {
               style={{ width: `${Math.min(100, sanity)}%` }}
             />
           </div>
-          <div className="resource--vibe__row">
-            <span>{Math.floor(sanity)}%</span>
-            <button
-              type="button"
-              className={`btn btn--small btn--zone ${isVibing ? 'btn--active' : ''}`}
-              onClick={startVibe}
-              disabled={isForcedVibe}
-            >
-              {isForcedVibe ? 'Forced vibe…' : isVibing ? 'Stop vibe' : 'Vibe'}
-            </button>
-          </div>
+          <span>{Math.floor(sanity)}%</span>
         </div>
 
         <div className="resource resource--inline">

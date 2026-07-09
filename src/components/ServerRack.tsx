@@ -158,7 +158,7 @@ function HostRack({
                   )
                 })()}
 
-                {agent.job === 'code' && agent.status !== 'idle' && (
+                {agent.job && agent.status !== 'compacted' && (
                   <div className="meter-row">
                     <label>Context</label>
                     <div className="meter meter--sm">

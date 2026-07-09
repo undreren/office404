@@ -26,10 +26,8 @@ export function ProjectsPanel() {
   const mergePr = useGameStore((s) => s.mergePr)
   const justMergePr = useGameStore((s) => s.justMergePr)
   const deliverProject = useGameStore((s) => s.deliverProject)
-  const playerAction = useGameStore((s) => s.playerAction)
 
   const idleAgents = agents.filter((a) => !a.job && a.status !== 'compacted')
-  const isForcedVibe = playerAction?.forced === true
 
   function projectAgents(projectId: string, job: AgentJob) {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
@@ -153,34 +151,39 @@ export function ProjectsPanel() {
                 return (
                   <div key={job} className="crew-row">
                     <span className="crew-label">{label}</span>
-                    {assigned.length > 0 ? (
-                      <span className="hint">
-                        {assigned.map((a) => a.name).join(', ')}
-                      </span>
-                    ) : (
-                      <div className="assign-row">
-                        {idleAgents.slice(0, 2).map((a) => {
-                          const model = getModel(a.modelId)
-                          const hint =
-                            job === 'code' && project.tasks[0]
-                              ? formatSuccessPct(
-                                  modelSuccessForTask(a.modelId, project.tasks[0].storyPointsRequired),
-                                )
-                              : `${model?.parameters ?? '?'}B`
-                          return (
-                            <button
-                              key={a.id}
-                              type="button"
-                              className="btn btn--small"
-                              disabled={disabled}
-                              onClick={() => assignAgentToProject(a.id, project.id, job)}
-                            >
-                              {label} → {a.name} ({hint})
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
+                    <div className="crew-row__content">
+                      {assigned.length > 0 && (
+                        <span className="hint crew-row__assigned">
+                          {assigned.map((a) => a.name).join(', ')}
+                        </span>
+                      )}
+                      {idleAgents.length > 0 && (
+                        <div className="assign-row">
+                          {idleAgents.slice(0, 2).map((a) => {
+                            const model = getModel(a.modelId)
+                            const hint =
+                              job === 'code' && project.tasks[0]
+                                ? formatSuccessPct(
+                                    modelSuccessForTask(a.modelId, project.tasks[0].storyPointsRequired),
+                                  )
+                                : model
+                                  ? `${model.parameters}B · ${model.contextSize}k ctx`
+                                  : '?'
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                className="btn btn--small"
+                                disabled={disabled}
+                                onClick={() => assignAgentToProject(a.id, project.id, job)}
+                              >
+                                {label} → {a.name} ({hint})
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -233,9 +236,8 @@ export function ProjectsPanel() {
                           {task.revealedQualityHit !== null && (
                             <button
                               type="button"
-                              className="btn btn--small btn--sprint"
+                              className="btn btn--small"
                               onClick={() => mergePr(task.id)}
-                              disabled={isForcedVibe}
                             >
                               Merge
                             </button>
@@ -244,7 +246,6 @@ export function ProjectsPanel() {
                             type="button"
                             className="btn btn--small btn--danger"
                             onClick={() => justMergePr(task.id)}
-                            disabled={isForcedVibe}
                           >
                             Just Merge
                           </button>

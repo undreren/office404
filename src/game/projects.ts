@@ -190,9 +190,14 @@ export function canRefineRequirement(requirement: Requirement): boolean {
   return requirement.status === 'open'
 }
 
+/** Leaf tickets (0.5 SP) are done refining; larger tickets can always be split further. */
+export function isRefineLeaf(sp: number): boolean {
+  return sp < REFINE_MIN_STORY_POINTS
+}
+
 export function canRefineTask(task: Task): boolean {
   return (
-    task.storyPointsRequired >= REFINE_MIN_STORY_POINTS &&
+    !isRefineLeaf(task.storyPointsRequired) &&
     isFibonacci(task.storyPointsRequired) &&
     task.status !== 'merged' &&
     task.status !== 'pr_ready' &&
@@ -204,7 +209,7 @@ export function requirementToTask(requirement: Requirement): Task {
   const sp = requirement.storyPoints
   return {
     ...createTask(requirement.projectId, requirement.title, sp, fibIndex(sp)),
-    refined: true,
+    refined: isRefineLeaf(sp),
   }
 }
 
@@ -224,12 +229,12 @@ export function splitTask(task: Task): Task[] {
     {
       ...createTask(task.projectId, `${task.title} (A)`, spA, fibIndex(spA), task.id),
       storyPointsEarned: earnedA,
-      refined: true,
+      refined: isRefineLeaf(spA),
     },
     {
       ...createTask(task.projectId, `${task.title} (B)`, spB, fibIndex(spB), task.id),
       storyPointsEarned: earnedB,
-      refined: true,
+      refined: isRefineLeaf(spB),
     },
   ]
 }
