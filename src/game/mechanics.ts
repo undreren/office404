@@ -5,8 +5,10 @@ import {
   PLAYER_ACTION_BASE_DAYS,
   QUALITY_REFACTOR_PER_DAY,
   REFINE_SPEED_MULTIPLIER,
+  REVIEW_CODE_TIME_FRACTION,
   REVIEW_COMMENT_REDUCTION_CAP,
   REVIEW_COMMENT_REDUCTION_FRACTION,
+  SECONDS_PER_GAME_DAY,
   TEST_DIFFICULTY_SP,
   TEST_SPEED_MULTIPLIER,
 } from './constants'
@@ -116,6 +118,25 @@ export function agentJobDurationDays(
   const qualityFactor = Math.max(0.01, projectQuality / 100)
   const skillFactor = Math.max(0.25, agentParams / AGENT_SKILL_REFERENCE_PARAMS)
   return (PLAYER_ACTION_BASE_DAYS * fibIndex(taskSp)) / qualityFactor / skillFactor
+}
+
+/** Expected in-game days for a coding agent to finish a ticket (success-rate model). */
+export function estimatedCodeDurationDays(taskSp: number, agentParams: number): number {
+  const success = agentParams / (agentParams + taskSp)
+  const increments = taskSp * 10
+  const expectedTicks = increments / Math.max(0.01, success)
+  return expectedTicks / SECONDS_PER_GAME_DAY
+}
+
+export function reviewJobDurationDays(
+  taskSp: number,
+  projectQuality: number,
+  agentParams: number,
+): number {
+  const qualityFactor = Math.max(0.01, projectQuality / 100)
+  const days =
+    (estimatedCodeDurationDays(taskSp, agentParams) * REVIEW_CODE_TIME_FRACTION) / qualityFactor
+  return Math.max(PLAYER_ACTION_BASE_DAYS / 10, days)
 }
 
 export function refineJobDurationDays(
