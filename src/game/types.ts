@@ -1,6 +1,6 @@
 export type ModelKind = 'local' | 'cloud'
 
-export type AgentStatus = 'idle' | 'warming' | 'working' | 'compacted' | 'crashed'
+export type AgentStatus = 'idle' | 'working' | 'compacted' | 'crashed'
 
 export type PlayerActionType = 'sprint' | 'vibe' | 'review' | 'refine' | 'refactor'
 
@@ -42,7 +42,6 @@ export interface Agent {
   status: AgentStatus
   personality: string
   contextUsed: number
-  warmupRemaining: number
   totalTokensBurned: number
   uptime: number
 }

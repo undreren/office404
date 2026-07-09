@@ -793,10 +793,6 @@ body {
   animation: pulse-danger 1s ease infinite;
 }
 
-.agent-card--warming {
-  border-color: var(--warning);
-}
-
 .agent-card--working {
   border-color: var(--accent-dim);
 }
