@@ -1,4 +1,4 @@
-import { REFINE_MIN_STORY_POINTS } from '../game/constants'
+import { canRefineTask } from '../game/projects'
 import { formatSuccessPct } from '../game/mechanics'
 import {
   playerProjectedQualityHit,
@@ -142,8 +142,7 @@ export function PlayerActionsPanel() {
           disabled={
             isForcedVibe ||
             !selectedTask ||
-            selectedTask.refined ||
-            selectedTask.storyPointsRequired < REFINE_MIN_STORY_POINTS
+            !canRefineTask(selectedTask)
           }
         >
           Refine

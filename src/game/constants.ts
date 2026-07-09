@@ -30,7 +30,8 @@ export const QUALITY_BASE_HIT = 8
 export const QUALITY_REFACTOR_PER_DAY = 12
 export const QUALITY_REFACTOR_PRE_MERGE_MULT = 0.5
 
-export const REFINE_MIN_STORY_POINTS = 2
+/** Smallest Fibonacci SP that can split (3 → 2+1). */
+export const REFINE_MIN_STORY_POINTS = 3
 
 export const LATE_FEE_PERCENT = 0.15
 export const LATE_REP_PENALTY_BASE = 3
