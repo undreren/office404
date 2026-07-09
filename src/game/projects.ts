@@ -1,6 +1,6 @@
 import type { Agent, AgentJob, Lead, Project, Requirement, Task } from './types'
 import { MIN_STORY_POINTS, REFINE_MIN_STORY_POINTS, TUTORIAL_PAYMENT } from './constants'
-import { FIBONACCI, fibIndex, isFibonacci, pickLeadFibonacci } from './mechanics'
+import { agentIsBusy, FIBONACCI, fibIndex, isFibonacci, pickLeadFibonacci } from './mechanics'
 
 const CLIENTS = [
   'Nexus Dynamics',
@@ -258,6 +258,7 @@ export function jobClaimedTaskIds(
   for (const agent of agents) {
     if (agent.id === exceptAgentId) continue
     if (agent.job !== job || agent.projectId !== projectId || !agent.taskId) continue
+    if (!agentIsBusy(agent)) continue
     ids.add(agent.taskId)
   }
   return ids
