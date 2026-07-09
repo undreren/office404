@@ -120,7 +120,7 @@ export function CloudAgentsPanel() {
                 )
               })()}
 
-              {agent.job === 'code' && agent.status !== 'idle' && model && (
+              {agent.job && agent.status !== 'compacted' && model && (
                 <div className="meter-row">
                   <label>Context</label>
                   <div className="meter meter--sm">

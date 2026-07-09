@@ -26,10 +26,8 @@ export function ProjectsPanel() {
   const mergePr = useGameStore((s) => s.mergePr)
   const justMergePr = useGameStore((s) => s.justMergePr)
   const deliverProject = useGameStore((s) => s.deliverProject)
-  const playerAction = useGameStore((s) => s.playerAction)
 
   const idleAgents = agents.filter((a) => !a.job && a.status !== 'compacted')
-  const isForcedVibe = playerAction?.forced === true
 
   function projectAgents(projectId: string, job: AgentJob) {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
@@ -166,7 +164,9 @@ export function ProjectsPanel() {
                               ? formatSuccessPct(
                                   modelSuccessForTask(a.modelId, project.tasks[0].storyPointsRequired),
                                 )
-                              : `${model?.parameters ?? '?'}B`
+                              : model
+                                ? `${model.parameters}B · ${model.contextSize}k ctx`
+                                : '?'
                           return (
                             <button
                               key={a.id}
@@ -233,9 +233,8 @@ export function ProjectsPanel() {
                           {task.revealedQualityHit !== null && (
                             <button
                               type="button"
-                              className="btn btn--small btn--sprint"
+                              className="btn btn--small"
                               onClick={() => mergePr(task.id)}
-                              disabled={isForcedVibe}
                             >
                               Merge
                             </button>
@@ -244,7 +243,6 @@ export function ProjectsPanel() {
                             type="button"
                             className="btn btn--small btn--danger"
                             onClick={() => justMergePr(task.id)}
-                            disabled={isForcedVibe}
                           >
                             Just Merge
                           </button>
