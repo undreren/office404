@@ -1,12 +1,16 @@
-import { useGameStore } from '../game/store'
+import { WIN_NET_WORTH } from '../game/constants'
+import { getNetWorth, useGameStore } from '../game/store'
 
 export function PlayerActionsPanel() {
   const playerAction = useGameStore((s) => s.playerAction)
   const selectedTaskId = useGameStore((s) => s.selectedTaskId)
   const sanity = useGameStore((s) => s.sanity)
+  const cash = useGameStore((s) => s.cash)
+  const servers = useGameStore((s) => s.servers)
   const reviewRevealedHit = useGameStore((s) => s.reviewRevealedHit)
   const projects = useGameStore((s) => s.projects)
   const startSprint = useGameStore((s) => s.startSprint)
+  const retire = useGameStore((s) => s.retire)
   const startVibe = useGameStore((s) => s.startVibe)
   const startRefine = useGameStore((s) => s.startRefine)
   const startRefactor = useGameStore((s) => s.startRefactor)
@@ -30,6 +34,7 @@ export function PlayerActionsPanel() {
   const isSprinting = playerAction?.type === 'sprint'
   const isVibing = playerAction?.type === 'vibe'
   const isRefactoring = playerAction?.type === 'refactor'
+  const canRetire = getNetWorth({ cash, servers }) >= WIN_NET_WORTH
 
   function secondsLeft(): number {
     if (!playerAction || playerAction.type === 'sprint' || playerAction.type === 'refactor' || playerAction.type === 'vibe') {
@@ -77,23 +82,25 @@ export function PlayerActionsPanel() {
       <div className="action-row">
         <button
           type="button"
-          className={`btn btn--sprint ${isSprinting ? 'btn--active' : ''}`}
-          onClick={startSprint}
-          disabled={
-            isForcedVibe ||
-            (!isSprinting &&
-              (!selectedTask || selectedTask.status === 'merged' || selectedTask.status === 'pr_ready' || sanity < 5))
-          }
-        >
-          {isSprinting ? 'Stop sprint' : 'Sprint'}
-        </button>
-        <button
-          type="button"
           className={`btn btn--zone ${isVibing ? 'btn--active' : ''}`}
           onClick={startVibe}
           disabled={isForcedVibe}
         >
           {isVibing && !isForcedVibe ? 'Stop vibe' : 'Vibe'}
+        </button>
+        <button
+          type="button"
+          className={`btn ${canRetire ? 'btn--retire' : 'btn--sprint'} ${isSprinting && !canRetire ? 'btn--active' : ''}`}
+          onClick={canRetire ? retire : startSprint}
+          disabled={
+            canRetire
+              ? false
+              : isForcedVibe ||
+                (!isSprinting &&
+                  (!selectedTask || selectedTask.status === 'merged' || selectedTask.status === 'pr_ready' || sanity < 5))
+          }
+        >
+          {canRetire ? 'Retire' : isSprinting ? 'just give up' : 'Sprint'}
         </button>
         <button
           type="button"

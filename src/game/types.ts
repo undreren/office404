@@ -172,6 +172,7 @@ export interface GameActions {
   buyTokens: () => boolean
   upgradeApartment: () => boolean
   extinguishFire: (serverId: string) => boolean
+  retire: () => void
   resetGame: () => void
 }
 
