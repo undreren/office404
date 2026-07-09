@@ -22,7 +22,6 @@ export function ResourceBar() {
 
   return (
     <header className="resource-bar">
-      <NewGameButton />
       <div className="resource-bar__header">
         <div className="resource-bar__title">
           <span className="glitch" data-text="OFFICE 404">
@@ -30,6 +29,7 @@ export function ResourceBar() {
           </span>
           <small>Intelligence Not Found · Day {Math.floor(gameDay)}</small>
         </div>
+        <NewGameButton />
       </div>
 
       <div className="resource-grid">
