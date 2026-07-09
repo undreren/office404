@@ -25,8 +25,11 @@ export const VIBE_MIN_DAYS = 1
 
 export const QUALITY_BASE_HIT = 8
 export const QUALITY_REFACTOR_PER_DAY = 12
-/** Local 4B is the baseline for review/refine/refactor speed. */
+/** Local 4B is the baseline for refine/refactor speed. */
 export const AGENT_SKILL_REFERENCE_PARAMS = 4
+
+/** Review finishes in this fraction of expected coding time on the same ticket. */
+export const REVIEW_CODE_TIME_FRACTION = 0.5
 
 /** Refine jobs complete this many times faster than code/review. */
 export const REFINE_SPEED_MULTIPLIER = 10
