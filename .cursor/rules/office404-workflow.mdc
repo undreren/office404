@@ -1,0 +1,36 @@
+---
+description: Office 404 agent workflow — grill before build, brief plan, ship PRs
+alwaysApply: true
+---
+
+# Office 404 workflow
+
+Kasper does not review PR diffs. Optimize for clarity in conversation, not in PR prose.
+
+## Before implementing
+
+Unless the request is a trivial fix (typo, one-liner, explicit "just do it"):
+
+1. Run a **grilling session** using the `grilling` / `grill-me` skill.
+   - One question at a time; include a recommended answer.
+   - Look up facts in the codebase instead of asking.
+   - Decisions are Kasper's — wait for answers.
+   - Do not write code until Kasper confirms shared understanding.
+
+2. Post a **tight bullet list** (max ~5 bullets) of what you will change.
+
+3. Wait for explicit go-ahead (`go`, `ship it`, `proceed`, etc.) before editing.
+
+Skip grilling only when Kasper explicitly waives it or the task is obviously microscopic.
+
+## While implementing
+
+- Keep diffs focused; match existing game code style.
+- Branch names: `cursor/<descriptive-name>-2daf`
+
+## After implementing
+
+- Commit, push, open PR.
+- **Merge when CI is green** without waiting for Kasper to review code.
+- PR body: short bullets only — what broke, what changed, how verified.
+- Ping Kasper only for blocked CI, ambiguous product calls, or external setup.
