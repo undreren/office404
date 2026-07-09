@@ -23,6 +23,8 @@ export function ProjectsPanel() {
   const agents = useGameStore((s) => s.agents)
   const selectTask = useGameStore((s) => s.selectTask)
   const assignAgentToProject = useGameStore((s) => s.assignAgentToProject)
+  const unassignAgent = useGameStore((s) => s.unassignAgent)
+  const restartAgent = useGameStore((s) => s.restartAgent)
   const mergePr = useGameStore((s) => s.mergePr)
   const justMergePr = useGameStore((s) => s.justMergePr)
   const deliverProject = useGameStore((s) => s.deliverProject)
@@ -152,11 +154,31 @@ export function ProjectsPanel() {
                   <div key={job} className="crew-row">
                     <span className="crew-label">{label}</span>
                     <div className="crew-row__content">
-                      {assigned.length > 0 && (
-                        <span className="hint crew-row__assigned">
-                          {assigned.map((a) => a.name).join(', ')}
-                        </span>
-                      )}
+                      {assigned.map((a) => (
+                        <div key={a.id} className="crew-agent-row">
+                          <span className="crew-agent-name">{a.name}</span>
+                          <div className="assign-row">
+                            {a.status === 'compacted' && (
+                              <button
+                                type="button"
+                                className="btn btn--small"
+                                onClick={() => restartAgent(a.id)}
+                              >
+                                Restart
+                              </button>
+                            )}
+                            {a.job && (
+                              <button
+                                type="button"
+                                className="btn btn--small btn--danger"
+                                onClick={() => unassignAgent(a.id)}
+                              >
+                                Yank
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                       {idleAgents.length > 0 && (
                         <div className="assign-row">
                           {idleAgents.slice(0, 2).map((a) => {
