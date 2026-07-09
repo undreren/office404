@@ -80,7 +80,7 @@ export function MarketplacePanel() {
                 </header>
                 <p className="vendor-tagline">{model.tagline}</p>
                 <ul className="vendor-stats">
-                  <li>{model.parameters}B params · max {model.parameters} SP/task</li>
+                  <li>{model.parameters}B params</li>
                   <li>{model.contextSize}k context</li>
                   <li>{successLabel(model.id)} on 1 SP</li>
                 </ul>

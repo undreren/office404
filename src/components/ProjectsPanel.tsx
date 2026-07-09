@@ -1,4 +1,4 @@
-import { canAgentHandleTask, formatStoryPoints } from '../game/mechanics'
+import { formatStoryPoints } from '../game/mechanics'
 import { getModel } from '../game/models'
 import { isReadyToDeliver, modelSuccessForTask, projectProgressPct, useGameStore } from '../game/store'
 
@@ -70,9 +70,7 @@ export function ProjectsPanel() {
                 const isSelected = selectedTaskId === task.id
                 const idleAgents = agents.filter((a) => {
                   if (a.taskId || a.status === 'compacted') return false
-                  const model = getModel(a.modelId)
-                  if (!model) return false
-                  return canAgentHandleTask(model.parameters, task.storyPointsRequired)
+                  return !!getModel(a.modelId)
                 })
 
                 return (
@@ -113,7 +111,7 @@ export function ProjectsPanel() {
                     )}
 
                     {task.status !== 'merged' && task.status !== 'pr_ready' && isSelected && idleAgents.length === 0 && (
-                      <p className="hint">No agent can handle {formatStoryPoints(task.storyPointsRequired)} SP. Refine or upgrade.</p>
+                      <p className="hint">No idle agents available.</p>
                     )}
                   </li>
                 )

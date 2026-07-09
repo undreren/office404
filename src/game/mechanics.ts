@@ -22,7 +22,7 @@ export function formatStoryPoints(sp: number): string {
 /** One sprint/agent tick worth of progress toward a ticket. */
 export function storyPointIncrement(required: number, earned: number): number {
   const remaining = required - earned
-  return remaining <= 1 ? remaining : 1
+  return remaining <= 0.1 ? remaining : 0.1
 }
 
 export function pickLeadFibonacci(reputation: number): number {
@@ -58,10 +58,6 @@ export function computeQualityHit(taskSp: number, modelParameters: number): numb
 export function playerActionDurationDays(taskSp: number, projectQuality: number): number {
   const qualityFactor = Math.max(0.01, projectQuality / 100)
   return (PLAYER_ACTION_BASE_DAYS * fibIndex(taskSp)) / qualityFactor
-}
-
-export function canAgentHandleTask(modelParameters: number, taskSp: number): boolean {
-  return taskSp <= modelParameters
 }
 
 export function tokensPerTick(contextSizeK: number): number {

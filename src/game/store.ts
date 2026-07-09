@@ -47,7 +47,6 @@ import {
 import {
   LAPTOP_HOST_ID,
   agentTickSpeed,
-  canAgentHandleTask,
   computeQualityHit,
   computeHostUsedRam,
   computeTotalAvailableRam,
@@ -771,7 +770,6 @@ export const useGameStore = create<GameStore>()(
 
         const model = getModel(agent.modelId)
         if (!model) return
-        if (!canAgentHandleTask(model.parameters, found.task.storyPointsRequired)) return
 
         if (agent.serverId && agent.loadedModelId) {
           if (
@@ -1222,7 +1220,6 @@ export function playerProjectedQualityHit(taskSp: number): number {
 export {
   effectiveSuccessRate,
   computeQualityHit,
-  canAgentHandleTask,
   getAgentParameters,
   LAPTOP_HOST_ID,
 }
