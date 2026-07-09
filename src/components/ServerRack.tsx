@@ -3,6 +3,7 @@ import { getModel } from '../game/models'
 import {
   contextFillPct,
   effectiveSuccessRate,
+  formatStoryPoints,
   formatSuccessPct,
   getHostGpus,
   LAPTOP_HOST_ID,
@@ -104,7 +105,7 @@ function HostRack({
                       />
                     </div>
                     <span className="task-sp">
-                      {task.storyPointsEarned} / {task.storyPointsRequired} SP
+                      {formatStoryPoints(task.storyPointsEarned)} / {formatStoryPoints(task.storyPointsRequired)} SP
                     </span>
                   </div>
                 )}

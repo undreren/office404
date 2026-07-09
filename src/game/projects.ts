@@ -1,6 +1,6 @@
 import type { Lead, Project, Task } from './types'
-import { TUTORIAL_PAYMENT } from './constants'
-import { FIBONACCI, fibIndex, pickLeadFibonacci } from './mechanics'
+import { MIN_STORY_POINTS, REFINE_MIN_STORY_POINTS, TUTORIAL_PAYMENT } from './constants'
+import { FIBONACCI, fibIndex, isFibonacci, pickLeadFibonacci } from './mechanics'
 
 const CLIENTS = [
   'Nexus Dynamics',
@@ -150,19 +150,19 @@ export function createProjectFromLead(lead: Lead): Project {
 }
 
 export function canRefineTask(task: Task): boolean {
-  return fibIndex(task.storyPointsRequired) >= 2
+  return task.storyPointsRequired >= REFINE_MIN_STORY_POINTS && isFibonacci(task.storyPointsRequired)
 }
 
 export function splitTask(task: Task): Task[] {
   const sp = task.storyPointsRequired
   const idx = fibIndex(sp)
-  if (idx < 2) {
-    throw new Error(`Cannot refine ${sp} SP task`)
+  if (idx < 1) {
+    throw new Error(`Cannot refine ${sp} SP task (minimum leaf is ${MIN_STORY_POINTS} SP)`)
   }
 
   const spA = FIBONACCI[idx - 1]
-  const spB = FIBONACCI[idx - 2]
-  const earnedA = Math.floor(task.storyPointsEarned / 2)
+  const spB = sp - spA
+  const earnedA = Math.min(spA, Math.round(task.storyPointsEarned * (spA / sp) * 2) / 2)
   const earnedB = task.storyPointsEarned - earnedA
 
   return [

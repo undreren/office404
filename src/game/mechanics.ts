@@ -2,7 +2,7 @@ import { PLAYER_ACTION_BASE_DAYS, PLAYER_EFFECTIVE_PARAMS } from './constants'
 import type { Agent, LoadedModel, Server } from './types'
 import { getModel } from './models'
 
-export const FIBONACCI = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
+export const FIBONACCI = [0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
 
 export const LAPTOP_HOST_ID = 'laptop'
 
@@ -13,6 +13,16 @@ export function fibIndex(sp: number): number {
 
 export function isFibonacci(sp: number): boolean {
   return FIBONACCI.includes(sp as (typeof FIBONACCI)[number])
+}
+
+export function formatStoryPoints(sp: number): string {
+  return sp % 1 === 0 ? String(sp) : sp.toFixed(1)
+}
+
+/** One sprint/agent tick worth of progress toward a ticket. */
+export function storyPointIncrement(required: number, earned: number): number {
+  const remaining = required - earned
+  return remaining <= 1 ? remaining : 1
 }
 
 export function pickLeadFibonacci(reputation: number): number {

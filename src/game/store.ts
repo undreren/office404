@@ -54,11 +54,13 @@ import {
   computeTotalUsedRam,
   contextFillPct,
   effectiveSuccessRate,
+  formatStoryPoints,
   getAgentParameters,
   getHostRam,
   getTaskQualityParameters,
   playerActionDurationDays,
   ramForLoadedModel,
+  storyPointIncrement,
   tokensPerTick,
 } from './mechanics'
 
@@ -159,7 +161,8 @@ function tryProgressTask(
   let becameReady = false
   const next = updateTask(projects, taskId, (t) => {
     if (t.status === 'merged' || t.status === 'pr_ready') return t
-    const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + 1)
+    const increment = storyPointIncrement(t.storyPointsRequired, t.storyPointsEarned)
+    const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + increment)
     const status = earned >= t.storyPointsRequired ? 'pr_ready' : 'in_progress'
     if (status === 'pr_ready') becameReady = true
     return {
@@ -346,7 +349,7 @@ export const useGameStore = create<GameStore>()(
                     : p,
                 )
                 if (selectedTaskId === taskId) selectedTaskId = a.id
-                nextEvents = pushEvent(nextEvents, 'project', `Refined "${found.task.title}" into ${a.storyPointsRequired}+${b.storyPointsRequired} SP tickets.`)
+                nextEvents = pushEvent(nextEvents, 'project', `Refined "${found.task.title}" into ${formatStoryPoints(a.storyPointsRequired)}+${formatStoryPoints(b.storyPointsRequired)} SP tickets.`)
               }
               nextPlayerAction = null
             }
