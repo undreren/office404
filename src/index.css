@@ -206,6 +206,30 @@ body {
   margin-top: 0.5rem;
 }
 
+.server-picker {
+  margin-bottom: 1rem;
+}
+
+.server-picker label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.server-picker select {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text);
+}
+
 /* Sprint */
 .sprint-progress {
   margin-bottom: 0.75rem;

@@ -1,5 +1,23 @@
 import type { ModelDef } from './types'
 
+export const CLOUD_VENDORS = {
+  anthropomorphic: {
+    id: 'anthropomorphic',
+    name: 'Anthropomorphic',
+    tagline: 'We put the "human" in "inhuman pricing."',
+  },
+  obstinate: {
+    id: 'obstinate',
+    name: 'ObstinateAI',
+    tagline: 'Your problem. Our terms of service.',
+  },
+  precursor: {
+    id: 'precursor',
+    name: 'PreCursor',
+    tagline: 'Ship fast. Crash faster. Tab-complete your regrets.',
+  },
+} as const
+
 export const MODELS: Record<string, ModelDef> = {
   'local-7b': {
     id: 'local-7b',
@@ -46,56 +64,71 @@ export const MODELS: Record<string, ModelDef> = {
     localTickCap: 0.65,
     deployCost: 0,
   },
-  'fab-lite': {
-    id: 'fab-lite',
-    name: 'Fabulous5 Lite',
+  anthropomorphic: {
+    id: 'anthropomorphic',
+    name: 'Anthropomorphic',
+    vendor: 'anthropomorphic',
     kind: 'cloud',
-    tagline: 'Cloud candy. Token meter spins.',
-    parameters: 20,
-    contextSize: 64,
-    ramCost: 0,
-    successChance: 0.72,
-    contextFillRate: 0.18,
-    tokenCostPerTick: 1.2,
-    purchaseCost: 0,
-    localTickCap: 1,
-    deployCost: 25,
-  },
-  'fab-pro': {
-    id: 'fab-pro',
-    name: 'Fabulous5 Pro',
-    kind: 'cloud',
-    tagline: 'Actually ships code. Financially ruins you.',
+    tagline: 'We put the "human" in "inhuman pricing."',
     parameters: 70,
     contextSize: 128,
     ramCost: 0,
-    successChance: 0.86,
+    successChance: 0.88,
     contextFillRate: 0.12,
-    tokenCostPerTick: 3.5,
-    purchaseCost: 0,
-    localTickCap: 1,
-    deployCost: 60,
-  },
-  'fab-ultra': {
-    id: 'fab-ultra',
-    name: 'Fabulous5 Ultra',
-    kind: 'cloud',
-    tagline: 'CEO-tier inference. Intern-tier budget required.',
-    parameters: 200,
-    contextSize: 256,
-    ramCost: 0,
-    successChance: 0.94,
-    contextFillRate: 0.08,
-    tokenCostPerTick: 8,
+    tokenCostPerTick: 2.4,
     purchaseCost: 0,
     localTickCap: 1,
     deployCost: 120,
   },
+  obstinate: {
+    id: 'obstinate',
+    name: 'ObstinateAI',
+    vendor: 'obstinate',
+    kind: 'cloud',
+    tagline: 'Your problem. Our terms of service.',
+    parameters: 13,
+    contextSize: 32,
+    ramCost: 0,
+    successChance: 0.55,
+    contextFillRate: 0.32,
+    tokenCostPerTick: 0.9,
+    purchaseCost: 0,
+    localTickCap: 1,
+    deployCost: 45,
+  },
+  precursor: {
+    id: 'precursor',
+    name: 'PreCursor',
+    vendor: 'precursor',
+    kind: 'cloud',
+    tagline: 'Ship fast. Crash faster. Tab-complete your regrets.',
+    parameters: 40,
+    contextSize: 64,
+    ramCost: 0,
+    successChance: 0.78,
+    contextFillRate: 0.22,
+    tokenCostPerTick: 1.5,
+    purchaseCost: 0,
+    localTickCap: 1,
+    deployCost: 75,
+  },
+}
+
+/** Migrate saves from the old Fabulous5 model IDs */
+export const MODEL_ID_MIGRATION: Record<string, string> = {
+  'fab-lite': 'obstinate',
+  'fab-pro': 'precursor',
+  'fab-ultra': 'anthropomorphic',
 }
 
 export const LOCAL_MODEL_LIST = Object.values(MODELS).filter((m) => m.kind === 'local')
 export const CLOUD_MODEL_LIST = Object.values(MODELS).filter((m) => m.kind === 'cloud')
 
-export function getModel(id: string): ModelDef {
-  return MODELS[id]
+export function getModel(id: string): ModelDef | undefined {
+  const migrated = MODEL_ID_MIGRATION[id] ?? id
+  return MODELS[migrated]
+}
+
+export function migrateModelId(id: string): string {
+  return MODEL_ID_MIGRATION[id] ?? id
 }

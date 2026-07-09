@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Agent, GameEvent, GameStore, Lead, PlayerAction, Project, Server, Task } from './types'
-import { MODELS } from './models'
+import { getModel, migrateModelId } from './models'
 import {
   createTutorialProject,
   createProjectFromLead,
@@ -31,12 +31,11 @@ import {
   MAX_EVENTS,
   MAX_LEADS,
   ON_TIME_REP_BONUS,
-  PLAYER_ACTION_REFACTOR_DAYS,
   PLAYER_ACTION_REFINE_DAYS,
   PLAYER_ACTION_REVIEW_DAYS,
   QUALITY_BASE_HIT,
   QUALITY_JUST_MERGE_MULT,
-  QUALITY_REFACTOR_BONUS,
+  QUALITY_REFACTOR_PER_DAY,
   QUALITY_REFACTOR_PRE_MERGE_MULT,
   QUALITY_REVIEW_REDUCTION,
   QUALITY_UNREFINED_MULT,
@@ -139,7 +138,7 @@ function updateTask(projects: Project[], taskId: string, updater: (t: Task) => T
 }
 
 function computeUsedRam(agents: Agent[]): number {
-  return agents.reduce((sum, a) => sum + (MODELS[a.modelId]?.ramCost ?? 0), 0)
+  return agents.reduce((sum, a) => sum + (getModel(a.modelId)?.ramCost ?? 0), 0)
 }
 
 function computeNetWorth(state: Pick<GameStore, 'cash' | 'servers'>): number {
@@ -159,12 +158,18 @@ function computeQualityHit(task: Task, project: Project, justMerge: boolean, rev
   return Math.max(1, hit + Math.random() * 3)
 }
 
-function agentTickSpeed(agent: Agent, gpuUnits: number): number {
-  const model = MODELS[agent.modelId]
+function gpuShareMultiplier(agents: Agent[], serverId: string): number {
+  const count = countAgentsOnServer(agents, serverId)
+  return count <= 1 ? 1 : 1 / count
+}
+
+function agentTickSpeed(agent: Agent, agents: Agent[], gpuUnits: number): number {
+  const model = getModel(agent.modelId)
   if (!model) return 0
-  if (model.kind === 'cloud') return 1
+  const share = gpuShareMultiplier(agents, agent.serverId)
+  if (model.kind === 'cloud') return share
   const gpuBoost = 1 + (gpuUnits - 1) * GPU_SPEED_PER_LEVEL
-  return Math.min(LOCAL_TICK_HARD_CAP, model.localTickCap * gpuBoost)
+  return Math.min(LOCAL_TICK_HARD_CAP, model.localTickCap * gpuBoost * share)
 }
 
 function countAgentsOnServer(agents: Agent[], serverId: string): number {
@@ -328,18 +333,6 @@ export const useGameStore = create<GameStore>()(
                 nextEvents = pushEvent(nextEvents, 'project', `Refined "${found.task.title}" into two smaller tickets.`)
               }
               nextPlayerAction = null
-            } else if (nextPlayerAction.type === 'refactor') {
-              const found = findTask(nextProjects, taskId)
-              if (found) {
-                const bonus = QUALITY_REFACTOR_BONUS * QUALITY_REFACTOR_PRE_MERGE_MULT
-                nextProjects = nextProjects.map((p) =>
-                  p.id === found.project.id
-                    ? { ...p, quality: Math.min(100, p.quality + bonus) }
-                    : p,
-                )
-                nextEvents = pushEvent(nextEvents, 'project', `Refactored code. Project quality +${bonus.toFixed(0)}.`)
-              }
-              nextPlayerAction = null
             }
           }
         }
@@ -367,8 +360,29 @@ export const useGameStore = create<GameStore>()(
                 assignedAgentId: null,
               }))
             }
+            nextPlayerAction = null
+            nextEvents = pushEvent(nextEvents, 'system', 'Sprint complete — ticket is PR ready.')
           }
           sanity = Math.max(0, sanity - SANITY_SPRINT_DRAIN * dayProgress)
+        }
+
+        // Refactor quality boost (continuous toggle, no SP progress)
+        if (nextPlayerAction?.type === 'refactor' && nextPlayerAction.taskId) {
+          const found = findTask(nextProjects, nextPlayerAction.taskId)
+          if (found && found.project.quality < 100) {
+            const bonusRate = QUALITY_REFACTOR_PER_DAY * QUALITY_REFACTOR_PRE_MERGE_MULT
+            const bonus = bonusRate * dayProgress
+            const newQuality = Math.min(100, found.project.quality + bonus)
+            nextProjects = nextProjects.map((p) =>
+              p.id === found.project.id ? { ...p, quality: newQuality } : p,
+            )
+            if (newQuality >= 100) {
+              nextPlayerAction = null
+              nextEvents = pushEvent(nextEvents, 'project', 'Quality maxed. Refactor complete.')
+            }
+          } else {
+            nextPlayerAction = null
+          }
         }
 
         // Vibe sanity restore
@@ -388,7 +402,7 @@ export const useGameStore = create<GameStore>()(
         // Agent ticks
         let tokenBurn = 0
         for (const agent of nextAgents) {
-          const model = MODELS[agent.modelId]
+          const model = getModel(agent.modelId)
           if (!model || !agent.taskId) continue
 
           const taskRef = findTask(nextProjects, agent.taskId)
@@ -410,7 +424,7 @@ export const useGameStore = create<GameStore>()(
 
           if (agent.status !== 'working') continue
 
-          const tickSpeed = agentTickSpeed(agent, gpuUnits) * dayProgress
+          const tickSpeed = agentTickSpeed(agent, nextAgents, gpuUnits) * dayProgress
           agent.uptime += dayProgress
 
           if (model.kind === 'cloud') {
@@ -554,7 +568,12 @@ export const useGameStore = create<GameStore>()(
 
       startSprint() {
         const state = get()
-        if (state.playerAction || !state.selectedTaskId || state.sanity < 5) return
+        if (state.playerAction?.forced) return
+        if (state.playerAction?.type === 'sprint') {
+          set({ playerAction: null })
+          return
+        }
+        if (!state.selectedTaskId || state.sanity < 5) return
         const found = findTask(state.projects, state.selectedTaskId)
         if (!found || found.task.status === 'merged' || found.task.status === 'pr_ready') return
         set({
@@ -571,7 +590,11 @@ export const useGameStore = create<GameStore>()(
 
       startVibe() {
         const state = get()
-        if (state.playerAction) return
+        if (state.playerAction?.forced) return
+        if (state.playerAction?.type === 'vibe' && !state.playerAction.forced) {
+          set({ playerAction: null })
+          return
+        }
         set({
           playerAction: { type: 'vibe', taskId: '', progress: 0, duration: 9999 },
           events: pushEvent(state.events, 'system', 'Smoke break. Agents keep ticking. You keep existing.'),
@@ -580,7 +603,7 @@ export const useGameStore = create<GameStore>()(
 
       startRefine(taskId) {
         const state = get()
-        if (state.playerAction) return
+        if (state.playerAction?.forced) return
         const found = findTask(state.projects, taskId)
         if (!found || found.task.complexity < REFINE_MIN_COMPLEXITY || found.task.refined) return
         set({
@@ -596,15 +619,19 @@ export const useGameStore = create<GameStore>()(
 
       startRefactor(taskId) {
         const state = get()
-        if (state.playerAction) return
+        if (state.playerAction?.forced) return
+        if (state.playerAction?.type === 'refactor' && state.playerAction.taskId === taskId) {
+          set({ playerAction: null })
+          return
+        }
         const found = findTask(state.projects, taskId)
-        if (!found) return
+        if (!found || found.project.quality >= 100) return
         set({
           playerAction: {
             type: 'refactor',
             taskId,
             progress: 0,
-            duration: PLAYER_ACTION_REFACTOR_DAYS,
+            duration: 9999,
           },
           events: pushEvent(state.events, 'project', `Refactoring "${found.task.title}"… quality over progress.`),
         })
@@ -612,7 +639,7 @@ export const useGameStore = create<GameStore>()(
 
       startReview(taskId) {
         const state = get()
-        if (state.playerAction) return
+        if (state.playerAction?.forced) return
         const found = findTask(state.projects, taskId)
         if (!found || found.task.status !== 'pr_ready') return
         set({
@@ -629,7 +656,7 @@ export const useGameStore = create<GameStore>()(
 
       justMerge(taskId) {
         const state = get()
-        if (state.playerAction) return
+        if (state.playerAction?.forced) return
         const found = findTask(state.projects, taskId)
         if (!found || found.task.status !== 'pr_ready') return
 
@@ -725,7 +752,7 @@ export const useGameStore = create<GameStore>()(
         if (found.task.status === 'merged' || found.task.status === 'pr_ready') return
         if (found.task.assignedAgentId) return
 
-        const warmup = Math.ceil(MODELS[agent.modelId].contextSize * 0.15)
+        const warmup = Math.ceil((getModel(agent.modelId)?.contextSize ?? 8) * 0.15)
         set({
           agents: state.agents.map((a) =>
             a.id === agentId
@@ -771,7 +798,8 @@ export const useGameStore = create<GameStore>()(
         const agent = state.agents.find((a) => a.id === agentId)
         if (!agent || agent.status !== 'compacted') return
 
-        const warmup = Math.ceil(MODELS[agent.modelId].contextSize * 0.2)
+        const model = getModel(agent.modelId)
+        const warmup = Math.ceil((model?.contextSize ?? 8) * 0.2)
         set({
           agents: state.agents.map((a) =>
             a.id === agentId
@@ -782,13 +810,40 @@ export const useGameStore = create<GameStore>()(
         })
       },
 
+      offloadAgent(agentId) {
+        const state = get()
+        const agent = state.agents.find((a) => a.id === agentId)
+        if (!agent) return
+
+        let nextProjects = state.projects
+        if (agent.taskId) {
+          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
+            ...t,
+            assignedAgentId: null,
+            status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
+          }))
+        }
+
+        const nextAgents = state.agents.filter((a) => a.id !== agentId)
+        const model = getModel(agent.modelId)
+        set({
+          agents: nextAgents,
+          projects: nextProjects,
+          usedRam: computeUsedRam(nextAgents),
+          events: pushEvent(
+            state.events,
+            'system',
+            `Offloaded ${agent.name} (${model?.name ?? 'model'}). ${model?.kind === 'local' ? 'RAM' : 'GPU slot'} freed.`,
+          ),
+        })
+      },
+
       deployCloudAgent(modelId, serverId) {
         const state = get()
-        const model = MODELS[modelId]
+        const model = getModel(modelId)
         const server = state.servers.find((s) => s.id === serverId)
         if (!model || model.kind !== 'cloud' || !server || server.onFire) return false
         if (state.cash < model.deployCost) return false
-        if (countAgentsOnServer(state.agents, serverId) >= server.capacity) return false
 
         const agent: Agent = {
           id: uid('agt'),
@@ -815,12 +870,11 @@ export const useGameStore = create<GameStore>()(
 
       installLocalAgent(modelId, serverId) {
         const state = get()
-        const model = MODELS[modelId]
+        const model = getModel(modelId)
         const server = state.servers.find((s) => s.id === serverId)
         if (!model || model.kind !== 'local' || !server || server.onFire) return false
         if (!state.ownedLocalModels.includes(modelId)) return false
         if (state.usedRam + model.ramCost > state.totalRam) return false
-        if (countAgentsOnServer(state.agents, serverId) >= server.capacity) return false
 
         const agent: Agent = {
           id: uid('agt'),
@@ -847,7 +901,7 @@ export const useGameStore = create<GameStore>()(
 
       buyLocalModel(modelId) {
         const state = get()
-        const model = MODELS[modelId]
+        const model = getModel(modelId)
         if (!model || model.kind !== 'local') return false
         if (state.ownedLocalModels.includes(modelId)) return false
         if (model.purchaseCost > 0 && state.cash < model.purchaseCost) return false
@@ -953,6 +1007,14 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
+      version: 3,
+      migrate: (persisted) => {
+        const s = persisted as Partial<GameStore>
+        if (s.agents) {
+          s.agents = s.agents.map((a) => ({ ...a, modelId: migrateModelId(a.modelId) }))
+        }
+        return s as GameStore
+      },
       partialize: (state) => ({
         phase: state.phase,
         cash: state.cash,

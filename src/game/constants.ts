@@ -1,5 +1,5 @@
 export const TICK_INTERVAL_MS = 1000
-export const SAVE_KEY = 'office404-save-v2'
+export const SAVE_KEY = 'office404-save-v3'
 export const MAX_EVENTS = 50
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60
 
@@ -25,16 +25,16 @@ export const SANITY_FORCED_VIBE_MULTIPLIER = 0.5
 export const FORCED_VIBE_THRESHOLD = 1
 
 export const SPRINT_SP_PER_DAY = 4.5
-export const PLAYER_ACTION_REVIEW_DAYS = 2
-export const PLAYER_ACTION_REFINE_DAYS = 3
-export const PLAYER_ACTION_REFACTOR_DAYS = 2
+/** 0.5 game days = 30 real seconds */
+export const PLAYER_ACTION_REVIEW_DAYS = 0.5
+export const PLAYER_ACTION_REFINE_DAYS = 0.5
 export const VIBE_MIN_DAYS = 1
 
 export const QUALITY_BASE_HIT = 4
 export const QUALITY_UNREFINED_MULT = 1.6
 export const QUALITY_JUST_MERGE_MULT = 1.8
 export const QUALITY_REVIEW_REDUCTION = 0.35
-export const QUALITY_REFACTOR_BONUS = 8
+export const QUALITY_REFACTOR_PER_DAY = 12
 export const QUALITY_REFACTOR_PRE_MERGE_MULT = 0.5
 
 export const REFINE_SPLIT_RATIO = 0.8

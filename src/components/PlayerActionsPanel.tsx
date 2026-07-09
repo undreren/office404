@@ -13,38 +13,45 @@ export function PlayerActionsPanel() {
   const startReview = useGameStore((s) => s.startReview)
   const justMerge = useGameStore((s) => s.justMerge)
   const completeMerge = useGameStore((s) => s.completeMerge)
-  const cancelPlayerAction = useGameStore((s) => s.cancelPlayerAction)
 
   const selectedTask = selectedTaskId
     ? projects.flatMap((p) => p.tasks).find((t) => t.id === selectedTaskId)
+    : null
+
+  const selectedProject = selectedTask
+    ? projects.find((p) => p.tasks.some((t) => t.id === selectedTask.id))
     : null
 
   const prReadyTasks = projects.flatMap((p) =>
     p.tasks.filter((t) => t.status === 'pr_ready').map((t) => ({ ...t, project: p })),
   )
 
-  const busy = playerAction !== null
   const isForcedVibe = playerAction?.forced === true
+  const isSprinting = playerAction?.type === 'sprint'
+  const isVibing = playerAction?.type === 'vibe'
+  const isRefactoring = playerAction?.type === 'refactor'
+
+  function secondsLeft(): number {
+    if (!playerAction || playerAction.type === 'sprint' || playerAction.type === 'refactor' || playerAction.type === 'vibe') {
+      return 0
+    }
+    return Math.max(0, Math.ceil((playerAction.duration - playerAction.progress) * 60))
+  }
 
   return (
     <section className="panel actions-panel">
       <h2>Your Move</h2>
-      <p className="hint">One action at a time. Mom doesn&apos;t work here.</p>
+      <p className="hint">Switch modes freely. Sprint and refactor auto-stop when done.</p>
 
       {playerAction && (
         <div className="action-status">
           <strong>
-            {playerAction.type === 'sprint' && 'Sprinting…'}
-            {playerAction.type === 'vibe' && (isForcedVibe ? 'Forced smoke break…' : 'Vibing…')}
-            {playerAction.type === 'review' && `Reviewing… ${Math.ceil((playerAction.duration - playerAction.progress) * 60)}s`}
-            {playerAction.type === 'refine' && `Refining… ${Math.ceil((playerAction.duration - playerAction.progress) * 60)}s`}
-            {playerAction.type === 'refactor' && `Refactoring… ${Math.ceil((playerAction.duration - playerAction.progress) * 60)}s`}
+            {isSprinting && 'Sprinting…'}
+            {isVibing && (isForcedVibe ? 'Forced smoke break…' : 'Vibing…')}
+            {playerAction.type === 'review' && `Reviewing… ${secondsLeft()}s`}
+            {playerAction.type === 'refine' && `Refining… ${secondsLeft()}s`}
+            {isRefactoring && `Refactoring… quality ${Math.floor(selectedProject?.quality ?? 0)}%`}
           </strong>
-          {!isForcedVibe && playerAction.type !== 'review' && (
-            <button type="button" className="btn btn--small" onClick={cancelPlayerAction}>
-              Stop
-            </button>
-          )}
         </div>
       )}
 
@@ -55,8 +62,13 @@ export function PlayerActionsPanel() {
             <button type="button" className="btn btn--sprint" onClick={() => completeMerge(selectedTask.id)}>
               Merge (reviewed)
             </button>
-            <button type="button" className="btn" onClick={() => startRefactor(selectedTask.id)} disabled={busy}>
-              Refactor first
+            <button
+              type="button"
+              className={`btn ${isRefactoring ? 'btn--active' : ''}`}
+              onClick={() => startRefactor(selectedTask.id)}
+              disabled={isForcedVibe || (selectedProject?.quality ?? 0) >= 100}
+            >
+              {isRefactoring ? 'Stop refactor' : 'Refactor first'}
             </button>
           </div>
         </div>
@@ -65,35 +77,39 @@ export function PlayerActionsPanel() {
       <div className="action-row">
         <button
           type="button"
-          className={`btn btn--sprint ${playerAction?.type === 'sprint' ? 'btn--active' : ''}`}
+          className={`btn btn--sprint ${isSprinting ? 'btn--active' : ''}`}
           onClick={startSprint}
-          disabled={busy || !selectedTask || selectedTask.status === 'merged' || selectedTask.status === 'pr_ready' || sanity < 5}
+          disabled={
+            isForcedVibe ||
+            (!isSprinting &&
+              (!selectedTask || selectedTask.status === 'merged' || selectedTask.status === 'pr_ready' || sanity < 5))
+          }
         >
-          Sprint
+          {isSprinting ? 'Stop sprint' : 'Sprint'}
         </button>
         <button
           type="button"
-          className={`btn btn--zone ${playerAction?.type === 'vibe' ? 'btn--active' : ''}`}
+          className={`btn btn--zone ${isVibing ? 'btn--active' : ''}`}
           onClick={startVibe}
-          disabled={busy && !isForcedVibe}
+          disabled={isForcedVibe}
         >
-          Vibe
+          {isVibing && !isForcedVibe ? 'Stop vibe' : 'Vibe'}
         </button>
         <button
           type="button"
           className="btn"
           onClick={() => selectedTask && startRefine(selectedTask.id)}
-          disabled={busy || !selectedTask || selectedTask.refined || selectedTask.complexity < 6}
+          disabled={isForcedVibe || !selectedTask || selectedTask.refined || selectedTask.complexity < 6}
         >
           Refine
         </button>
         <button
           type="button"
-          className="btn"
+          className={`btn ${isRefactoring ? 'btn--active' : ''}`}
           onClick={() => selectedTask && startRefactor(selectedTask.id)}
-          disabled={busy || !selectedTask}
+          disabled={isForcedVibe || !selectedTask || (selectedProject?.quality ?? 0) >= 100}
         >
-          Refactor
+          {isRefactoring ? 'Stop refactor' : 'Refactor'}
         </button>
       </div>
 
@@ -106,10 +122,10 @@ export function PlayerActionsPanel() {
                 {project.clientName}: {title}
               </span>
               <div className="action-row">
-                <button type="button" className="btn btn--small" onClick={() => startReview(id)} disabled={busy}>
+                <button type="button" className="btn btn--small" onClick={() => startReview(id)} disabled={isForcedVibe}>
                   Review
                 </button>
-                <button type="button" className="btn btn--small btn--danger" onClick={() => justMerge(id)} disabled={busy}>
+                <button type="button" className="btn btn--small btn--danger" onClick={() => justMerge(id)} disabled={isForcedVibe}>
                   Just Merge
                 </button>
               </div>
