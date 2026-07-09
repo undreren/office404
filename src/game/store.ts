@@ -942,7 +942,6 @@ export const useGameStore = create<GameStore>()(
         const project = state.projects.find((p) => p.id === projectId)
         if (!agent || !project || agent.job) return
         if (project.status !== 'active') return
-        if (state.agents.some((a) => a.projectId === projectId && a.job === job)) return
 
         if (job === 'code') {
           const model = getModel(agent.modelId)

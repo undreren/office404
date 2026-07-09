@@ -151,36 +151,39 @@ export function ProjectsPanel() {
                 return (
                   <div key={job} className="crew-row">
                     <span className="crew-label">{label}</span>
-                    {assigned.length > 0 ? (
-                      <span className="hint">
-                        {assigned.map((a) => a.name).join(', ')}
-                      </span>
-                    ) : (
-                      <div className="assign-row">
-                        {idleAgents.slice(0, 2).map((a) => {
-                          const model = getModel(a.modelId)
-                          const hint =
-                            job === 'code' && project.tasks[0]
-                              ? formatSuccessPct(
-                                  modelSuccessForTask(a.modelId, project.tasks[0].storyPointsRequired),
-                                )
-                              : model
-                                ? `${model.parameters}B · ${model.contextSize}k ctx`
-                                : '?'
-                          return (
-                            <button
-                              key={a.id}
-                              type="button"
-                              className="btn btn--small"
-                              disabled={disabled}
-                              onClick={() => assignAgentToProject(a.id, project.id, job)}
-                            >
-                              {label} → {a.name} ({hint})
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
+                    <div className="crew-row__content">
+                      {assigned.length > 0 && (
+                        <span className="hint crew-row__assigned">
+                          {assigned.map((a) => a.name).join(', ')}
+                        </span>
+                      )}
+                      {idleAgents.length > 0 && (
+                        <div className="assign-row">
+                          {idleAgents.slice(0, 2).map((a) => {
+                            const model = getModel(a.modelId)
+                            const hint =
+                              job === 'code' && project.tasks[0]
+                                ? formatSuccessPct(
+                                    modelSuccessForTask(a.modelId, project.tasks[0].storyPointsRequired),
+                                  )
+                                : model
+                                  ? `${model.parameters}B · ${model.contextSize}k ctx`
+                                  : '?'
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                className="btn btn--small"
+                                disabled={disabled}
+                                onClick={() => assignAgentToProject(a.id, project.id, job)}
+                              >
+                                {label} → {a.name} ({hint})
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}

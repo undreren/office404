@@ -800,6 +800,16 @@ body {
   color: var(--accent);
 }
 
+.crew-row__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.crew-row__assigned {
+  margin: 0;
+}
+
 .task-item {
   margin-bottom: 0.4rem;
 }
