@@ -1,4 +1,4 @@
-import { AGENT_SKILL_REFERENCE_PARAMS, PLAYER_ACTION_BASE_DAYS, QUALITY_REFACTOR_PER_DAY, REFINE_SPEED_MULTIPLIER } from './constants'
+import { AGENT_SKILL_REFERENCE_PARAMS, BUG_CHANCE_BASE, BUG_DISCOVERY_RATE, PLAYER_ACTION_BASE_DAYS, QUALITY_REFACTOR_PER_DAY, REFINE_SPEED_MULTIPLIER } from './constants'
 import type { Agent, LoadedModel, Server } from './types'
 import { getModel } from './models'
 
@@ -59,6 +59,42 @@ export function computeQualityHit(
   const base = Math.max(0.5, ratio * 8)
   const fragmentation = 1 + Math.log2(Math.max(1, activeTaskCount)) * 0.2
   return base * fragmentation
+}
+
+/** 0–1 PR quality from how close the review estimate was to the true merge hit. */
+export function computePrQualityFromReview(trueHit: number, revealedHit: number | null): number {
+  if (revealedHit === null) return 0.15
+  const accuracy = 1 - Math.min(1, Math.abs(revealedHit - trueHit) / Math.max(trueHit, 0.5))
+  return 0.25 + accuracy * 0.75
+}
+
+/** 0–1 score for author/code quality at merge time. */
+export function computeCodeQualityFactor(
+  projectQuality: number,
+  authorParams: number,
+  taskSp: number,
+): number {
+  const projectFactor = Math.max(0.05, projectQuality / 100)
+  const authorFactor = authorParams / (authorParams + taskSp)
+  return Math.min(1, projectFactor * 0.55 + authorFactor * 0.45)
+}
+
+/** Probability a merge introduces a hidden bug (0–1). */
+export function computeBugChance(
+  projectQuality: number,
+  authorParams: number,
+  taskSp: number,
+  prQualityFactor: number,
+): number {
+  const codeQuality = computeCodeQualityFactor(projectQuality, authorParams, taskSp)
+  const combined = codeQuality * 0.55 + prQualityFactor * 0.45
+  return Math.max(0.02, Math.min(0.85, BUG_CHANCE_BASE * (1.35 - combined)))
+}
+
+/** Chance QA work discovers a hidden bug on one SP of testing. */
+export function bugDiscoveryChance(testerParams: number, taskSp: number): number {
+  const skill = testerParams / (testerParams + taskSp)
+  return BUG_DISCOVERY_RATE * (0.35 + skill * 0.65)
 }
 
 export function agentJobDurationDays(
@@ -135,6 +171,8 @@ export function jobStatusFor(job: Agent['job']): Agent['status'] {
       return 'refactoring'
     case 'refine':
       return 'refining'
+    case 'test':
+      return 'testing'
     default:
       return 'idle'
   }

@@ -1,3 +1,4 @@
+import { syncTestScope } from '../game/projects'
 import { RACK_CONFIG, EXTINGUISH_COST, RACK_REFURBISH_VALUE } from '../game/constants'
 import { getModel } from '../game/models'
 import {
@@ -59,6 +60,7 @@ function HostRack({
     if (agent.job === 'refactor') return `Opening PRs: ${client}`
     if (agent.job === 'refine') return `Refining scope: ${client}`
     if (agent.job === 'review') return `Reviewing PRs: ${client}`
+    if (agent.job === 'test') return `Testing delivery: ${client}`
     const task = findTask(agent.taskId)
     return `Coding: ${task?.title ?? client}`
   }
@@ -137,6 +139,24 @@ function HostRack({
                     </div>
                   </div>
                 )}
+
+                {agent.job === 'test' && agent.projectId && (() => {
+                  const project = projects.find((p) => p.id === agent.projectId)
+                  if (!project) return null
+                  const synced = syncTestScope(project)
+                  return (
+                    <div className="meter-row">
+                      <label>QA progress</label>
+                      <div className="meter meter--sm">
+                        <div
+                          className="meter__fill meter__fill--sanity"
+                          style={{ width: `${Math.min(100, synced.testPercent)}%` }}
+                        />
+                      </div>
+                      <span className="task-sp">{Math.floor(synced.testPercent)}%</span>
+                    </div>
+                  )
+                })()}
 
                 {agent.job === 'code' && agent.status !== 'idle' && (
                   <div className="meter-row">

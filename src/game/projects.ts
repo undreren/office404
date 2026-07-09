@@ -86,6 +86,10 @@ export function createTask(
     pendingQualityHit: 0,
     revealedQualityHit: null,
     parentTaskId,
+    hasUndiscoveredBug: false,
+    bugDiscovered: false,
+    isBugFix: false,
+    sourceTaskId: null,
   }
 }
 
@@ -118,6 +122,9 @@ export function createTutorialProject(): Project {
     durationDays: 20,
     daysRemaining: 20,
     quality: 88,
+    testPercent: 0,
+    testStoryPointsRequired: 0,
+    testStoryPointsCompleted: 0,
     totalStoryPoints: sp,
     status: 'active',
     requirements: [createRequirement(projectId, 'Users must be able to log in', sp)],
@@ -166,6 +173,9 @@ export function createProjectFromLead(lead: Lead): Project {
     durationDays: lead.durationDays,
     daysRemaining: lead.durationDays,
     quality: 75,
+    testPercent: 0,
+    testStoryPointsRequired: 0,
+    testStoryPointsCompleted: 0,
     totalStoryPoints: sp,
     status: 'active',
     requirements: createRequirementsForProject(projectId, sp),
@@ -273,4 +283,62 @@ export function pickCodingTask(project: Project, agentId: string): Task | null {
     .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
 
   return available[0] ?? null
+}
+
+export function implementationTasks(project: Project): Task[] {
+  return project.tasks.filter((t) => !t.isBugFix)
+}
+
+export function deliveredStoryPoints(project: Project): number {
+  return implementationTasks(project)
+    .filter((t) => t.status === 'merged')
+    .reduce((sum, t) => sum + t.storyPointsRequired, 0)
+}
+
+export function allImplementationMerged(project: Project): boolean {
+  const impl = implementationTasks(project)
+  return impl.length > 0 && impl.every((t) => t.status === 'merged')
+}
+
+export function syncTestScope(project: Project): Project {
+  if (!allImplementationMerged(project)) return project
+  const required = deliveredStoryPoints(project)
+  if (required <= 0) return project
+  const completed = Math.min(project.testStoryPointsCompleted, required)
+  const testPercent = required > 0 ? (completed / required) * 100 : 0
+  return {
+    ...project,
+    testStoryPointsRequired: required,
+    testStoryPointsCompleted: completed,
+    testPercent,
+  }
+}
+
+export function projectHasTestWork(project: Project): boolean {
+  const synced = syncTestScope(project)
+  return (
+    allImplementationMerged(project) &&
+    synced.testStoryPointsCompleted < synced.testStoryPointsRequired
+  )
+}
+
+export function createBugFixTask(source: Task): Task {
+  return {
+    ...createTask(
+      source.projectId,
+      `Fix: ${source.title}`,
+      source.storyPointsRequired,
+      source.complexity,
+      source.id,
+    ),
+    isBugFix: true,
+    sourceTaskId: source.id,
+    refined: true,
+  }
+}
+
+export function hiddenBugsOnProject(project: Project): Task[] {
+  return project.tasks.filter(
+    (t) => t.status === 'merged' && t.hasUndiscoveredBug && !t.bugDiscovered,
+  )
 }

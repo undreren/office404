@@ -1,8 +1,16 @@
 export type ModelKind = 'local' | 'cloud'
 
-export type AgentJob = 'code' | 'review' | 'refactor' | 'refine'
+export type AgentJob = 'code' | 'review' | 'refactor' | 'refine' | 'test'
 
-export type AgentStatus = 'idle' | 'working' | 'reviewing' | 'refactoring' | 'refining' | 'compacted' | 'crashed'
+export type AgentStatus =
+  | 'idle'
+  | 'working'
+  | 'reviewing'
+  | 'refactoring'
+  | 'refining'
+  | 'testing'
+  | 'compacted'
+  | 'crashed'
 
 export type PlayerActionType = 'vibe'
 
@@ -90,6 +98,14 @@ export interface Task {
   pendingQualityHit: number
   revealedQualityHit: number | null
   parentTaskId: string | null
+  /** Bug introduced at merge; hidden until testing finds it. */
+  hasUndiscoveredBug: boolean
+  /** Testing agent surfaced this bug. */
+  bugDiscovered: boolean
+  /** Fix task spawned after a discovered bug. */
+  isBugFix: boolean
+  /** Merged task this fix addresses. */
+  sourceTaskId: string | null
 }
 
 export interface Project {
@@ -100,6 +116,12 @@ export interface Project {
   durationDays: number
   daysRemaining: number
   quality: number
+  /** QA progress toward testing the full delivered scope (0–100). */
+  testPercent: number
+  /** Story points of delivered scope that must be tested (equals original delivery SP). */
+  testStoryPointsRequired: number
+  /** Story points of QA work completed so far. */
+  testStoryPointsCompleted: number
   totalStoryPoints: number
   status: ProjectStatus
   requirements: Requirement[]

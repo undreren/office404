@@ -3,18 +3,25 @@ import { persist } from 'zustand/middleware'
 import type { Agent, GameEvent, GameStore, Lead, LoadedModel, PlayerAction, Project, Server, Task } from './types'
 import { getModel, migrateModelId } from './models'
 import {
-  createTutorialProject,
-  createProjectFromLead,
-  generateLead,
   countActiveTasks,
+  createBugFixTask,
+  createProjectFromLead,
+  createTutorialProject,
+  generateLead,
+  hiddenBugsOnProject,
   pickRefineTarget,
   pickCodingTask as pickCodingTaskFromProject,
+  projectHasTestWork,
   requirementToTask,
   splitTask,
+  syncTestScope,
 } from './projects'
 import { generateAgentName, generatePersonality } from './personalities'
 import {
   APARTMENT_CONFIG,
+  BUG_SHIPPED_PAYMENT_PENALTY,
+  BUG_SHIPPED_REP_PENALTY,
+  BUG_SHIPPED_SANITY_PENALTY,
   EXPIRED_LEAD_REP_PENALTY,
   EXTINGUISH_COST,
   FORCED_VIBE_THRESHOLD,
@@ -47,6 +54,9 @@ import {
   LAPTOP_HOST_ID,
   agentJobDurationDays,
   agentTickSpeed,
+  bugDiscoveryChance,
+  computeBugChance,
+  computePrQualityFromReview,
   computeQualityHit,
   computeRevealedQualityHit,
   computeHostUsedRam,
@@ -142,6 +152,62 @@ function updateTask(projects: Project[], taskId: string, updater: (t: Task) => T
     ...p,
     tasks: p.tasks.map((t) => (t.id === taskId ? updater(t) : t)),
   }))
+}
+
+function mergeTaskOnProject(
+  projects: Project[],
+  taskId: string,
+  agents: Agent[],
+  reviewed: boolean,
+): { projects: Project[]; eventMessage: string; introducedBug: boolean } | null {
+  const found = findTask(projects, taskId)
+  if (!found || found.task.status !== 'pr_ready') return null
+  if (reviewed && found.task.revealedQualityHit === null) return null
+
+  const params = getTaskQualityParameters(found.task, agents)
+  const taskCount = countActiveTasks(found.project)
+  const hit = computeQualityHit(found.task.storyPointsRequired, params, taskCount)
+  const prQuality = computePrQualityFromReview(
+    hit,
+    reviewed ? found.task.revealedQualityHit : null,
+  )
+  const bugChance = computeBugChance(
+    found.project.quality,
+    params,
+    found.task.storyPointsRequired,
+    prQuality,
+  )
+  const introducedBug = Math.random() < bugChance
+
+  const nextProjects = projects.map((p) => {
+    if (p.id !== found.project.id) return p
+    const updatedTasks = p.tasks.map((t) =>
+      t.id === taskId
+        ? {
+            ...t,
+            status: 'merged' as const,
+            pendingQualityHit: hit,
+            hasUndiscoveredBug: introducedBug,
+          }
+        : t,
+    )
+    return syncTestScope({
+      ...p,
+      quality: Math.max(0, p.quality - hit),
+      tasks: updatedTasks,
+    })
+  })
+
+  const reviewNote =
+    reviewed && found.task.revealedQualityHit !== null
+      ? `review guessed -${found.task.revealedQualityHit.toFixed(1)}`
+      : 'no review'
+  const bugNote = introducedBug ? ' A bug slithered in.' : ''
+  const eventMessage = reviewed
+    ? `Merged "${found.task.title}". Quality -${hit.toFixed(1)} (${reviewNote}).${bugNote}`
+    : `Just Merged "${found.task.title}" without review. Quality -${hit.toFixed(1)}.${bugNote}`
+
+  return { projects: nextProjects, eventMessage, introducedBug }
 }
 
 function computeNetWorth(state: Pick<GameStore, 'cash' | 'servers'>): number {
@@ -622,6 +688,82 @@ export const useGameStore = create<GameStore>()(
                 `${agent.name} opened PR for "${task.title}".`,
               )
             }
+          } else if (agent.job === 'test' && agent.projectId) {
+            const project = nextProjects.find((p) => p.id === agent.projectId)
+            if (!project || project.status !== 'active') {
+              Object.assign(agent, clearAgentJob(agent))
+              continue
+            }
+
+            const synced = syncTestScope(project)
+            if (!projectHasTestWork(synced)) {
+              Object.assign(agent, clearAgentJob(agent))
+              continue
+            }
+
+            nextProjects = nextProjects.map((p) => (p.id === project.id ? synced : p))
+
+            const fillPct = fillAgentContext(agent, model, baseSpeed, deltaSec)
+            if (agent.contextUsed >= model.contextSize * 1000) {
+              overflow()
+              continue
+            }
+
+            const success = effectiveSuccessRate(
+              model.parameters,
+              synced.testStoryPointsRequired,
+              fillPct,
+            )
+            if (Math.random() < success * baseSpeed) {
+              const increment = storyPointIncrement(
+                synced.testStoryPointsRequired,
+                synced.testStoryPointsCompleted,
+              )
+              const completed = Math.min(
+                synced.testStoryPointsRequired,
+                synced.testStoryPointsCompleted + increment,
+              )
+
+              let updatedProject: Project = {
+                ...synced,
+                testStoryPointsCompleted: completed,
+                testPercent:
+                  synced.testStoryPointsRequired > 0
+                    ? (completed / synced.testStoryPointsRequired) * 100
+                    : 0,
+              }
+
+              const hiddenBugTasks = hiddenBugsOnProject(updatedProject)
+              let discoveredSource: Task | null = null
+              for (const bugTask of hiddenBugTasks) {
+                const chance =
+                  bugDiscoveryChance(model.parameters, bugTask.storyPointsRequired) * increment
+                if (Math.random() < chance) {
+                  discoveredSource = bugTask
+                  break
+                }
+              }
+
+              if (discoveredSource) {
+                const fixTask = createBugFixTask(discoveredSource)
+                updatedProject = {
+                  ...updatedProject,
+                  tasks: updatedProject.tasks
+                    .map((t) =>
+                      t.id === discoveredSource!.id ? { ...t, bugDiscovered: true } : t,
+                    )
+                    .concat(fixTask),
+                  totalStoryPoints: updatedProject.totalStoryPoints + fixTask.storyPointsRequired,
+                }
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `${agent.name} found a bug in "${discoveredSource.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened.`,
+                )
+              }
+
+              nextProjects = nextProjects.map((p) => (p.id === project.id ? updatedProject : p))
+            }
           }
         }
 
@@ -704,64 +846,26 @@ export const useGameStore = create<GameStore>()(
       mergePr(taskId) {
         const state = get()
         if (state.playerAction?.forced) return
-        const found = findTask(state.projects, taskId)
-        if (!found || found.task.status !== 'pr_ready' || found.task.revealedQualityHit === null) return
-
-        const params = getTaskQualityParameters(found.task, state.agents)
-        const taskCount = countActiveTasks(found.project)
-        const hit = computeQualityHit(found.task.storyPointsRequired, params, taskCount)
-        const nextProjects = state.projects.map((p) =>
-          p.id === found.project.id
-            ? {
-                ...p,
-                quality: Math.max(0, p.quality - hit),
-                tasks: p.tasks.map((t) =>
-                  t.id === taskId ? { ...t, status: 'merged' as const, pendingQualityHit: hit } : t,
-                ),
-              }
-            : p,
-        )
+        const result = mergeTaskOnProject(state.projects, taskId, state.agents, true)
+        if (!result) return
 
         set({
-          projects: nextProjects,
+          projects: result.projects,
           stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-          events: pushEvent(
-            state.events,
-            'project',
-            `Merged "${found.task.title}". Quality -${hit.toFixed(1)} (review guessed -${found.task.revealedQualityHit.toFixed(1)}).`,
-          ),
+          events: pushEvent(state.events, 'project', result.eventMessage),
         })
       },
 
       justMergePr(taskId) {
         const state = get()
         if (state.playerAction?.forced) return
-        const found = findTask(state.projects, taskId)
-        if (!found || found.task.status !== 'pr_ready') return
-
-        const params = getTaskQualityParameters(found.task, state.agents)
-        const taskCount = countActiveTasks(found.project)
-        const hit = computeQualityHit(found.task.storyPointsRequired, params, taskCount)
-        const nextProjects = state.projects.map((p) =>
-          p.id === found.project.id
-            ? {
-                ...p,
-                quality: Math.max(0, p.quality - hit),
-                tasks: p.tasks.map((t) =>
-                  t.id === taskId ? { ...t, status: 'merged' as const, pendingQualityHit: hit } : t,
-                ),
-              }
-            : p,
-        )
+        const result = mergeTaskOnProject(state.projects, taskId, state.agents, false)
+        if (!result) return
 
         set({
-          projects: nextProjects,
+          projects: result.projects,
           stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-          events: pushEvent(
-            state.events,
-            'project',
-            `Just Merged "${found.task.title}" without review. Quality -${hit.toFixed(1)}.`,
-          ),
+          events: pushEvent(state.events, 'project', result.eventMessage),
         })
       },
 
@@ -798,26 +902,42 @@ export const useGameStore = create<GameStore>()(
         const state = get()
         const project = state.projects.find((p) => p.id === projectId)
         if (!project || project.status !== 'active') return
-        if (!project.tasks.every((t) => t.status === 'merged')) return
+        if (!isReadyToDeliver(project)) return
 
-        const cash = state.cash + project.payment
+        const bugsShipped = hiddenBugsOnProject(project)
+        let payment = project.payment
         const onTime = project.lateCount === 0
-        const reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS : 1)
+        let reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS : 1)
+        let sanity = state.sanity
+
         const nextStats = { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 }
         const nextProjects = state.projects.filter((p) => p.id !== projectId)
 
         let nextEvents = state.events
+        if (bugsShipped.length > 0) {
+          const paymentPenalty = Math.round(payment * BUG_SHIPPED_PAYMENT_PENALTY * bugsShipped.length)
+          payment -= paymentPenalty
+          reputation = Math.max(0, reputation - BUG_SHIPPED_REP_PENALTY * bugsShipped.length)
+          sanity = Math.max(0, sanity - BUG_SHIPPED_SANITY_PENALTY * bugsShipped.length)
+          nextEvents = pushEvent(
+            nextEvents,
+            'client',
+            `${project.clientName} found ${bugsShipped.length} bug${bugsShipped.length > 1 ? 's' : ''} in production. -$${paymentPenalty}, -${BUG_SHIPPED_REP_PENALTY * bugsShipped.length} rep. They're livid.`,
+          )
+        }
+
+        const finalCash = state.cash + payment
         if (project.isTutorial && !state.tutorialDone) {
           nextEvents = pushEvent(
             nextEvents,
             'milestone',
-            `Tutorial complete! +$${project.payment}. Buy a Mark Mini. You've been deluded into hope.`,
+            `Tutorial complete! +$${payment}. Buy a Mark Mini. You've been deluded into hope.`,
           )
         } else {
           nextEvents = pushEvent(
             nextEvents,
             'milestone',
-            `Shipped ${project.clientName}! +$${project.payment}${onTime ? ' (on time!)' : ' (late, but done)'}.`,
+            `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ' (late, but done)'}${bugsShipped.length > 0 ? ' (bugs included — free of charge)' : ''}.`,
           )
         }
 
@@ -832,7 +952,7 @@ export const useGameStore = create<GameStore>()(
         }
 
         let phase = state.phase
-        const netWorth = computeNetWorth({ cash, servers: state.servers })
+        const netWorth = computeNetWorth({ cash: finalCash, servers: state.servers })
         if (netWorth >= WIN_NET_WORTH) {
           phase = 'won'
           nextEvents = pushEvent(nextEvents, 'milestone', '$10M net worth. Sell the racks. Retire. You win.')
@@ -842,8 +962,9 @@ export const useGameStore = create<GameStore>()(
         }
 
         set({
-          cash,
+          cash: finalCash,
           reputation,
+          sanity,
           projects: nextProjects,
           stats: nextStats,
           events: nextEvents,
@@ -898,7 +1019,9 @@ export const useGameStore = create<GameStore>()(
                       ? ('reviewing' as const)
                       : job === 'refine'
                         ? ('refining' as const)
-                        : ('refactoring' as const),
+                        : job === 'test'
+                          ? ('testing' as const)
+                          : ('refactoring' as const),
                 contextUsed: 0,
               }
             : a,
@@ -920,7 +1043,9 @@ export const useGameStore = create<GameStore>()(
               ? 'reviewing PRs'
               : job === 'refine'
                 ? 'refining scope'
-                : 'opening PRs'
+                : job === 'test'
+                  ? 'testing delivery'
+                  : 'opening PRs'
 
         set({
           agents: nextAgents,
@@ -1245,7 +1370,7 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
-      version: 8,
+      version: 9,
       migrate: (persisted, version) => {
         const s = persisted as Partial<GameStore> & { reviewRevealedHit?: number | null }
         if (version < 6) {
@@ -1303,11 +1428,30 @@ export const useGameStore = create<GameStore>()(
                 ...t,
                 completedByAgentId: t.completedByAgentId ?? null,
                 revealedQualityHit: t.revealedQualityHit ?? null,
+                hasUndiscoveredBug: t.hasUndiscoveredBug ?? false,
+                bugDiscovered: t.bugDiscovered ?? false,
+                isBugFix: t.isBugFix ?? false,
+                sourceTaskId: t.sourceTaskId ?? null,
                 status,
               }
             })
-            return { ...p, requirements, tasks }
+            return {
+              ...p,
+              requirements,
+              tasks,
+              testPercent: p.testPercent ?? 0,
+              testStoryPointsRequired: p.testStoryPointsRequired ?? 0,
+              testStoryPointsCompleted: p.testStoryPointsCompleted ?? 0,
+            }
           })
+        }
+        if (version < 9 && s.projects) {
+          s.projects = s.projects.map((p) => syncTestScope({
+            ...p,
+            testPercent: p.testPercent ?? 0,
+            testStoryPointsRequired: p.testStoryPointsRequired ?? 0,
+            testStoryPointsCompleted: p.testStoryPointsCompleted ?? 0,
+          }))
         }
         if (version < 7) {
           if (s.playerAction && s.playerAction.type !== 'vibe') {
@@ -1367,11 +1511,14 @@ export function projectProgressPct(project: Project): number {
 }
 
 export function isReadyToDeliver(project: Project): boolean {
+  const synced = syncTestScope(project)
   return (
     project.status === 'active' &&
     project.requirements.every((r) => r.status === 'refined') &&
     project.tasks.length > 0 &&
-    project.tasks.every((t) => t.status === 'merged')
+    project.tasks.every((t) => t.status === 'merged') &&
+    synced.testStoryPointsRequired > 0 &&
+    synced.testStoryPointsCompleted >= synced.testStoryPointsRequired
   )
 }
 
