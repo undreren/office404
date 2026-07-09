@@ -21,9 +21,15 @@ export function CloudAgentsPanel() {
     return null
   }
 
-  function taskLabel(taskId: string | null): string {
-    const task = findTask(taskId)
-    return task?.title ?? (taskId ? 'Unknown task' : 'Idle')
+  function dutyLabel(agent: (typeof agents)[number]): string {
+    if (!agent.job) return 'Idle'
+    if (agent.job === 'refactor') {
+      const project = projects.find((p) => p.id === agent.projectId)
+      return `Refactoring ${project?.clientName ?? 'project'}`
+    }
+    const task = findTask(agent.taskId)
+    const prefix = agent.job === 'review' ? 'Reviewing' : agent.job === 'refine' ? 'Refining' : 'Coding'
+    return `${prefix}: ${task?.title ?? 'task'}`
   }
 
   return (
@@ -51,15 +57,15 @@ export function CloudAgentsPanel() {
               </div>
               <p className="agent-vendor">{model?.name ?? agent.modelId}</p>
               <p className="agent-personality">{agent.personality}</p>
-              <p className="agent-meta">Task: {taskLabel(agent.taskId)}</p>
-              {model && (
+              <p className="agent-meta">{dutyLabel(agent)}</p>
+              {agent.job === 'code' && model && (
                 <p className="agent-meta">
                   Success: {formatSuccessPct(success)}
                   {task ? ` (${taskSp} SP)` : ' (1 SP idle)'}
                 </p>
               )}
 
-              {task && agent.status === 'working' && (
+              {task && agent.job === 'code' && (
                 <div className="meter-row">
                   <label>Ticket progress</label>
                   <div className="meter meter--sm">
@@ -74,7 +80,19 @@ export function CloudAgentsPanel() {
                 </div>
               )}
 
-              {agent.status !== 'idle' && model && (
+              {(agent.job === 'review' || agent.job === 'refine') && agent.jobDuration > 0 && (
+                <div className="meter-row">
+                  <label>{agent.job === 'review' ? 'Review' : 'Refine'} progress</label>
+                  <div className="meter meter--sm">
+                    <div
+                      className="meter__fill meter__fill--code"
+                      style={{ width: `${Math.min(100, (agent.jobProgress / agent.jobDuration) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {agent.job === 'code' && agent.status !== 'idle' && model && (
                 <div className="meter-row">
                   <label>Context</label>
                   <div className="meter meter--sm">
@@ -97,12 +115,12 @@ export function CloudAgentsPanel() {
                   Restart
                 </button>
               )}
-              {agent.taskId && (
+              {agent.job && (
                 <button type="button" className="btn btn--small btn--danger" onClick={() => unassignAgent(agent.id)}>
                   Yank
                 </button>
               )}
-              {!agent.taskId && (
+              {!agent.job && (
                 <button type="button" className="btn btn--small" onClick={() => offloadAgent(agent.id)}>
                   Terminate
                 </button>

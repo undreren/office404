@@ -1,4 +1,4 @@
-import { PLAYER_ACTION_BASE_DAYS, PLAYER_EFFECTIVE_PARAMS } from './constants'
+import { AGENT_SKILL_REFERENCE_PARAMS, PLAYER_ACTION_BASE_DAYS, QUALITY_REFACTOR_PER_DAY } from './constants'
 import type { Agent, LoadedModel, Server } from './types'
 import { getModel } from './models'
 
@@ -19,7 +19,7 @@ export function formatStoryPoints(sp: number): string {
   return sp % 1 === 0 ? String(sp) : sp.toFixed(1)
 }
 
-/** One sprint/agent tick worth of progress toward a ticket. */
+/** One agent tick worth of progress toward a ticket. */
 export function storyPointIncrement(required: number, earned: number): number {
   const remaining = required - earned
   return remaining <= 0.1 ? remaining : 0.1
@@ -55,9 +55,52 @@ export function computeQualityHit(taskSp: number, modelParameters: number): numb
   return Math.max(0.5, ratio * 8)
 }
 
-export function playerActionDurationDays(taskSp: number, projectQuality: number): number {
+export function agentJobDurationDays(
+  taskSp: number,
+  projectQuality: number,
+  agentParams: number,
+): number {
   const qualityFactor = Math.max(0.01, projectQuality / 100)
-  return (PLAYER_ACTION_BASE_DAYS * fibIndex(taskSp)) / qualityFactor
+  const skillFactor = Math.max(0.25, agentParams / AGENT_SKILL_REFERENCE_PARAMS)
+  return (PLAYER_ACTION_BASE_DAYS * fibIndex(taskSp)) / qualityFactor / skillFactor
+}
+
+export function reviewAccuracy(agentParams: number, taskSp: number): number {
+  return agentParams / (agentParams + taskSp)
+}
+
+export function refineSuccessRate(agentParams: number, taskSp: number): number {
+  return agentParams / (agentParams + taskSp)
+}
+
+export function computeRevealedQualityHit(trueHit: number, agentParams: number, taskSp: number): number {
+  const accuracy = reviewAccuracy(agentParams, taskSp)
+  const underestimate = 0.2 + accuracy * 0.8
+  const noise = (1 - accuracy) * trueHit * 0.35 * (Math.random() - 0.2)
+  return Math.max(0.5, trueHit * underestimate + noise)
+}
+
+export function refactorRatePerDay(agentParams: number): number {
+  return QUALITY_REFACTOR_PER_DAY * (agentParams / AGENT_SKILL_REFERENCE_PARAMS)
+}
+
+export function agentIsBusy(agent: Agent): boolean {
+  return agent.job !== null && agent.status !== 'compacted' && agent.status !== 'crashed'
+}
+
+export function jobStatusFor(job: Agent['job']): Agent['status'] {
+  switch (job) {
+    case 'code':
+      return 'working'
+    case 'review':
+      return 'reviewing'
+    case 'refactor':
+      return 'refactoring'
+    case 'refine':
+      return 'refining'
+    default:
+      return 'idle'
+  }
 }
 
 export function tokensPerTick(contextSizeK: number): number {
@@ -85,7 +128,7 @@ export function getHostRam(hostId: string, servers: Server[], rackRam: Record<st
 
 export function activeAgentsOnHost(agents: Agent[], hostId: string): Agent[] {
   return agents.filter(
-    (a) => a.serverId === hostId && a.taskId && a.status === 'working' && getModel(a.modelId)?.kind === 'local',
+    (a) => a.serverId === hostId && agentIsBusy(a) && getModel(a.modelId)?.kind === 'local',
   )
 }
 
@@ -108,7 +151,7 @@ export function ramForLoadedModel(
 ): number {
   const model = getModel(modelId)
   if (!model) return 0
-  const activeTasks = agents.filter((a) => a.loadedModelId === loadedModelId && a.taskId).length
+  const activeTasks = agents.filter((a) => a.loadedModelId === loadedModelId && a.job === 'code').length
   return model.loadRam + activeTasks * (model.loadRam / 2)
 }
 
@@ -132,11 +175,11 @@ export function computeTotalAvailableRam(servers: Server[], rackRam: Record<stri
 }
 
 export function getAgentParameters(agent: Agent): number {
-  return getModel(agent.modelId)?.parameters ?? PLAYER_EFFECTIVE_PARAMS
+  return getModel(agent.modelId)?.parameters ?? 1
 }
 
 export function getTaskQualityParameters(task: { completedByAgentId: string | null }, agents: Agent[]): number {
-  if (!task.completedByAgentId) return PLAYER_EFFECTIVE_PARAMS
+  if (!task.completedByAgentId) return 1
   const agent = agents.find((a) => a.id === task.completedByAgentId)
-  return agent ? getAgentParameters(agent) : PLAYER_EFFECTIVE_PARAMS
+  return agent ? getAgentParameters(agent) : 1
 }

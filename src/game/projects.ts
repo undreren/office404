@@ -75,6 +75,7 @@ export function createTask(
     assignedAgentId: null,
     completedByAgentId: null,
     pendingQualityHit: 0,
+    revealedQualityHit: null,
     parentTaskId,
   }
 }

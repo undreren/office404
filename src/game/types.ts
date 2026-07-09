@@ -1,8 +1,10 @@
 export type ModelKind = 'local' | 'cloud'
 
-export type AgentStatus = 'idle' | 'working' | 'compacted' | 'crashed'
+export type AgentJob = 'code' | 'review' | 'refactor' | 'refine'
 
-export type PlayerActionType = 'sprint' | 'vibe' | 'review' | 'refine' | 'refactor'
+export type AgentStatus = 'idle' | 'working' | 'reviewing' | 'refactoring' | 'refining' | 'compacted' | 'crashed'
+
+export type PlayerActionType = 'vibe'
 
 export type TaskStatus = 'open' | 'in_progress' | 'pr_ready' | 'merged'
 
@@ -44,7 +46,11 @@ export interface Agent {
   modelId: string
   loadedModelId: string | null
   serverId: string | null
+  job: AgentJob | null
   taskId: string | null
+  projectId: string | null
+  jobProgress: number
+  jobDuration: number
   status: AgentStatus
   personality: string
   contextUsed: number
@@ -72,6 +78,7 @@ export interface Task {
   assignedAgentId: string | null
   completedByAgentId: string | null
   pendingQualityHit: number
+  revealedQualityHit: number | null
   parentTaskId: string | null
 }
 
@@ -139,7 +146,6 @@ export interface GameState {
   leads: Lead[]
   selectedTaskId: string | null
   playerAction: PlayerAction | null
-  reviewRevealedHit: number | null
   tutorialDone: boolean
   leadSpawnCooldown: number
   events: GameEvent[]
@@ -154,18 +160,17 @@ export interface GameState {
 export interface GameActions {
   tick: (deltaSec: number) => void
   selectTask: (taskId: string | null) => void
-  startSprint: () => void
   startVibe: () => void
-  startRefine: (taskId: string) => void
-  startRefactor: (taskId: string) => void
-  startReview: (taskId: string) => void
-  justMerge: (taskId: string) => void
-  completeMerge: (taskId: string) => void
+  mergePr: (taskId: string) => void
+  justMergePr: (taskId: string) => void
   cancelPlayerAction: () => void
   acceptLead: (leadId: string) => void
   rejectLead: (leadId: string) => void
   deliverProject: (projectId: string) => void
   assignAgent: (agentId: string, taskId: string) => void
+  assignAgentToReview: (agentId: string, taskId: string) => void
+  assignAgentToRefine: (agentId: string, taskId: string) => void
+  assignAgentToRefactor: (agentId: string, projectId: string) => void
   unassignAgent: (agentId: string) => void
   restartAgent: (agentId: string) => void
   offloadAgent: (agentId: string) => void

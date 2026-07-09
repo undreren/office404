@@ -2,7 +2,7 @@
 
 A darkly comedic **idle game PWA** where you run a one-man freelance AI agency in a glitching corporate hellscape.
 
-Host agents on fictional cloud vendors — **Anthropomorphic**, **ObstinateAI**, and **PreCursor** — while burning through tokens, fighting server fires, soothing angry clients, and choosing between coding sprints and zoning out to preserve your sanity.
+Host agents on fictional cloud vendors — **Anthropomorphic**, **ObstinateAI**, and **PreCursor** — while burning through tokens, fighting server fires, soothing angry clients, and vibing while your agents do literally everything else.
 
 ## Play locally
 
@@ -64,13 +64,20 @@ npm run preview:pages
 | **Reputation** | On-time delivery up, missed deadlines & expired leads down — zero rep + no work = game over |
 | **Net worth** | Cash + refurbished rack value — hit **$10M** to retire |
 
-### Player actions (one at a time)
+### Player actions
 
-- **Sprint** — story points on a selected ticket; sanity ↓
-- **Vibe** — smoke break; sanity ↑; no progress
-- **Refine** — split a big ticket into two smaller ones (~80% SP each)
-- **Refactor** — no progress; project quality ↑
-- **Review / Just Merge** — PR queue: review reveals quality hit; merge or YOLO
+- **Vibe** — smoke break; sanity ↑; the only thing you're qualified for
+
+### Agent jobs (assign idle agents)
+
+- **Code** — story points on tickets; bigger models succeed more often
+- **Review** — estimates merge quality hit; small models lie to you
+- **Refine** — split big tickets; small models botch it sometimes
+- **Refactor** — project quality ↑; cloud models actually help
+
+### Manager actions
+
+- **Merge / Just Merge** — sign off on PRs (true quality hit applied on merge)
 
 ### Agents
 

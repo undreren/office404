@@ -40,7 +40,7 @@ function HostRack({
 
   const hostAgents = agents.filter((a) => a.serverId === hostId && getModel(a.modelId)?.kind === 'local')
   const hostLoads = loadedModels.filter((lm) => lm.hostId === hostId)
-  const workingCount = hostAgents.filter((a) => a.taskId && a.status === 'working').length
+  const workingCount = hostAgents.filter((a) => a.job).length
   const gpuShare = workingCount > 0 ? `GPU ×${gpus} ÷${workingCount}` : `GPU ×${gpus}`
 
   function findTask(taskId: string | null): Task | null {
@@ -52,9 +52,15 @@ function HostRack({
     return null
   }
 
-  function taskLabel(taskId: string | null): string {
-    const task = findTask(taskId)
-    return task?.title ?? (taskId ? 'Unknown task' : 'Idle')
+  function dutyLabel(agent: (typeof agents)[number]): string {
+    if (!agent.job) return 'Idle'
+    if (agent.job === 'refactor') {
+      const project = projects.find((p) => p.id === agent.projectId)
+      return `Refactoring ${project?.clientName ?? 'project'}`
+    }
+    const task = findTask(agent.taskId)
+    const prefix = agent.job === 'review' ? 'Reviewing' : agent.job === 'refine' ? 'Refining' : 'Coding'
+    return `${prefix}: ${task?.title ?? 'task'}`
   }
 
   function renderLoadedModel(lm: LoadedModel) {
@@ -89,13 +95,15 @@ function HostRack({
                   <span className="agent-status">{agent.status}</span>
                 </div>
                 <p className="agent-personality">{agent.personality}</p>
-                <p className="agent-meta">Task: {taskLabel(agent.taskId)}</p>
-                <p className="agent-meta">
-                  Success: {formatSuccessPct(success)}
-                  {task ? ` (${taskSp} SP)` : ' (1 SP idle)'}
-                </p>
+                <p className="agent-meta">{dutyLabel(agent)}</p>
+                {agent.job === 'code' && (
+                  <p className="agent-meta">
+                    Success: {formatSuccessPct(success)}
+                    {task ? ` (${taskSp} SP)` : ' (1 SP idle)'}
+                  </p>
+                )}
 
-                {task && agent.status === 'working' && (
+                {task && agent.job === 'code' && (
                   <div className="meter-row">
                     <label>Ticket progress</label>
                     <div className="meter meter--sm">
@@ -110,7 +118,19 @@ function HostRack({
                   </div>
                 )}
 
-                {agent.status !== 'idle' && (
+                {(agent.job === 'review' || agent.job === 'refine') && agent.jobDuration > 0 && (
+                  <div className="meter-row">
+                    <label>{agent.job === 'review' ? 'Review' : 'Refine'} progress</label>
+                    <div className="meter meter--sm">
+                      <div
+                        className="meter__fill meter__fill--code"
+                        style={{ width: `${Math.min(100, (agent.jobProgress / agent.jobDuration) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {agent.job === 'code' && agent.status !== 'idle' && (
                   <div className="meter-row">
                     <label>Context</label>
                     <div className="meter meter--sm">
@@ -127,12 +147,12 @@ function HostRack({
                     Restart
                   </button>
                 )}
-                {agent.taskId && (
+                {agent.job && (
                   <button type="button" className="btn btn--small btn--danger" onClick={() => unassignAgent(agent.id)}>
                     Yank
                   </button>
                 )}
-                {!agent.taskId && (
+                {!agent.job && (
                   <button type="button" className="btn btn--small" onClick={() => offloadAgent(agent.id)}>
                     Offload
                   </button>
