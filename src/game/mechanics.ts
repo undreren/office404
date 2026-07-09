@@ -119,10 +119,6 @@ export function reviewAccuracy(agentParams: number, taskSp: number): number {
   return agentParams / (agentParams + taskSp)
 }
 
-export function refineSuccessRate(agentParams: number, taskSp: number): number {
-  return agentParams / (agentParams + taskSp)
-}
-
 export function computeRevealedQualityHit(trueHit: number, agentParams: number, taskSp: number): number {
   const accuracy = reviewAccuracy(agentParams, taskSp)
   const underestimate = 0.2 + accuracy * 0.8
