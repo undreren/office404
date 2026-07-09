@@ -1,10 +1,23 @@
-import { formatStoryPoints, formatSuccessPct } from '../game/mechanics'
-import { allImplementationMerged, projectHasRefineWork, projectHasTestWork, syncTestScope } from '../game/projects'
+import {
+  computeReviewCommentReduction,
+  formatStoryPoints,
+  formatSuccessPct,
+} from '../game/mechanics'
+import {
+  allImplementationMerged,
+  projectHasRefactorWork,
+  projectHasRefineWork,
+  projectHasTestWork,
+  resolvedReviewComments,
+  reviewCommentsOnTask,
+  syncTestScope,
+} from '../game/projects'
 import { getModel } from '../game/models'
-import type { AgentJob } from '../game/types'
+import type { Agent, AgentJob, Project, Task } from '../game/types'
 import {
   isReadyToDeliver,
   modelSuccessForTask,
+  projectedQualityHit,
   projectProgressPct,
   useGameStore,
 } from '../game/store'
@@ -16,6 +29,18 @@ const PROJECT_JOBS: { job: AgentJob; label: string }[] = [
   { job: 'review', label: 'Review' },
   { job: 'test', label: 'Test' },
 ]
+
+function topLevelTasks(project: Project): Task[] {
+  return project.tasks.filter((t) => !t.isReviewComment)
+}
+
+function commentSummary(project: Project, task: Task, agents: Agent[]) {
+  const comments = reviewCommentsOnTask(project, task.id)
+  const resolved = resolvedReviewComments(project, task.id).length
+  const baseHit = projectedQualityHit(task, agents, project)
+  const saved = computeReviewCommentReduction(baseHit, resolved)
+  return { comments, resolved, total: comments.length, saved }
+}
 
 export function ProjectsPanel() {
   const projects = useGameStore((s) => s.projects)
@@ -51,19 +76,21 @@ export function ProjectsPanel() {
       {projects.map((project) => {
         const synced = syncTestScope(project)
         const progress = projectProgressPct(project)
-        const merged = project.tasks.filter((t) => t.status === 'merged').length
+        const merged = project.tasks.filter((t) => t.status === 'merged' && !t.isReviewComment).length
         const readyToDeliver = isReadyToDeliver(project)
         const openRequirements = project.requirements.filter((r) => r.status === 'open')
         const hasRefineWork = projectHasRefineWork(project)
+        const hasRefactorWork = projectHasRefactorWork(project)
         const hasTestWork = projectHasTestWork(synced)
         const implMerged = allImplementationMerged(synced)
         const hasCodeWork = project.tasks.some(
           (t) =>
+            !t.isReviewComment &&
             (t.status === 'open' || t.status === 'in_progress') &&
             t.storyPointsEarned < t.storyPointsRequired,
         )
-        const hasPrWork = project.tasks.some((t) => t.status === 'done')
-        const hasReviewWork = project.tasks.some((t) => t.status === 'pr_ready')
+        const hasReviewWork = project.tasks.some((t) => t.status === 'pr_ready' && !t.reviewed)
+        const tasks = topLevelTasks(project)
 
         return (
           <article
@@ -95,13 +122,13 @@ export function ProjectsPanel() {
             </div>
 
             <div className="meter-row">
-              <label>Progress ({merged}/{project.tasks.length || '—'} merged)</label>
+              <label>Progress ({merged}/{tasks.length || '—'} merged)</label>
               <div className="meter">
                 <div className="meter__fill meter__fill--code" style={{ width: `${progress}%` }} />
               </div>
             </div>
 
-            {implMerged && (
+            {synced.testStoryPointsRequired > 0 && (
               <div className="meter-row">
                 <label>
                   Test coverage ({formatStoryPoints(synced.testStoryPointsCompleted)} /{' '}
@@ -143,9 +170,9 @@ export function ProjectsPanel() {
                   job === 'refine'
                     ? !hasRefineWork
                     : job === 'code'
-                      ? !hasCodeWork && project.tasks.length === 0
+                      ? !hasCodeWork && tasks.length === 0
                       : job === 'refactor'
-                        ? !hasPrWork
+                        ? !hasRefactorWork
                         : job === 'test'
                           ? !hasTestWork
                           : !hasReviewWork
@@ -184,9 +211,9 @@ export function ProjectsPanel() {
                           {idleAgents.slice(0, 2).map((a) => {
                             const model = getModel(a.modelId)
                             const hint =
-                              job === 'code' && project.tasks[0]
+                              job === 'code' && tasks[0]
                                 ? formatSuccessPct(
-                                    modelSuccessForTask(a.modelId, project.tasks[0].storyPointsRequired),
+                                    modelSuccessForTask(a.modelId, tasks[0].storyPointsRequired),
                                   )
                                 : model
                                   ? `${model.parameters}B · ${model.contextSize}k ctx`
@@ -211,14 +238,15 @@ export function ProjectsPanel() {
               })}
             </div>
 
-            {project.tasks.length > 0 && (
+            {tasks.length > 0 && (
               <ul className="task-list">
-                {project.tasks.map((task) => {
+                {tasks.map((task) => {
                   const pct = (task.storyPointsEarned / task.storyPointsRequired) * 100
                   const isSelected = selectedTaskId === task.id
                   const codingAgent = agents.find(
                     (a) => a.job === 'code' && a.taskId === task.id,
                   )
+                  const { comments, resolved, total, saved } = commentSummary(project, task, agents)
 
                   return (
                     <li
@@ -243,19 +271,56 @@ export function ProjectsPanel() {
                             <> · untested</>
                           )}
                           {codingAgent && ` · ${codingAgent.name} coding`}
-                          {task.status === 'done' && ' · needs PR'}
-                          {task.status === 'pr_ready' && task.revealedQualityHit !== null && (
+                          {task.status === 'pr_ready' && !task.reviewed && ' · awaiting review'}
+                          {task.status === 'pr_ready' && task.reviewed && task.revealedQualityHit !== null && (
                             <> · review est. -{task.revealedQualityHit.toFixed(1)}</>
                           )}
-                          {task.status === 'pr_ready' && task.revealedQualityHit === null && (
-                            <> · awaiting review</>
+                          {task.status === 'pr_ready' && total > 0 && (
+                            <> · comments {resolved}/{total}{saved > 0 ? ` (−${saved.toFixed(1)} saved)` : ''}</>
                           )}
                         </span>
                       </button>
 
+                      {comments.length > 0 && (
+                        <ul className="review-comment-list">
+                          {comments.map((comment) => {
+                            const commentPct =
+                              (comment.storyPointsEarned / comment.storyPointsRequired) * 100
+                            const commentCoder = agents.find(
+                              (a) => a.job === 'code' && a.taskId === comment.id,
+                            )
+                            const addressed = comment.storyPointsEarned >= comment.storyPointsRequired
+
+                            return (
+                              <li
+                                key={comment.id}
+                                className={`review-comment ${addressed ? 'review-comment--resolved' : ''}`}
+                              >
+                                <div className="review-comment__header">
+                                  <span className="review-comment__label">Review comment</span>
+                                  {addressed && <span className="review-comment__status">addressed</span>}
+                                </div>
+                                <p className="review-comment__text">"{comment.title}"</p>
+                                <div className="meter meter--sm">
+                                  <div
+                                    className="meter__fill meter__fill--code"
+                                    style={{ width: `${commentPct}%` }}
+                                  />
+                                </div>
+                                <span className="task-sp">
+                                  {formatStoryPoints(comment.storyPointsEarned)} /{' '}
+                                  {formatStoryPoints(comment.storyPointsRequired)} SP
+                                  {commentCoder && ` · ${commentCoder.name} fixing`}
+                                </span>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+
                       {task.status === 'pr_ready' && (
                         <div className="assign-row">
-                          {task.revealedQualityHit !== null && (
+                          {task.reviewed && (
                             <button
                               type="button"
                               className="btn btn--small"
@@ -279,10 +344,13 @@ export function ProjectsPanel() {
               </ul>
             )}
 
-            {implMerged && !readyToDeliver && synced.testPercent < 100 && (
+            {synced.testStoryPointsRequired > 0 && !readyToDeliver && synced.testPercent < 100 && (
               <p className="hint">
-                Implementation merged. Assign a Test agent — QA work equals delivered SP (
-                {formatStoryPoints(synced.testStoryPointsRequired)} SP).
+                {implMerged
+                  ? 'Implementation merged.'
+                  : 'Partial delivery in QA.'}{' '}
+                Assign a Test agent — {formatStoryPoints(synced.testStoryPointsRequired)} SP in the
+                queue.
               </p>
             )}
 

@@ -106,6 +106,10 @@ export interface Task {
   isBugFix: boolean
   /** Merged task this fix addresses. */
   sourceTaskId: string | null
+  /** Review nitpick spawned on a PR; resolving reduces merge quality hit. */
+  isReviewComment: boolean
+  /** PR received its one allowed review pass. */
+  reviewed: boolean
 }
 
 export interface Project {

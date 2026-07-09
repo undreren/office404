@@ -1,6 +1,6 @@
 import type { Agent, AgentJob, Lead, Project, Requirement, Task } from './types'
-import { MIN_STORY_POINTS, REFINE_MIN_STORY_POINTS, TUTORIAL_PAYMENT } from './constants'
-import { agentIsBusy, FIBONACCI, fibIndex, isFibonacci, pickLeadFibonacci } from './mechanics'
+import { MIN_STORY_POINTS, REFINE_MIN_STORY_POINTS, REVIEW_COMMENT_SP, TUTORIAL_PAYMENT } from './constants'
+import { agentIsBusy, FIBONACCI, fibIndex, isFibonacci, pickLeadFibonacci, reviewCommentSpawnCount } from './mechanics'
 
 const CLIENTS = [
   'Nexus Dynamics',
@@ -22,6 +22,24 @@ const BLURBS = [
   'Implement Web3 login. Wallet optional, panic required.',
   'Refactor legacy PHP. The legacy is emotional.',
   'Make the app 10x faster without changing anything.',
+]
+
+export const REVIEW_COMMENT_TEXTS = [
+  'We use 13-space indents here',
+  'I don\'t like Times New Roman',
+  'Please rename `data` to `theDataObjectFinal_v2`',
+  'Could we use a different shade of beige?',
+  'This function is 3 lines too long for my taste',
+  'Add a comment explaining what this comment does',
+  'Have you considered rewriting this in Rust?',
+  'The variable name `user` feels too personal',
+  'Needs more design patterns. Any will do.',
+  'Can we make the logo bigger? In the backend?',
+  'I don\'t think this aligns with my horoscope',
+  'Please remove all vowels for performance',
+  'This would read better in Comic Sans',
+  'Where is the blockchain integration?',
+  'LGTM but change everything',
 ]
 
 const REQUIREMENT_TITLES = [
@@ -90,6 +108,8 @@ export function createTask(
     bugDiscovered: false,
     isBugFix: false,
     sourceTaskId: null,
+    isReviewComment: false,
+    reviewed: false,
   }
 }
 
@@ -302,7 +322,7 @@ export function projectHasRefineWork(project: Project): boolean {
 }
 
 export function countActiveTasks(project: Project): number {
-  return project.tasks.filter((t) => t.status !== 'merged').length
+  return project.tasks.filter((t) => t.status !== 'merged' && !t.isReviewComment).length
 }
 
 export function pickCodingTask(project: Project, agentId: string, agents: Agent[]): Task | null {
@@ -315,9 +335,22 @@ export function pickCodingTask(project: Project, agentId: string, agents: Agent[
   )
   if (own) return own
 
+  const openComments = project.tasks
+    .filter(
+      (t) =>
+        t.isReviewComment &&
+        (t.status === 'open' || t.status === 'in_progress') &&
+        !t.assignedAgentId &&
+        !claimed.has(t.id) &&
+        t.storyPointsEarned < t.storyPointsRequired,
+    )
+    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+  if (openComments.length > 0) return openComments[0]
+
   const available = project.tasks
     .filter(
       (t) =>
+        !t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
         !t.assignedAgentId &&
         !claimed.has(t.id) &&
@@ -333,31 +366,56 @@ export function pickReviewTask(project: Project, agentId: string, agents: Agent[
   const self = agents.find((a) => a.id === agentId)
 
   if (self?.taskId) {
-    const current = project.tasks.find((t) => t.id === self.taskId && t.status === 'pr_ready')
+    const current = project.tasks.find(
+      (t) => t.id === self.taskId && t.status === 'pr_ready' && !t.reviewed,
+    )
     if (current) return current
   }
 
-  const prTasks = project.tasks.filter((t) => t.status === 'pr_ready' && !claimed.has(t.id))
-  if (prTasks.length === 0) return null
-
-  return prTasks.find((t) => t.revealedQualityHit === null) ?? prTasks[0]
+  const prTasks = project.tasks.filter(
+    (t) => t.status === 'pr_ready' && !t.reviewed && !claimed.has(t.id),
+  )
+  return prTasks[0] ?? null
 }
 
-export function pickRefactorTask(project: Project, agentId: string, agents: Agent[]): Task | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'refactor', agentId)
-  const self = agents.find((a) => a.id === agentId)
+export function reviewCommentsOnTask(project: Project, parentTaskId: string): Task[] {
+  return project.tasks.filter((t) => t.isReviewComment && t.parentTaskId === parentTaskId)
+}
 
-  if (self?.taskId) {
-    const current = project.tasks.find((t) => t.id === self.taskId && t.status === 'done')
-    if (current) return current
+export function resolvedReviewComments(project: Project, parentTaskId: string): Task[] {
+  return reviewCommentsOnTask(project, parentTaskId).filter(
+    (t) => t.storyPointsEarned >= t.storyPointsRequired,
+  )
+}
+
+export function createReviewCommentTasks(
+  parent: Task,
+  agentParams: number,
+  isCloud: boolean,
+): Task[] {
+  const count = reviewCommentSpawnCount(agentParams, parent.storyPointsRequired, isCloud)
+  const pool = [...REVIEW_COMMENT_TEXTS]
+  const comments: Task[] = []
+
+  for (let i = 0; i < count; i++) {
+    const idx = Math.floor(Math.random() * pool.length)
+    const text = pool.splice(idx, 1)[0] ?? REVIEW_COMMENT_TEXTS[0]
+    comments.push({
+      ...createTask(parent.projectId, text, REVIEW_COMMENT_SP, 0, parent.id),
+      isReviewComment: true,
+      refined: true,
+    })
   }
 
-  const doneTasks = project.tasks.filter((t) => t.status === 'done' && !claimed.has(t.id))
-  return doneTasks[0] ?? null
+  return comments
+}
+
+export function projectHasRefactorWork(project: Project): boolean {
+  return project.status === 'active'
 }
 
 export function implementationTasks(project: Project): Task[] {
-  return project.tasks.filter((t) => !t.isBugFix)
+  return project.tasks.filter((t) => !t.isBugFix && !t.isReviewComment)
 }
 
 export function deliveredStoryPoints(project: Project): number {
@@ -372,23 +430,28 @@ export function allImplementationMerged(project: Project): boolean {
 }
 
 export function syncTestScope(project: Project): Project {
-  if (!allImplementationMerged(project)) return project
   const required = deliveredStoryPoints(project)
-  if (required <= 0) return project
+  if (required <= 0) {
+    return {
+      ...project,
+      testStoryPointsRequired: 0,
+      testStoryPointsCompleted: 0,
+      testPercent: 0,
+    }
+  }
   const completed = Math.min(project.testStoryPointsCompleted, required)
-  const testPercent = required > 0 ? (completed / required) * 100 : 0
   return {
     ...project,
     testStoryPointsRequired: required,
     testStoryPointsCompleted: completed,
-    testPercent,
+    testPercent: required > 0 ? (completed / required) * 100 : 0,
   }
 }
 
 export function projectHasTestWork(project: Project): boolean {
   const synced = syncTestScope(project)
   return (
-    allImplementationMerged(project) &&
+    synced.testStoryPointsRequired > 0 &&
     synced.testStoryPointsCompleted < synced.testStoryPointsRequired
   )
 }

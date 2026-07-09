@@ -1,4 +1,15 @@
-import { AGENT_SKILL_REFERENCE_PARAMS, BUG_CHANCE_BASE, BUG_DISCOVERY_RATE, PLAYER_ACTION_BASE_DAYS, QUALITY_REFACTOR_PER_DAY, REFINE_SPEED_MULTIPLIER } from './constants'
+import {
+  AGENT_SKILL_REFERENCE_PARAMS,
+  BUG_CHANCE_BASE,
+  BUG_DISCOVERY_RATE,
+  PLAYER_ACTION_BASE_DAYS,
+  QUALITY_REFACTOR_PER_DAY,
+  REFINE_SPEED_MULTIPLIER,
+  REVIEW_COMMENT_REDUCTION_CAP,
+  REVIEW_COMMENT_REDUCTION_FRACTION,
+  TEST_DIFFICULTY_SP,
+  TEST_SPEED_MULTIPLIER,
+} from './constants'
 import type { Agent, LoadedModel, Server } from './types'
 import { getModel } from './models'
 
@@ -126,16 +137,32 @@ export function computeRevealedQualityHit(trueHit: number, agentParams: number, 
   return Math.max(0.5, trueHit * underestimate + noise)
 }
 
-/** Each review pass moves the estimate closer to the true quality hit. */
-export function improveReviewEstimate(
-  currentRevealed: number,
-  trueHit: number,
-  agentParams: number,
+/** How many review comments to spawn (1–3, up to 4 for cloud reviewers on big PRs). */
+export function reviewCommentSpawnCount(_agentParams: number, taskSp: number, isCloud: boolean): number {
+  let count = 1 + Math.floor(Math.random() * 3)
+  if (taskSp >= 13) count = Math.max(count, 3)
+  if (isCloud && taskSp >= 8) count = Math.max(count, 3)
+  if (isCloud && taskSp >= 13) count = 4
+  return Math.min(4, Math.max(1, count))
+}
+
+/** Total quality-hit reduction from resolved review comments on one PR. */
+export function computeReviewCommentReduction(baseHit: number, resolvedCount: number): number {
+  if (resolvedCount <= 0) return 0
+  const perComment = baseHit * REVIEW_COMMENT_REDUCTION_FRACTION
+  return Math.min(baseHit * REVIEW_COMMENT_REDUCTION_CAP, perComment * resolvedCount)
+}
+
+export function testJobDurationDays(
   taskSp: number,
+  projectQuality: number,
+  agentParams: number,
 ): number {
-  const accuracy = reviewAccuracy(agentParams, taskSp)
-  const delta = (currentRevealed - trueHit) * accuracy * 0.35
-  return Math.max(trueHit * 0.5, currentRevealed - delta)
+  return agentJobDurationDays(taskSp, projectQuality, agentParams) / TEST_SPEED_MULTIPLIER
+}
+
+export function testSuccessRate(agentParams: number, contextFillPct: number): number {
+  return effectiveSuccessRate(agentParams, TEST_DIFFICULTY_SP, contextFillPct)
 }
 
 export function refactorRatePerDay(agentParams: number): number {

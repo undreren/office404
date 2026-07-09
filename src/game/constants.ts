@@ -1,5 +1,5 @@
 export const TICK_INTERVAL_MS = 1000
-export const SAVE_KEY = 'office404-save-v4'
+export const SAVE_KEY = 'office404-save-v5'
 export const MAX_EVENTS = 50
 
 /** 60 real seconds = 1 in-game day */
@@ -30,6 +30,21 @@ export const AGENT_SKILL_REFERENCE_PARAMS = 4
 
 /** Refine jobs complete this many times faster than code/review. */
 export const REFINE_SPEED_MULTIPLIER = 10
+
+/** Test jobs complete this many times faster than code. */
+export const TEST_SPEED_MULTIPLIER = 5
+
+/** QA success rate uses this SP reference instead of full project scope. */
+export const TEST_DIFFICULTY_SP = 5
+
+/** Story points per review comment fixup task. */
+export const REVIEW_COMMENT_SP = 0.5
+
+/** Each resolved review comment shaves this fraction off the PR's quality hit. */
+export const REVIEW_COMMENT_REDUCTION_FRACTION = 0.2
+
+/** Max fraction of a PR's quality hit that comments can eliminate. */
+export const REVIEW_COMMENT_REDUCTION_CAP = 0.5
 
 /** Smallest SP ticket that can still be refined (1 → 0.5+0.5). */
 export const REFINE_MIN_STORY_POINTS = 1
