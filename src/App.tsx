@@ -1,5 +1,4 @@
 import { ResourceBar } from './components/ResourceBar'
-import { PlayerActionsPanel } from './components/PlayerActionsPanel'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { LeadsPanel } from './components/LeadsPanel'
 import { MarketplacePanel } from './components/MarketplacePanel'
@@ -19,7 +18,6 @@ function App() {
       <GameOverlay />
 
       <main className="main">
-        <PlayerActionsPanel />
         <ProjectsPanel />
         <LeadsPanel />
         <ServerRack />
