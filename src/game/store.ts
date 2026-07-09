@@ -560,7 +560,14 @@ export const useGameStore = create<GameStore>()(
             }
 
             const target = pickRefineTarget(project, nextAgents, agent.id)
-            if (!target) continue
+            if (!target) {
+              if (agent.taskId) {
+                agent.taskId = null
+                agent.jobProgress = 0
+                nextAgents[agentIdx] = agent
+              }
+              continue
+            }
 
             const targetId = refineTargetId(target)
             const targetSp =
