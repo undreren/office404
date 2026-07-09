@@ -73,7 +73,6 @@ import {
   ramForLoadedModel,
   refactorRatePerDay,
   refineJobDurationDays,
-  refineSuccessRate,
   reviewAccuracy,
   storyPointIncrement,
 } from './mechanics'
@@ -586,69 +585,62 @@ export const useGameStore = create<GameStore>()(
               nextAgents[agentIdx] = agent
             }
 
-            // Refine is scope planning — don't burn context like a full coding pass.
+            fillAgentContext(agent, model, baseSpeed, deltaSec)
+            if (agent.contextUsed >= model.contextSize * 1000) {
+              overflow()
+              nextAgents[agentIdx] = agent
+              continue
+            }
+
             agent.jobProgress += dayProgress * baseSpeed
             if (agent.jobProgress >= agent.jobDuration) {
-              const rollSuccess =
-                target.kind === 'requirement' ||
-                Math.random() < refineSuccessRate(model.parameters, targetSp)
-              if (rollSuccess) {
-                if (target.kind === 'requirement') {
-                  const task = requirementToTask(target.requirement)
-                  nextAgents = releaseRefineClaims(
-                    nextAgents,
-                    project.id,
-                    target.requirement.id,
-                    agent.id,
-                  )
-                  agent = nextAgents[agentIdx]
-                  nextProjects = nextProjects.map((p) =>
-                    p.id === project.id
-                      ? {
-                          ...p,
-                          requirements: p.requirements.map((r) =>
-                            r.id === target.requirement.id ? { ...r, status: 'refined' as const } : r,
-                          ),
-                          tasks: [...p.tasks, task],
-                        }
-                      : p,
-                  )
-                  if (!selectedTaskId) selectedTaskId = task.id
-                  nextEvents = pushEvent(
-                    nextEvents,
-                    'project',
-                    `${agent.name} refined requirement "${target.requirement.title}" into a ${formatStoryPoints(task.storyPointsRequired)} SP task.`,
-                  )
-                } else {
-                  const [a, b] = splitTask(target.task)
-                  nextAgents = releaseRefineClaims(nextAgents, project.id, target.task.id, agent.id)
-                  agent = nextAgents[agentIdx]
-                  nextProjects = nextProjects.map((p) =>
-                    p.id === project.id
-                      ? {
-                          ...p,
-                          tasks: p.tasks.filter((t) => t.id !== target.task.id).concat([a, b]),
-                        }
-                      : p,
-                  )
-                  if (selectedTaskId === target.task.id) selectedTaskId = a.id
-                  nextEvents = pushEvent(
-                    nextEvents,
-                    'project',
-                    `${agent.name} split "${target.task.title}" into ${formatStoryPoints(a.storyPointsRequired)}+${formatStoryPoints(b.storyPointsRequired)} SP.`,
-                  )
-                }
-                agent.jobProgress = 0
-                agent.taskId = null
-              } else {
-                agent.jobProgress = 0
-                agent.taskId = null
+              if (target.kind === 'requirement') {
+                const task = requirementToTask(target.requirement)
+                nextAgents = releaseRefineClaims(
+                  nextAgents,
+                  project.id,
+                  target.requirement.id,
+                  agent.id,
+                )
+                agent = nextAgents[agentIdx]
+                nextProjects = nextProjects.map((p) =>
+                  p.id === project.id
+                    ? {
+                        ...p,
+                        requirements: p.requirements.map((r) =>
+                          r.id === target.requirement.id ? { ...r, status: 'refined' as const } : r,
+                        ),
+                        tasks: [...p.tasks, task],
+                      }
+                    : p,
+                )
+                if (!selectedTaskId) selectedTaskId = task.id
                 nextEvents = pushEvent(
                   nextEvents,
                   'project',
-                  `${agent.name} botched refining "${target.task.title}". Scope survived. Barely.`,
+                  `${agent.name} refined requirement "${target.requirement.title}" into a ${formatStoryPoints(task.storyPointsRequired)} SP task.`,
+                )
+              } else {
+                const [a, b] = splitTask(target.task)
+                nextAgents = releaseRefineClaims(nextAgents, project.id, target.task.id, agent.id)
+                agent = nextAgents[agentIdx]
+                nextProjects = nextProjects.map((p) =>
+                  p.id === project.id
+                    ? {
+                        ...p,
+                        tasks: p.tasks.filter((t) => t.id !== target.task.id).concat([a, b]),
+                      }
+                    : p,
+                )
+                if (selectedTaskId === target.task.id) selectedTaskId = a.id
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `${agent.name} split "${target.task.title}" into ${formatStoryPoints(a.storyPointsRequired)}+${formatStoryPoints(b.storyPointsRequired)} SP.`,
                 )
               }
+              agent.jobProgress = 0
+              agent.taskId = null
             }
           } else if (agent.job === 'refactor' && agent.projectId) {
             const project = nextProjects.find((p) => p.id === agent.projectId)
@@ -1546,7 +1538,6 @@ export {
   computeQualityHit,
   getAgentParameters,
   reviewAccuracy,
-  refineSuccessRate,
   refactorRatePerDay,
   agentJobDurationDays,
   LAPTOP_HOST_ID,
