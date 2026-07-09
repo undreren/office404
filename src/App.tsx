@@ -6,11 +6,10 @@ import { MarketplacePanel } from './components/MarketplacePanel'
 import { ServerRack } from './components/ServerRack'
 import { EventLog } from './components/EventLog'
 import { GameOverlay } from './components/GameOverlay'
-import { useGameTick, useOfflineProgress } from './hooks/useGameTick'
+import { useGameTick } from './hooks/useGameTick'
 
 function App() {
   useGameTick()
-  useOfflineProgress()
 
   return (
     <div className="app">

@@ -73,8 +73,24 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.resource-bar__title {
+.resource-bar__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 0.75rem;
+}
+
+.resource-bar__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.resource-bar__new-game {
+  flex-shrink: 0;
+  width: auto;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
 }
 
 .resource-bar__title small {
@@ -797,6 +813,12 @@ body {
   color: var(--text-dim);
   margin-bottom: 1rem;
   font-size: 0.9rem;
+}
+
+.game-overlay__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 /* Footer */

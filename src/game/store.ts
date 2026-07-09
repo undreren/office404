@@ -104,7 +104,6 @@ function createInitialState() {
     reviewRevealedHit: null as number | null,
     tutorialDone: false,
     leadSpawnCooldown: LEAD_SPAWN_INTERVAL_DAYS,
-    lastTickAt: Date.now(),
     events: [
       {
         id: uid('evt'),
@@ -546,20 +545,7 @@ export const useGameStore = create<GameStore>()(
           phase,
           usedRam: computeUsedRam(nextAgents),
           tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
-          lastTickAt: Date.now(),
         })
-      },
-
-      applyOfflineProgress(elapsedSec: number) {
-        const capped = Math.min(elapsedSec, 8 * 60 * 60)
-        if (capped < 5) return
-        const ticks = Math.floor(capped)
-        for (let i = 0; i < ticks; i++) get().tick(1)
-        const remainder = capped - ticks
-        if (remainder > 0) get().tick(remainder)
-        set((s) => ({
-          events: pushEvent(s.events, 'system', `Away for ${Math.floor(capped / 60)}m. Agents kept… something.`),
-        }))
       },
 
       selectTask(taskId) {
@@ -1039,7 +1025,6 @@ export const useGameStore = create<GameStore>()(
         reviewRevealedHit: state.reviewRevealedHit,
         tutorialDone: state.tutorialDone,
         leadSpawnCooldown: state.leadSpawnCooldown,
-        lastTickAt: state.lastTickAt,
         events: state.events,
         stats: state.stats,
       }),
