@@ -1,4 +1,6 @@
 import type { Lead, Project, Task } from './types'
+import { TUTORIAL_PAYMENT } from './constants'
+import { FIBONACCI, fibIndex, pickLeadFibonacci } from './mechanics'
 
 const CLIENTS = [
   'Nexus Dynamics',
@@ -71,6 +73,7 @@ export function createTask(
     refined: false,
     status: 'open',
     assignedAgentId: null,
+    completedByAgentId: null,
     pendingQualityHit: 0,
     parentTaskId,
   }
@@ -78,21 +81,18 @@ export function createTask(
 
 export function createTutorialProject(): Project {
   const projectId = uid('proj')
-  const tasks = [
-    createTask(projectId, 'Fix login button', 8, 3),
-    createTask(projectId, 'Add loading spinner', 6, 2),
-    createTask(projectId, 'Update README', 4, 1),
-  ]
+  const sp = 5
+  const tasks = [createTask(projectId, 'Fix login button', sp, fibIndex(sp))]
 
   return {
     id: projectId,
     clientName: 'Friendly Neighbor App',
-    blurb: 'Tutorial gig. Low stakes. Suspiciously generous.',
-    payment: 220,
+    blurb: 'Tutorial gig. One ticket. Suspiciously the only cash you have.',
+    payment: TUTORIAL_PAYMENT,
     durationDays: 20,
     daysRemaining: 20,
     quality: 88,
-    totalStoryPoints: tasks.reduce((s, t) => s + t.storyPointsRequired, 0),
+    totalStoryPoints: sp,
     status: 'active',
     tasks,
     isTutorial: true,
@@ -105,8 +105,7 @@ export function generateLead(reputation: number): Lead {
   const repFactor = Math.max(1, reputation / 10)
   const isUnreasonable = reputation > 25
 
-  const baseSp = randInt(12, 28)
-  const storyPoints = Math.round(baseSp * (isUnreasonable ? 1.4 + repFactor * 0.1 : 1))
+  const storyPoints = pickLeadFibonacci(reputation)
   const durationDays = Math.max(
     8,
     Math.round((isUnreasonable ? randInt(10, 18) : randInt(15, 35)) / repFactor),
@@ -130,21 +129,8 @@ export function generateLead(reputation: number): Lead {
 
 export function createProjectFromLead(lead: Lead): Project {
   const projectId = uid('proj')
-  const taskCount = Math.min(5, Math.max(2, Math.ceil(lead.totalStoryPoints / 8)))
-  const spPerTask = Math.ceil(lead.totalStoryPoints / taskCount)
-  const tasks: Task[] = []
-
-  const usedTitles = new Set<string>()
-  for (let i = 0; i < taskCount; i++) {
-    let title = pick(TASK_TITLES)
-    while (usedTitles.has(title)) title = pick(TASK_TITLES)
-    usedTitles.add(title)
-
-    const remaining = lead.totalStoryPoints - tasks.reduce((s, t) => s + t.storyPointsRequired, 0)
-    const sp = i === taskCount - 1 ? remaining : spPerTask
-    const complexity = Math.max(2, Math.round(sp / 3) + randInt(0, 3))
-    tasks.push(createTask(projectId, title, sp, complexity))
-  }
+  const sp = lead.totalStoryPoints
+  const tasks = [createTask(projectId, pick(TASK_TITLES), sp, fibIndex(sp))]
 
   return {
     id: projectId,
@@ -154,7 +140,7 @@ export function createProjectFromLead(lead: Lead): Project {
     durationDays: lead.durationDays,
     daysRemaining: lead.durationDays,
     quality: 75,
-    totalStoryPoints: lead.totalStoryPoints,
+    totalStoryPoints: sp,
     status: 'active',
     tasks,
     isTutorial: false,
@@ -164,19 +150,26 @@ export function createProjectFromLead(lead: Lead): Project {
 }
 
 export function splitTask(task: Task): Task[] {
-  const halfSp = Math.max(2, Math.round(task.storyPointsRequired * 0.8))
-  const earnedEach = Math.round(task.storyPointsEarned * 0.5)
-  const complexityEach = Math.max(2, Math.round(task.complexity * 0.8))
+  const sp = task.storyPointsRequired
+  const idx = fibIndex(sp)
+  if (idx < 2) {
+    throw new Error(`Cannot refine ${sp} SP task`)
+  }
+
+  const spA = FIBONACCI[idx - 1]
+  const spB = FIBONACCI[idx - 2]
+  const earnedA = Math.floor(task.storyPointsEarned / 2)
+  const earnedB = task.storyPointsEarned - earnedA
 
   return [
     {
-      ...createTask(task.projectId, `${task.title} (A)`, halfSp, complexityEach, task.id),
-      storyPointsEarned: earnedEach,
+      ...createTask(task.projectId, `${task.title} (A)`, spA, fibIndex(spA), task.id),
+      storyPointsEarned: earnedA,
       refined: true,
     },
     {
-      ...createTask(task.projectId, `${task.title} (B)`, halfSp, complexityEach, task.id),
-      storyPointsEarned: earnedEach,
+      ...createTask(task.projectId, `${task.title} (B)`, spB, fibIndex(spB), task.id),
+      storyPointsEarned: earnedB,
       refined: true,
     },
   ]

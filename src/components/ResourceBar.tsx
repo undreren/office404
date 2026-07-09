@@ -17,6 +17,7 @@ export function ResourceBar() {
   const tokenPct = Math.min(100, (tokens / maxTokens) * 100)
   const netWorth = getNetWorth({ cash, servers })
   const winPct = Math.min(100, (netWorth / WIN_NET_WORTH) * 100)
+  const rentAmount = APARTMENT_CONFIG[apartment].rent
 
   return (
     <header className="resource-bar">
@@ -77,13 +78,15 @@ export function ResourceBar() {
         <div className="resource resource--inline">
           <label>RAM</label>
           <span className="value">
-            {usedRam}/{totalRam} GB
+            {usedRam.toFixed(1)}/{totalRam} GB
           </span>
         </div>
 
         <div className="resource resource--inline">
-          <label>Rent in</label>
-          <span className="value">{Math.ceil(rentDueInDays)}d</span>
+          <label>Rent</label>
+          <span className="value">
+            ${rentAmount} in {Math.ceil(rentDueInDays)}d
+          </span>
         </div>
       </div>
     </header>

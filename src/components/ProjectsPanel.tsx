@@ -1,4 +1,6 @@
-import { projectProgressPct, useGameStore } from '../game/store'
+import { canAgentHandleTask } from '../game/mechanics'
+import { getModel } from '../game/models'
+import { modelSuccessForTask, projectProgressPct, useGameStore } from '../game/store'
 
 export function ProjectsPanel() {
   const projects = useGameStore((s) => s.projects)
@@ -61,7 +63,12 @@ export function ProjectsPanel() {
               {project.tasks.map((task) => {
                 const pct = (task.storyPointsEarned / task.storyPointsRequired) * 100
                 const isSelected = selectedTaskId === task.id
-                const idleAgents = agents.filter((a) => !a.taskId && a.status !== 'compacted')
+                const idleAgents = agents.filter((a) => {
+                  if (a.taskId || a.status === 'compacted') return false
+                  const model = getModel(a.modelId)
+                  if (!model) return false
+                  return canAgentHandleTask(model.parameters, task.storyPointsRequired)
+                })
 
                 return (
                   <li
@@ -77,24 +84,31 @@ export function ProjectsPanel() {
                         <div className="meter__fill meter__fill--code" style={{ width: `${pct}%` }} />
                       </div>
                       <span className="task-sp">
-                        {task.storyPointsEarned.toFixed(1)} / {task.storyPointsRequired} SP
+                        {task.storyPointsEarned} / {task.storyPointsRequired} SP
                         {task.refined && ' · refined'}
                       </span>
                     </button>
 
                     {task.status !== 'merged' && task.status !== 'pr_ready' && !task.assignedAgentId && idleAgents.length > 0 && isSelected && (
                       <div className="assign-row">
-                        {idleAgents.slice(0, 3).map((a) => (
-                          <button
-                            key={a.id}
-                            type="button"
-                            className="btn btn--small"
-                            onClick={() => assignAgent(a.id, task.id)}
-                          >
-                            → {a.name}
-                          </button>
-                        ))}
+                        {idleAgents.slice(0, 4).map((a) => {
+                          const rate = modelSuccessForTask(a.modelId, task.storyPointsRequired)
+                          return (
+                            <button
+                              key={a.id}
+                              type="button"
+                              className="btn btn--small"
+                              onClick={() => assignAgent(a.id, task.id)}
+                            >
+                              → {a.name} ({Math.round(rate * 100)}%)
+                            </button>
+                          )
+                        })}
                       </div>
+                    )}
+
+                    {task.status !== 'merged' && task.status !== 'pr_ready' && isSelected && idleAgents.length === 0 && (
+                      <p className="hint">No agent can handle {task.storyPointsRequired} SP. Refine or upgrade.</p>
                     )}
                   </li>
                 )

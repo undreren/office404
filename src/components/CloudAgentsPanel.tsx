@@ -1,4 +1,5 @@
 import { getModel } from '../game/models'
+import { contextFillPct, effectiveSuccessRate, formatSuccessPct } from '../game/mechanics'
 import { useGameStore } from '../game/store'
 import type { Task } from '../game/types'
 
@@ -36,8 +37,10 @@ export function CloudAgentsPanel() {
         )}
         {cloudAgents.map((agent) => {
           const model = getModel(agent.modelId)
-          const contextPct = model ? (agent.contextUsed / model.contextSize) * 100 : 0
           const task = findTask(agent.taskId)
+          const fillPct = model ? contextFillPct(agent.contextUsed, model.contextSize) : 0
+          const taskSp = task?.storyPointsRequired ?? 1
+          const success = model ? effectiveSuccessRate(model.parameters, taskSp, fillPct) : 0
           const taskPct = task ? (task.storyPointsEarned / task.storyPointsRequired) * 100 : 0
 
           return (
@@ -49,6 +52,12 @@ export function CloudAgentsPanel() {
               <p className="agent-vendor">{model?.name ?? agent.modelId}</p>
               <p className="agent-personality">{agent.personality}</p>
               <p className="agent-meta">Task: {taskLabel(agent.taskId)}</p>
+              {model && (
+                <p className="agent-meta">
+                  Success: {formatSuccessPct(success)}
+                  {task ? ` (${taskSp} SP)` : ' (1 SP idle)'}
+                </p>
+              )}
 
               {task && agent.status === 'working' && (
                 <div className="meter-row">
@@ -60,7 +69,7 @@ export function CloudAgentsPanel() {
                     />
                   </div>
                   <span className="task-sp">
-                    {task.storyPointsEarned.toFixed(1)} / {task.storyPointsRequired} SP
+                    {task.storyPointsEarned} / {task.storyPointsRequired} SP
                   </span>
                 </div>
               )}
@@ -70,8 +79,8 @@ export function CloudAgentsPanel() {
                   <label>Context</label>
                   <div className="meter meter--sm">
                     <div
-                      className={`meter__fill ${contextPct > 80 ? 'meter__fill--critical' : 'meter__fill--tokens'}`}
-                      style={{ width: `${Math.min(100, contextPct)}%` }}
+                      className={`meter__fill ${fillPct > 80 ? 'meter__fill--critical' : 'meter__fill--tokens'}`}
+                      style={{ width: `${Math.min(100, fillPct)}%` }}
                     />
                   </div>
                 </div>

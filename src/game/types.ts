@@ -23,20 +23,26 @@ export interface ModelDef {
   vendor?: string
   tagline: string
   parameters: number
+  /** Context window in thousands of tokens */
   contextSize: number
-  ramCost: number
-  successChance: number
-  contextFillRate: number
+  /** Base RAM to load model (GB) */
+  loadRam: number
   tokenCostPerTick: number
   purchaseCost: number
-  localTickCap: number
   deployCost: number
+}
+
+export interface LoadedModel {
+  id: string
+  modelId: string
+  hostId: string
 }
 
 export interface Agent {
   id: string
   name: string
   modelId: string
+  loadedModelId: string | null
   serverId: string | null
   taskId: string | null
   status: AgentStatus
@@ -50,8 +56,6 @@ export interface Server {
   id: string
   name: string
   tier: RackTier
-  capacity: number
-  gpuLevel: number
   onFire: boolean
   fireDuration: number
 }
@@ -66,6 +70,7 @@ export interface Task {
   refined: boolean
   status: TaskStatus
   assignedAgentId: string | null
+  completedByAgentId: string | null
   pendingQualityHit: number
   parentTaskId: string | null
 }
@@ -124,10 +129,10 @@ export interface GameState {
   rentDueInDays: number
   apartment: ApartmentTier
   apartmentLeaseRemaining: number
-  gpuUnits: number
-  totalRam: number
   usedRam: number
+  totalRam: number
   ownedLocalModels: string[]
+  loadedModels: LoadedModel[]
   servers: Server[]
   agents: Agent[]
   projects: Project[]
@@ -164,11 +169,11 @@ export interface GameActions {
   restartAgent: (agentId: string) => void
   offloadAgent: (agentId: string) => void
   deployCloudAgent: (modelId: string) => boolean
-  installLocalAgent: (modelId: string, serverId: string) => boolean
-  buyLocalModel: (modelId: string) => boolean
+  loadLocalModel: (modelId: string, hostId: string, forceNewInstance?: boolean) => boolean
+  spawnLocalAgent: (loadedModelId: string) => boolean
+  unloadModel: (loadedModelId: string) => boolean
   buyServer: (tier: RackTier) => boolean
   sellServer: (serverId: string) => boolean
-  upgradeGpu: () => boolean
   buyTokens: () => boolean
   upgradeApartment: () => boolean
   extinguishFire: (serverId: string) => boolean
