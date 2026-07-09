@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Agent, GameEvent, GameStore, Lead, PlayerAction, Project, Server, Task } from './types'
+import type { Agent, GameEvent, GameStore, Lead, LoadedModel, PlayerAction, Project, Server, Task } from './types'
 import { getModel, migrateModelId } from './models'
 import {
   createTutorialProject,
@@ -14,34 +14,25 @@ import {
   EXPIRED_LEAD_REP_PENALTY,
   EXTINGUISH_COST,
   FORCED_VIBE_THRESHOLD,
-  GPU_SPEED_PER_LEVEL,
-  GPU_UPGRADE_COST,
   INITIAL_CASH,
-  INITIAL_GPU,
   INITIAL_MAX_TOKENS,
-  INITIAL_RAM,
   INITIAL_REPUTATION,
   INITIAL_SANITY,
   INITIAL_TOKENS,
   LATE_FEE_PERCENT,
   LATE_REP_PENALTY_BASE,
   LEAD_SPAWN_INTERVAL_DAYS,
-  LOCAL_TICK_HARD_CAP,
   LOSE_REPUTATION,
   MAX_EVENTS,
+  MAX_ACTIVE_PROJECTS,
   MAX_LEADS,
   ON_TIME_REP_BONUS,
-  PLAYER_ACTION_REFINE_DAYS,
-  PLAYER_ACTION_REVIEW_DAYS,
-  QUALITY_BASE_HIT,
-  QUALITY_JUST_MERGE_MULT,
+  PLAYER_EFFECTIVE_PARAMS,
   QUALITY_REFACTOR_PER_DAY,
   QUALITY_REFACTOR_PRE_MERGE_MULT,
-  QUALITY_REVIEW_REDUCTION,
-  QUALITY_UNREFINED_MULT,
   RACK_CONFIG,
   RACK_REFURBISH_VALUE,
-  REFINE_MIN_COMPLEXITY,
+  REFINE_MIN_STORY_POINTS,
   RENT_INTERVAL_DAYS,
   SANITY_FORCED_VIBE_MULTIPLIER,
   SANITY_PASSIVE_DRAIN,
@@ -49,11 +40,27 @@ import {
   SANITY_VIBE_RESTORE,
   SAVE_KEY,
   SECONDS_PER_GAME_DAY,
-  SPRINT_SP_PER_DAY,
   TOKEN_PACK_AMOUNT,
   TOKEN_PACK_COST,
   WIN_NET_WORTH,
 } from './constants'
+import {
+  LAPTOP_HOST_ID,
+  agentTickSpeed,
+  canAgentHandleTask,
+  computeQualityHit,
+  computeHostUsedRam,
+  computeTotalAvailableRam,
+  computeTotalUsedRam,
+  contextFillPct,
+  effectiveSuccessRate,
+  getAgentParameters,
+  getHostRam,
+  getTaskQualityParameters,
+  playerActionDurationDays,
+  ramForLoadedModel,
+  tokensPerTick,
+} from './mechanics'
 
 let idCounter = 0
 function uid(prefix: string): string {
@@ -79,10 +86,10 @@ function createInitialState() {
     rentDueInDays: RENT_INTERVAL_DAYS,
     apartment: 'cardboard' as const,
     apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
-    gpuUnits: INITIAL_GPU,
-    totalRam: INITIAL_RAM,
     usedRam: 0,
-    ownedLocalModels: ['local-7b', 'local-13b', 'local-34b'] as string[],
+    totalRam: 4,
+    ownedLocalModels: ['local-1b', 'local-2b', 'local-4b'] as string[],
+    loadedModels: [] as LoadedModel[],
     servers: [] as Server[],
     agents: [] as Agent[],
     projects: [tutorial],
@@ -97,7 +104,7 @@ function createInitialState() {
         id: uid('evt'),
         timestamp: Date.now(),
         type: 'system' as const,
-        message: 'Day 0. No local model. Petty cash. A prayer. Good luck, freelancer.',
+        message: 'Day 0. $0. Load a 1B on your laptop and sprint if you must. No free lunch.',
       },
     ],
     stats: {
@@ -124,57 +131,77 @@ function updateTask(projects: Project[], taskId: string, updater: (t: Task) => T
   }))
 }
 
-function computeUsedRam(agents: Agent[]): number {
-  return agents.reduce((sum, a) => sum + (getModel(a.modelId)?.ramCost ?? 0), 0)
-}
-
 function computeNetWorth(state: Pick<GameStore, 'cash' | 'servers'>): number {
   const rackValue = state.servers.reduce((sum, s) => sum + (RACK_REFURBISH_VALUE[s.tier] ?? 0), 0)
   return state.cash + rackValue
 }
 
-function qualityDifficultyMult(quality: number): number {
-  return 1 + (100 - quality) / 50
+function rackGpus(): Record<string, number> {
+  return Object.fromEntries(Object.entries(RACK_CONFIG).map(([k, v]) => [k, v.gpus]))
 }
 
-function computeQualityHit(task: Task, project: Project, justMerge: boolean, reviewed: boolean): number {
-  let hit = QUALITY_BASE_HIT * qualityDifficultyMult(project.quality)
-  if (!task.refined) hit *= QUALITY_UNREFINED_MULT
-  if (justMerge) hit *= QUALITY_JUST_MERGE_MULT
-  if (reviewed) hit *= QUALITY_REVIEW_REDUCTION
-  return Math.max(1, hit + Math.random() * 3)
+function rackRam(): Record<string, number> {
+  return Object.fromEntries(Object.entries(RACK_CONFIG).map(([k, v]) => [k, v.ram]))
 }
 
-function isLocalAgent(agent: Agent): boolean {
-  return getModel(agent.modelId)?.kind === 'local'
+function syncRam(state: Pick<GameStore, 'loadedModels' | 'agents' | 'servers'>) {
+  return {
+    usedRam: computeTotalUsedRam(state.loadedModels, state.agents, state.servers),
+    totalRam: computeTotalAvailableRam(state.servers, rackRam()),
+  }
 }
 
-function gpuShareMultiplier(agents: Agent[], serverId: string): number {
-  const count = countLocalAgentsOnServer(agents, serverId)
-  return count <= 1 ? 1 : 1 / count
+function tryProgressTask(
+  projects: Project[],
+  taskId: string,
+  completedByAgentId: string | null,
+): { projects: Project[]; becameReady: boolean } {
+  let becameReady = false
+  const next = updateTask(projects, taskId, (t) => {
+    if (t.status === 'merged' || t.status === 'pr_ready') return t
+    const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + 1)
+    const status = earned >= t.storyPointsRequired ? 'pr_ready' : 'in_progress'
+    if (status === 'pr_ready') becameReady = true
+    return {
+      ...t,
+      storyPointsEarned: earned,
+      status,
+      completedByAgentId: status === 'pr_ready' ? completedByAgentId : t.completedByAgentId,
+      assignedAgentId: status === 'pr_ready' ? null : t.assignedAgentId,
+    }
+  })
+  return { projects: next, becameReady }
 }
 
-function agentTickSpeed(agent: Agent, agents: Agent[], gpuUnits: number): number {
-  const model = getModel(agent.modelId)
-  if (!model) return 0
-  if (model.kind === 'cloud') return model.localTickCap
-  if (!agent.serverId) return 0
-  const share = gpuShareMultiplier(agents, agent.serverId)
-  const gpuBoost = 1 + (gpuUnits - 1) * GPU_SPEED_PER_LEVEL
-  return Math.min(LOCAL_TICK_HARD_CAP, model.localTickCap * gpuBoost * share)
+function canFitLoadOnHost(
+  hostId: string,
+  modelId: string,
+  loadedModels: LoadedModel[],
+  agents: Agent[],
+  servers: Server[],
+): boolean {
+  const model = getModel(modelId)
+  if (!model) return false
+  const hostRam = getHostRam(hostId, servers, rackRam())
+  const used = computeHostUsedRam(hostId, loadedModels, agents)
+  return used + model.loadRam <= hostRam
 }
 
-function countLocalAgentsOnServer(agents: Agent[], serverId: string): number {
-  return agents.filter((a) => a.serverId === serverId && isLocalAgent(a)).length
-}
-
-function allTasksMerged(project: Project): boolean {
-  return project.tasks.every((t) => t.status === 'merged')
-}
-
-function projectProgress(project: Project): number {
-  const merged = project.tasks.filter((t) => t.status === 'merged').reduce((s, t) => s + t.storyPointsRequired, 0)
-  return merged / project.totalStoryPoints
+function canFitTaskOnHost(
+  hostId: string,
+  loadedModelId: string,
+  modelId: string,
+  loadedModels: LoadedModel[],
+  agents: Agent[],
+  servers: Server[],
+): boolean {
+  const model = getModel(modelId)
+  if (!model) return false
+  const hostRam = getHostRam(hostId, servers, rackRam())
+  const used = computeHostUsedRam(hostId, loadedModels, agents)
+  const current = ramForLoadedModel(modelId, agents, loadedModelId)
+  const withTask = model.loadRam + (agents.filter((a) => a.loadedModelId === loadedModelId && a.taskId).length + 1) * (model.loadRam / 2)
+  return used - current + withTask <= hostRam
 }
 
 export const useGameStore = create<GameStore>()(
@@ -197,6 +224,7 @@ export const useGameStore = create<GameStore>()(
           apartmentLeaseRemaining,
           agents,
           servers,
+          loadedModels,
           projects,
           leads,
           events,
@@ -205,11 +233,11 @@ export const useGameStore = create<GameStore>()(
           leadSpawnCooldown,
           reviewRevealedHit,
           selectedTaskId,
-          gpuUnits,
         } = state
 
         let nextAgents = agents.map((a) => ({ ...a }))
         let nextServers = servers.map((s) => ({ ...s }))
+        let nextLoadedModels = loadedModels.map((lm) => ({ ...lm }))
         let nextProjects = projects.map((p) => ({ ...p, tasks: p.tasks.map((t) => ({ ...t })) }))
         let nextLeads = leads.map((l) => ({ ...l }))
         let nextEvents = [...events]
@@ -223,7 +251,6 @@ export const useGameStore = create<GameStore>()(
         apartmentLeaseRemaining -= dayProgress
         leadSpawnCooldown -= dayProgress
 
-        // Rent
         if (rentDueInDays <= 0) {
           const rent = APARTMENT_CONFIG[state.apartment].rent
           cash -= rent
@@ -231,14 +258,12 @@ export const useGameStore = create<GameStore>()(
           nextEvents = pushEvent(nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`)
         }
 
-        // Lead spawning
         if (leadSpawnCooldown <= 0 && nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS) {
           nextLeads = [generateLead(reputation), ...nextLeads]
           leadSpawnCooldown = LEAD_SPAWN_INTERVAL_DAYS
           nextEvents = pushEvent(nextEvents, 'lead', 'New client lead appeared. They want it yesterday.')
         }
 
-        // Expire leads
         for (const lead of nextLeads) {
           if (lead.status === 'available') {
             lead.daysToExpire -= dayProgress
@@ -254,12 +279,11 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        // Project deadlines
         for (const project of nextProjects) {
           if (project.status !== 'active') continue
           project.daysRemaining -= dayProgress
 
-          if (project.daysRemaining <= 0 && !allTasksMerged(project)) {
+          if (project.daysRemaining <= 0 && !project.tasks.every((t) => t.status === 'merged')) {
             project.lateCount += 1
             project.daysRemaining += Math.round(project.durationDays * 0.35)
             const fee = Math.round(project.payment * LATE_FEE_PERCENT * project.lateCount)
@@ -275,7 +299,6 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        // Forced vibe at low sanity
         const forcedVibe = sanity <= FORCED_VIBE_THRESHOLD
         if (forcedVibe && (!nextPlayerAction || nextPlayerAction.type !== 'vibe')) {
           nextPlayerAction = {
@@ -288,22 +311,17 @@ export const useGameStore = create<GameStore>()(
           nextEvents = pushEvent(nextEvents, 'system', 'Sanity critical. Forced smoke break at half speed.')
         }
 
-        const playerBusy = nextPlayerAction !== null
         const vibeMult = nextPlayerAction?.forced ? SANITY_FORCED_VIBE_MULTIPLIER : 1
 
-        // Player action progress
-        if (nextPlayerAction && nextPlayerAction.type !== 'vibe') {
+        if (nextPlayerAction && nextPlayerAction.type !== 'vibe' && nextPlayerAction.type !== 'sprint' && nextPlayerAction.type !== 'refactor') {
           nextPlayerAction.progress += dayProgress
-          const done = nextPlayerAction.progress >= nextPlayerAction.duration
-
-          if (done) {
+          if (nextPlayerAction.progress >= nextPlayerAction.duration) {
             const taskId = nextPlayerAction.taskId
-            if (nextPlayerAction.type === 'sprint') {
-              // sprint is continuous, handled below
-            } else if (nextPlayerAction.type === 'review') {
+            if (nextPlayerAction.type === 'review') {
               const found = findTask(nextProjects, taskId)
               if (found) {
-                const hit = computeQualityHit(found.task, found.project, false, true)
+                const params = getTaskQualityParameters(found.task, nextAgents)
+                const hit = computeQualityHit(found.task.storyPointsRequired, params)
                 nextReviewHit = hit
                 nextEvents = pushEvent(
                   nextEvents,
@@ -314,7 +332,7 @@ export const useGameStore = create<GameStore>()(
               nextPlayerAction = null
             } else if (nextPlayerAction.type === 'refine') {
               const found = findTask(nextProjects, taskId)
-              if (found && found.task.complexity >= REFINE_MIN_COMPLEXITY) {
+              if (found && found.task.storyPointsRequired >= REFINE_MIN_STORY_POINTS && !found.task.refined) {
                 const [a, b] = splitTask(found.task)
                 nextProjects = nextProjects.map((p) =>
                   p.id === found.project.id
@@ -322,43 +340,33 @@ export const useGameStore = create<GameStore>()(
                     : p,
                 )
                 if (selectedTaskId === taskId) selectedTaskId = a.id
-                nextEvents = pushEvent(nextEvents, 'project', `Refined "${found.task.title}" into two smaller tickets.`)
+                nextEvents = pushEvent(nextEvents, 'project', `Refined "${found.task.title}" into ${a.storyPointsRequired}+${b.storyPointsRequired} SP tickets.`)
               }
               nextPlayerAction = null
             }
           }
         }
 
-        // Sprint SP gain
         if (nextPlayerAction?.type === 'sprint' && nextPlayerAction.taskId) {
-          const spGain = SPRINT_SP_PER_DAY * dayProgress
-          let becameReady = false
-          nextProjects = updateTask(nextProjects, nextPlayerAction.taskId, (t) => {
-            if (t.status === 'merged' || t.status === 'pr_ready') return t
-            const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + spGain)
-            const status = earned >= t.storyPointsRequired ? 'pr_ready' : 'in_progress'
-            if (status === 'pr_ready') becameReady = true
-            return { ...t, storyPointsEarned: earned, status }
-          })
-          if (becameReady) {
-            const found = findTask(nextProjects, nextPlayerAction.taskId)
-            if (found?.task.assignedAgentId) {
-              const aid = found.task.assignedAgentId
-              nextAgents = nextAgents.map((a) =>
-                a.id === aid ? { ...a, taskId: null, status: 'idle' as const, contextUsed: 0 } : a,
-              )
-              nextProjects = updateTask(nextProjects, nextPlayerAction.taskId, (t) => ({
-                ...t,
-                assignedAgentId: null,
-              }))
+          const found = findTask(nextProjects, nextPlayerAction.taskId)
+          if (found && found.task.status !== 'merged' && found.task.status !== 'pr_ready') {
+            const success = effectiveSuccessRate(
+              PLAYER_EFFECTIVE_PARAMS,
+              found.task.storyPointsRequired,
+              0,
+            )
+            if (Math.random() < success) {
+              const result = tryProgressTask(nextProjects, nextPlayerAction.taskId, null)
+              nextProjects = result.projects
+              if (result.becameReady) {
+                nextPlayerAction = null
+                nextEvents = pushEvent(nextEvents, 'system', 'Sprint complete — ticket is PR ready.')
+              }
             }
-            nextPlayerAction = null
-            nextEvents = pushEvent(nextEvents, 'system', 'Sprint complete — ticket is PR ready.')
           }
           sanity = Math.max(0, sanity - SANITY_SPRINT_DRAIN * dayProgress)
         }
 
-        // Refactor quality boost (continuous toggle, no SP progress)
         if (nextPlayerAction?.type === 'refactor' && nextPlayerAction.taskId) {
           const found = findTask(nextProjects, nextPlayerAction.taskId)
           if (found && found.project.quality < 100) {
@@ -377,22 +385,19 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        // Vibe sanity restore
         if (nextPlayerAction?.type === 'vibe') {
           sanity = Math.min(100, sanity + SANITY_VIBE_RESTORE * dayProgress * vibeMult)
-          if (!forcedVibe && sanity >= 95) {
-            nextPlayerAction = null
-          }
+          if (!forcedVibe && sanity >= 95) nextPlayerAction = null
           if (forcedVibe && sanity >= 100) {
             nextPlayerAction = null
             nextEvents = pushEvent(nextEvents, 'system', 'Sanity restored. Back to the suffering.')
           }
-        } else if (!playerBusy) {
+        } else if (!nextPlayerAction) {
           sanity = Math.max(0, sanity - SANITY_PASSIVE_DRAIN * dayProgress)
         }
 
-        // Agent ticks
         let tokenBurn = 0
+        const gpus = rackGpus()
         for (const agent of nextAgents) {
           const model = getModel(agent.modelId)
           if (!model || !agent.taskId) continue
@@ -401,29 +406,36 @@ export const useGameStore = create<GameStore>()(
           if (!taskRef || taskRef.task.status === 'merged' || taskRef.task.status === 'pr_ready') continue
 
           if (model.kind === 'local') {
-            const server = nextServers.find((s) => s.id === agent.serverId)
-            if (!server || server.onFire) continue
+            const hostId = agent.serverId
+            if (!hostId) continue
+            if (hostId !== LAPTOP_HOST_ID) {
+              const server = nextServers.find((s) => s.id === hostId)
+              if (!server || server.onFire) continue
+            }
           }
 
           if (agent.status === 'compacted') continue
           if (agent.status !== 'working') continue
 
-          const baseSpeed = agentTickSpeed(agent, nextAgents, gpuUnits)
-          const tickSpeed = baseSpeed * dayProgress
+          const baseSpeed = agentTickSpeed(agent, nextAgents, nextServers, gpus)
+          if (baseSpeed <= 0) continue
+
           agent.uptime += dayProgress
 
           if (model.kind === 'cloud') {
-            const cost = model.tokenCostPerTick * tickSpeed
+            const cost = model.tokenCostPerTick * baseSpeed * deltaSec
             if (tokens <= 0) continue
             tokenBurn += cost
             agent.totalTokensBurned += cost
           }
 
-          agent.contextUsed += model.contextFillRate * tickSpeed
+          const fillPct = contextFillPct(agent.contextUsed, model.contextSize)
+          const tok = tokensPerTick(model.contextSize) * baseSpeed * deltaSec
+          agent.contextUsed += tok
 
-          if (agent.contextUsed >= model.contextSize) {
+          if (agent.contextUsed >= model.contextSize * 1000) {
             agent.status = 'compacted'
-            agent.contextUsed = model.contextSize
+            agent.contextUsed = model.contextSize * 1000
             nextStats.compactionsSurvived += 1
             nextEvents = pushEvent(
               nextEvents,
@@ -433,15 +445,15 @@ export const useGameStore = create<GameStore>()(
             continue
           }
 
-          const spGain = model.successChance * baseSpeed * SPRINT_SP_PER_DAY * dayProgress
-          if (spGain > 0) {
-            nextProjects = updateTask(nextProjects, agent.taskId, (t) => {
-              const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + spGain)
-              const status = earned >= t.storyPointsRequired ? 'pr_ready' : 'in_progress'
-              return { ...t, storyPointsEarned: earned, status }
-            })
-            const updated = findTask(nextProjects, agent.taskId)
-            if (updated?.task.status === 'pr_ready') {
+          const success = effectiveSuccessRate(
+            model.parameters,
+            taskRef.task.storyPointsRequired,
+            fillPct,
+          )
+          if (Math.random() < success * baseSpeed) {
+            const result = tryProgressTask(nextProjects, agent.taskId, agent.id)
+            nextProjects = result.projects
+            if (result.becameReady) {
               agent.taskId = null
               agent.status = 'idle'
               agent.contextUsed = 0
@@ -451,16 +463,14 @@ export const useGameStore = create<GameStore>()(
 
         tokens = Math.max(0, tokens - tokenBurn)
 
-        // Compaction backslide
         for (const agent of nextAgents) {
           if (agent.status !== 'compacted' || !agent.taskId) continue
           nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
             ...t,
-            storyPointsEarned: Math.max(0, t.storyPointsEarned - 0.5 * dayProgress),
+            storyPointsEarned: Math.max(0, t.storyPointsEarned - 1 * dayProgress),
           }))
         }
 
-        // Server fires
         for (const server of nextServers) {
           if (server.onFire) {
             server.fireDuration = Math.max(0, server.fireDuration - dayProgress * SECONDS_PER_GAME_DAY)
@@ -475,10 +485,9 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        // Complete projects
         for (const project of nextProjects) {
           if (project.status !== 'active') continue
-          if (!allTasksMerged(project)) continue
+          if (!project.tasks.every((t) => t.status === 'merged')) continue
 
           project.status = 'completed'
           cash += project.payment
@@ -511,6 +520,8 @@ export const useGameStore = create<GameStore>()(
           nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.')
         }
 
+        const ram = syncRam({ loadedModels: nextLoadedModels, agents: nextAgents, servers: nextServers })
+
         set({
           cash,
           tokens,
@@ -521,6 +532,7 @@ export const useGameStore = create<GameStore>()(
           apartmentLeaseRemaining,
           agents: nextAgents,
           servers: nextServers,
+          loadedModels: nextLoadedModels,
           projects: nextProjects,
           leads: nextLeads,
           events: nextEvents,
@@ -530,7 +542,7 @@ export const useGameStore = create<GameStore>()(
           leadSpawnCooldown,
           selectedTaskId,
           phase,
-          usedRam: computeUsedRam(nextAgents),
+          ...ram,
           tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
         })
       },
@@ -556,7 +568,6 @@ export const useGameStore = create<GameStore>()(
             progress: 0,
             duration: 9999,
           },
-          reviewRevealedHit: null,
           events: pushEvent(state.events, 'system', `Sprinting on "${found.task.title}". Caveman mode engaged.`),
         })
       },
@@ -578,14 +589,10 @@ export const useGameStore = create<GameStore>()(
         const state = get()
         if (state.playerAction?.forced) return
         const found = findTask(state.projects, taskId)
-        if (!found || found.task.complexity < REFINE_MIN_COMPLEXITY || found.task.refined) return
+        if (!found || found.task.storyPointsRequired < REFINE_MIN_STORY_POINTS || found.task.refined) return
+        const duration = playerActionDurationDays(found.task.storyPointsRequired, found.project.quality)
         set({
-          playerAction: {
-            type: 'refine',
-            taskId,
-            progress: 0,
-            duration: PLAYER_ACTION_REFINE_DAYS,
-          },
+          playerAction: { type: 'refine', taskId, progress: 0, duration },
           events: pushEvent(state.events, 'project', `Refining "${found.task.title}"… ticket mitosis incoming.`),
         })
       },
@@ -600,12 +607,7 @@ export const useGameStore = create<GameStore>()(
         const found = findTask(state.projects, taskId)
         if (!found || found.project.quality >= 100) return
         set({
-          playerAction: {
-            type: 'refactor',
-            taskId,
-            progress: 0,
-            duration: 9999,
-          },
+          playerAction: { type: 'refactor', taskId, progress: 0, duration: 9999 },
           events: pushEvent(state.events, 'project', `Refactoring "${found.task.title}"… quality over progress.`),
         })
       },
@@ -615,13 +617,9 @@ export const useGameStore = create<GameStore>()(
         if (state.playerAction?.forced) return
         const found = findTask(state.projects, taskId)
         if (!found || found.task.status !== 'pr_ready') return
+        const duration = playerActionDurationDays(found.task.storyPointsRequired, found.project.quality)
         set({
-          playerAction: {
-            type: 'review',
-            taskId,
-            progress: 0,
-            duration: PLAYER_ACTION_REVIEW_DAYS,
-          },
+          playerAction: { type: 'review', taskId, progress: 0, duration },
           reviewRevealedHit: null,
           events: pushEvent(state.events, 'project', `Reviewing PR for "${found.task.title}"…`),
         })
@@ -633,7 +631,8 @@ export const useGameStore = create<GameStore>()(
         const found = findTask(state.projects, taskId)
         if (!found || found.task.status !== 'pr_ready') return
 
-        const hit = computeQualityHit(found.task, found.project, true, false)
+        const params = getTaskQualityParameters(found.task, state.agents)
+        const hit = computeQualityHit(found.task.storyPointsRequired, params)
         const nextProjects = state.projects.map((p) =>
           p.id === found.project.id
             ? {
@@ -652,7 +651,7 @@ export const useGameStore = create<GameStore>()(
           events: pushEvent(
             state.events,
             'project',
-            `Just Merged "${found.task.title}". Quality -${hit.toFixed(1)}. YOLO.`,
+            `Just Merged "${found.task.title}". Quality -${hit.toFixed(1)}.`,
           ),
         })
       },
@@ -662,7 +661,8 @@ export const useGameStore = create<GameStore>()(
         const found = findTask(state.projects, taskId)
         if (!found || found.task.status !== 'pr_ready') return
 
-        const hit = state.reviewRevealedHit ?? computeQualityHit(found.task, found.project, false, true)
+        const params = getTaskQualityParameters(found.task, state.agents)
+        const hit = state.reviewRevealedHit ?? computeQualityHit(found.task.storyPointsRequired, params)
         const nextProjects = state.projects.map((p) =>
           p.id === found.project.id
             ? {
@@ -699,7 +699,7 @@ export const useGameStore = create<GameStore>()(
         const lead = state.leads.find((l) => l.id === leadId)
         if (!lead || lead.status !== 'available') return
         if (state.reputation < lead.repRequired) return
-        if (state.projects.length >= 4) return
+        if (state.projects.length >= MAX_ACTIVE_PROJECTS) return
 
         const project = createProjectFromLead(lead)
         set({
@@ -725,17 +725,39 @@ export const useGameStore = create<GameStore>()(
         if (found.task.status === 'merged' || found.task.status === 'pr_ready') return
         if (found.task.assignedAgentId) return
 
+        const model = getModel(agent.modelId)
+        if (!model) return
+        if (!canAgentHandleTask(model.parameters, found.task.storyPointsRequired)) return
+
+        if (agent.serverId && agent.loadedModelId) {
+          if (
+            !canFitTaskOnHost(
+              agent.serverId,
+              agent.loadedModelId,
+              agent.modelId,
+              state.loadedModels,
+              state.agents,
+              state.servers,
+            )
+          ) {
+            return
+          }
+        }
+
+        const nextAgents = state.agents.map((a) =>
+          a.id === agentId
+            ? { ...a, taskId, status: 'working' as const, contextUsed: 0 }
+            : a,
+        )
+
         set({
-          agents: state.agents.map((a) =>
-            a.id === agentId
-              ? { ...a, taskId, status: 'working' as const, contextUsed: 0 }
-              : a,
-          ),
+          agents: nextAgents,
           projects: updateTask(state.projects, taskId, (t) => ({
             ...t,
             assignedAgentId: agentId,
             status: 'in_progress',
           })),
+          ...syncRam({ loadedModels: state.loadedModels, agents: nextAgents, servers: state.servers }),
           events: pushEvent(state.events, 'system', `${agent.name} assigned to "${found.task.title}".`),
         })
       },
@@ -746,21 +768,24 @@ export const useGameStore = create<GameStore>()(
         if (!agent?.taskId) return
 
         const taskId = agent.taskId
+        const nextAgents = state.agents.map((a) =>
+          a.id === agentId
+            ? { ...a, taskId: null, status: 'idle' as const, contextUsed: 0 }
+            : a,
+        )
+
         set({
-          agents: state.agents.map((a) =>
-            a.id === agentId
-              ? { ...a, taskId: null, status: 'idle' as const, contextUsed: 0 }
-              : a,
-          ),
+          agents: nextAgents,
           projects: updateTask(state.projects, taskId, (t) => ({
             ...t,
             assignedAgentId: null,
             status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
           })),
+          ...syncRam({ loadedModels: state.loadedModels, agents: nextAgents, servers: state.servers }),
           events: pushEvent(
             state.events,
             'system',
-            `${agent.name} yanked off task. Context wiped. Review comments are your problem now.`,
+            `${agent.name} yanked off task. Context wiped.`,
           ),
         })
       },
@@ -799,11 +824,11 @@ export const useGameStore = create<GameStore>()(
         set({
           agents: nextAgents,
           projects: nextProjects,
-          usedRam: computeUsedRam(nextAgents),
+          ...syncRam({ loadedModels: state.loadedModels, agents: nextAgents, servers: state.servers }),
           events: pushEvent(
             state.events,
             'system',
-            `Offloaded ${agent.name} (${model?.name ?? 'model'}). ${model?.kind === 'local' ? 'RAM freed.' : 'Cloud instance terminated.'}`,
+            `Offloaded ${agent.name} (${model?.name ?? 'model'}).`,
           ),
         })
       },
@@ -818,6 +843,7 @@ export const useGameStore = create<GameStore>()(
           id: uid('agt'),
           name: generateAgentName(),
           modelId,
+          loadedModelId: null,
           serverId: null,
           taskId: null,
           status: 'idle',
@@ -831,24 +857,42 @@ export const useGameStore = create<GameStore>()(
           cash: state.cash - model.deployCost,
           agents: [...state.agents, agent],
           stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-          events: pushEvent(state.events, 'system', `Deployed ${agent.name} (${model.name}) to the cloud. Token meter weeps.`),
+          events: pushEvent(state.events, 'system', `Deployed ${agent.name} (${model.name}) to the cloud.`),
         })
         return true
       },
 
-      installLocalAgent(modelId, serverId) {
+      loadLocalModel(modelId, hostId, forceNewInstance = false) {
         const state = get()
         const model = getModel(modelId)
-        const server = state.servers.find((s) => s.id === serverId)
-        if (!model || model.kind !== 'local' || !server || server.onFire) return false
+        if (!model || model.kind !== 'local') return false
         if (!state.ownedLocalModels.includes(modelId)) return false
-        if (state.usedRam + model.ramCost > state.totalRam) return false
+        if (hostId === LAPTOP_HOST_ID && modelId !== 'local-1b') return false
 
+        if (!forceNewInstance) {
+          const existing = state.loadedModels.find((lm) => lm.hostId === hostId && lm.modelId === modelId)
+          if (existing) {
+            return get().spawnLocalAgent(existing.id)
+          }
+        }
+
+        if (!canFitLoadOnHost(hostId, modelId, state.loadedModels, state.agents, state.servers)) {
+          return false
+        }
+
+        const loaded: LoadedModel = {
+          id: uid('load'),
+          modelId,
+          hostId,
+        }
+
+        const nextLoaded = [...state.loadedModels, loaded]
         const agent: Agent = {
           id: uid('agt'),
           name: generateAgentName(),
           modelId,
-          serverId,
+          loadedModelId: loaded.id,
+          serverId: hostId,
           taskId: null,
           status: 'idle',
           personality: generatePersonality(),
@@ -857,26 +901,62 @@ export const useGameStore = create<GameStore>()(
           uptime: 0,
         }
 
+        const nextAgents = [...state.agents, agent]
         set({
-          agents: [...state.agents, agent],
-          usedRam: computeUsedRam([...state.agents, agent]),
+          loadedModels: nextLoaded,
+          agents: nextAgents,
+          ...syncRam({ loadedModels: nextLoaded, agents: nextAgents, servers: state.servers }),
           stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-          events: pushEvent(state.events, 'system', `Installed ${agent.name} (${model.name}). Free. Depressing.`),
+          events: pushEvent(
+            state.events,
+            'system',
+            `Loaded ${model.name} on ${hostId === LAPTOP_HOST_ID ? 'laptop' : 'rack'}.`,
+          ),
         })
         return true
       },
 
-      buyLocalModel(modelId) {
+      spawnLocalAgent(loadedModelId) {
         const state = get()
-        const model = getModel(modelId)
-        if (!model || model.kind !== 'local') return false
-        if (state.ownedLocalModels.includes(modelId)) return false
-        if (model.purchaseCost > 0 && state.cash < model.purchaseCost) return false
+        const loaded = state.loadedModels.find((lm) => lm.id === loadedModelId)
+        if (!loaded) return false
+        const model = getModel(loaded.modelId)
+        if (!model) return false
 
+        const agent: Agent = {
+          id: uid('agt'),
+          name: generateAgentName(),
+          modelId: loaded.modelId,
+          loadedModelId: loaded.id,
+          serverId: loaded.hostId,
+          taskId: null,
+          status: 'idle',
+          personality: generatePersonality(),
+          contextUsed: 0,
+          totalTokensBurned: 0,
+          uptime: 0,
+        }
+
+        const nextAgents = [...state.agents, agent]
         set({
-          cash: state.cash - model.purchaseCost,
-          ownedLocalModels: [...state.ownedLocalModels, modelId],
-          events: pushEvent(state.events, 'milestone', `Acquired ${model.name}. Shelf ware unlocked.`),
+          agents: nextAgents,
+          stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
+          events: pushEvent(state.events, 'system', `Spawned worker on ${model.name}.`),
+        })
+        return true
+      },
+
+      unloadModel(loadedModelId) {
+        const state = get()
+        const loaded = state.loadedModels.find((lm) => lm.id === loadedModelId)
+        if (!loaded) return false
+        if (state.agents.some((a) => a.loadedModelId === loadedModelId)) return false
+
+        const nextLoaded = state.loadedModels.filter((lm) => lm.id !== loadedModelId)
+        set({
+          loadedModels: nextLoaded,
+          ...syncRam({ loadedModels: nextLoaded, agents: state.agents, servers: state.servers }),
+          events: pushEvent(state.events, 'system', 'Unloaded model. RAM exhaled.'),
         })
         return true
       },
@@ -892,15 +972,15 @@ export const useGameStore = create<GameStore>()(
           id: uid('srv'),
           name: config.label,
           tier,
-          capacity: config.capacity,
-          gpuLevel: 1,
           onFire: false,
           fireDuration: 0,
         }
 
+        const nextServers = [...state.servers, server]
         set({
           cash: state.cash - config.cost,
-          servers: [...state.servers, server],
+          servers: nextServers,
+          ...syncRam({ loadedModels: state.loadedModels, agents: state.agents, servers: nextServers }),
           events: pushEvent(state.events, 'milestone', `Procured ${server.name}. Landlord concerned.`),
         })
         return true
@@ -911,27 +991,19 @@ export const useGameStore = create<GameStore>()(
         const server = state.servers.find((s) => s.id === serverId)
         if (!server || server.onFire) return false
         if (state.agents.some((a) => a.serverId === serverId)) return false
+        if (state.loadedModels.some((lm) => lm.hostId === serverId)) return false
 
         const payout = RACK_REFURBISH_VALUE[server.tier] ?? 0
+        const nextServers = state.servers.filter((s) => s.id !== serverId)
         set({
           cash: state.cash + payout,
-          servers: state.servers.filter((s) => s.id !== serverId),
+          servers: nextServers,
+          ...syncRam({ loadedModels: state.loadedModels, agents: state.agents, servers: nextServers }),
           events: pushEvent(
             state.events,
             'milestone',
             `Sold ${server.name} for $${payout} (50% loss). Buyer suspiciously cheerful.`,
           ),
-        })
-        return true
-      },
-
-      upgradeGpu() {
-        const state = get()
-        if (state.cash < GPU_UPGRADE_COST) return false
-        set({
-          cash: state.cash - GPU_UPGRADE_COST,
-          gpuUnits: state.gpuUnits + 1,
-          events: pushEvent(state.events, 'milestone', `GPU upgraded. Local ticks slightly less embarrassing.`),
         })
         return true
       },
@@ -963,7 +1035,6 @@ export const useGameStore = create<GameStore>()(
           apartment: next,
           apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
           rentDueInDays: RENT_INTERVAL_DAYS,
-          totalRam: INITIAL_RAM + APARTMENT_CONFIG[next].ramBonus,
           events: pushEvent(
             state.events,
             'milestone',
@@ -1004,21 +1075,31 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
-      version: 5,
+      version: 6,
       migrate: (persisted, version) => {
         const s = persisted as Partial<GameStore>
+        if (version < 6) {
+          return createInitialState() as unknown as GameStore
+        }
         if (s.agents) {
-          s.agents = s.agents.map((a) => {
-            const agent = { ...a, modelId: migrateModelId(a.modelId) }
-            if (version < 4 && (agent.status as string) === 'warming') {
-              agent.status = 'working'
-            }
-            delete (agent as { warmupRemaining?: number }).warmupRemaining
-            if (version < 5 && getModel(agent.modelId)?.kind === 'cloud') {
-              agent.serverId = null
-            }
-            return agent
-          })
+          s.agents = s.agents.map((a) => ({
+            ...a,
+            modelId: migrateModelId(a.modelId),
+            loadedModelId: a.loadedModelId ?? null,
+          }))
+        }
+        if (s.projects) {
+          s.projects = s.projects.map((p) => ({
+            ...p,
+            tasks: p.tasks.map((t) => ({
+              ...t,
+              completedByAgentId: t.completedByAgentId ?? null,
+            })),
+          }))
+        }
+        if (!s.loadedModels) s.loadedModels = []
+        if (s.ownedLocalModels) {
+          s.ownedLocalModels = ['local-1b', 'local-2b', 'local-4b']
         }
         return s as GameStore
       },
@@ -1033,10 +1114,10 @@ export const useGameStore = create<GameStore>()(
         rentDueInDays: state.rentDueInDays,
         apartment: state.apartment,
         apartmentLeaseRemaining: state.apartmentLeaseRemaining,
-        gpuUnits: state.gpuUnits,
-        totalRam: state.totalRam,
         usedRam: state.usedRam,
+        totalRam: state.totalRam,
         ownedLocalModels: state.ownedLocalModels,
+        loadedModels: state.loadedModels,
         servers: state.servers,
         agents: state.agents,
         projects: state.projects,
@@ -1064,5 +1145,36 @@ export function getNextApartment(state: Pick<GameStore, 'apartment'>): string | 
 }
 
 export function projectProgressPct(project: Project): number {
-  return projectProgress(project) * 100
+  const merged = project.tasks.filter((t) => t.status === 'merged').reduce((s, t) => s + t.storyPointsRequired, 0)
+  return (merged / project.totalStoryPoints) * 100
+}
+
+export function modelSuccessForTask(modelId: string, taskSp = 1, contextFillPctValue = 0): number {
+  const model = getModel(modelId)
+  if (!model) return 0
+  return effectiveSuccessRate(model.parameters, taskSp, contextFillPctValue)
+}
+
+export function playerSuccessForTask(taskSp: number): number {
+  return effectiveSuccessRate(PLAYER_EFFECTIVE_PARAMS, taskSp, 0)
+}
+
+export function projectedQualityHit(
+  task: Task,
+  agents: Agent[],
+): number {
+  const params = getTaskQualityParameters(task, agents)
+  return computeQualityHit(task.storyPointsRequired, params)
+}
+
+export function playerProjectedQualityHit(taskSp: number): number {
+  return computeQualityHit(taskSp, PLAYER_EFFECTIVE_PARAMS)
+}
+
+export {
+  effectiveSuccessRate,
+  computeQualityHit,
+  canAgentHandleTask,
+  getAgentParameters,
+  LAPTOP_HOST_ID,
 }

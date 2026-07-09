@@ -1,4 +1,10 @@
-import { useGameStore } from '../game/store'
+import { REFINE_MIN_STORY_POINTS } from '../game/constants'
+import { formatSuccessPct } from '../game/mechanics'
+import {
+  playerProjectedQualityHit,
+  playerSuccessForTask,
+  useGameStore,
+} from '../game/store'
 import { NewGameButton } from './NewGameButton'
 
 export function PlayerActionsPanel() {
@@ -32,11 +38,30 @@ export function PlayerActionsPanel() {
   const isVibing = playerAction?.type === 'vibe'
   const isRefactoring = playerAction?.type === 'refactor'
 
+  const playerQualityPreview =
+    selectedTask && selectedTask.status !== 'merged'
+      ? playerProjectedQualityHit(selectedTask.storyPointsRequired)
+      : null
+
+  const playerSuccessPreview =
+    selectedTask && selectedTask.status !== 'merged' && selectedTask.status !== 'pr_ready'
+      ? playerSuccessForTask(selectedTask.storyPointsRequired)
+      : null
+
   function secondsLeft(): number {
-    if (!playerAction || playerAction.type === 'sprint' || playerAction.type === 'refactor' || playerAction.type === 'vibe') {
+    if (
+      !playerAction ||
+      playerAction.type === 'sprint' ||
+      playerAction.type === 'refactor' ||
+      playerAction.type === 'vibe'
+    ) {
       return 0
     }
     return Math.max(0, Math.ceil((playerAction.duration - playerAction.progress) * 60))
+  }
+
+  function isAgentWork(task: { completedByAgentId: string | null }): boolean {
+    return task.completedByAgentId !== null
   }
 
   return (
@@ -45,7 +70,18 @@ export function PlayerActionsPanel() {
         <h2>Your Move</h2>
         <NewGameButton />
       </div>
-      <p className="hint">Switch modes freely. Sprint and refactor auto-stop when done.</p>
+      <p className="hint">Sprint uses discrete SP rolls. You&apos;re an ~8B brain with no context window.</p>
+
+      {selectedTask && selectedTask.status !== 'merged' && (
+        <div className="review-result">
+          {playerSuccessPreview !== null && (
+            <p>Sprint success (per tick): <strong>{formatSuccessPct(playerSuccessPreview)}</strong></p>
+          )}
+          {playerQualityPreview !== null && (
+            <p>Your merge quality hit: <strong>-{playerQualityPreview.toFixed(1)}</strong></p>
+          )}
+        </div>
+      )}
 
       {playerAction && (
         <div className="action-status">
@@ -103,7 +139,12 @@ export function PlayerActionsPanel() {
           type="button"
           className="btn"
           onClick={() => selectedTask && startRefine(selectedTask.id)}
-          disabled={isForcedVibe || !selectedTask || selectedTask.refined || selectedTask.complexity < 6}
+          disabled={
+            isForcedVibe ||
+            !selectedTask ||
+            selectedTask.refined ||
+            selectedTask.storyPointsRequired < REFINE_MIN_STORY_POINTS
+          }
         >
           Refine
         </button>
@@ -120,21 +161,43 @@ export function PlayerActionsPanel() {
       {prReadyTasks.length > 0 && (
         <div className="pr-queue">
           <h3>PRs Waiting ({prReadyTasks.length})</h3>
-          {prReadyTasks.map(({ id, title, project }) => (
-            <div key={id} className="pr-item">
-              <span>
-                {project.clientName}: {title}
-              </span>
-              <div className="action-row">
-                <button type="button" className="btn btn--small" onClick={() => startReview(id)} disabled={isForcedVibe}>
-                  Review
-                </button>
-                <button type="button" className="btn btn--small btn--danger" onClick={() => justMerge(id)} disabled={isForcedVibe}>
-                  Just Merge
-                </button>
+          {prReadyTasks.map(({ id, title, project, completedByAgentId, storyPointsRequired }) => {
+            const showPlayerMerge = !isAgentWork({ completedByAgentId })
+
+            return (
+              <div key={id} className="pr-item">
+                <span>
+                  {project.clientName}: {title}
+                  {showPlayerMerge && (
+                    <em> · hit -{playerProjectedQualityHit(storyPointsRequired).toFixed(1)}</em>
+                  )}
+                  {!showPlayerMerge && reviewRevealedHit === null && (
+                    <em> · review to see quality hit</em>
+                  )}
+                </span>
+                <div className="action-row">
+                  {isAgentWork({ completedByAgentId }) && (
+                    <button type="button" className="btn btn--small" onClick={() => startReview(id)} disabled={isForcedVibe}>
+                      Review
+                    </button>
+                  )}
+                  {showPlayerMerge && (
+                    <button type="button" className="btn btn--small btn--sprint" onClick={() => completeMerge(id)} disabled={isForcedVibe}>
+                      Merge
+                    </button>
+                  )}
+                  {!showPlayerMerge && reviewRevealedHit !== null && (
+                    <button type="button" className="btn btn--small btn--sprint" onClick={() => completeMerge(id)} disabled={isForcedVibe}>
+                      Merge
+                    </button>
+                  )}
+                  <button type="button" className="btn btn--small btn--danger" onClick={() => justMerge(id)} disabled={isForcedVibe}>
+                    Just Merge
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </section>
