@@ -1,6 +1,6 @@
 import { getModel } from '../game/models'
 import { useGameStore } from '../game/store'
-import { EXTINGUISH_COST } from '../game/constants'
+import { EXTINGUISH_COST, RACK_REFURBISH_VALUE } from '../game/constants'
 import type { Task } from '../game/types'
 
 export function ServerRack() {
@@ -12,6 +12,7 @@ export function ServerRack() {
   const unassignAgent = useGameStore((s) => s.unassignAgent)
   const offloadAgent = useGameStore((s) => s.offloadAgent)
   const extinguishFire = useGameStore((s) => s.extinguishFire)
+  const sellServer = useGameStore((s) => s.sellServer)
 
   function findTask(taskId: string | null): Task | null {
     if (!taskId) return null
@@ -30,6 +31,10 @@ export function ServerRack() {
   return (
     <section className="panel server-rack">
       <h2>Server Farm</h2>
+
+      {servers.length === 0 && (
+        <p className="empty-slot">No racks yet. Buy one from the Marketplace to deploy models.</p>
+      )}
 
       {servers.map((server) => {
         const serverAgents = agents.filter(
@@ -55,6 +60,16 @@ export function ServerRack() {
                 disabled={cash < EXTINGUISH_COST}
               >
                 Extinguish (${EXTINGUISH_COST})
+              </button>
+            )}
+
+            {serverAgents.length === 0 && !server.onFire && (
+              <button
+                type="button"
+                className="btn btn--small"
+                onClick={() => sellServer(server.id)}
+              >
+                Sell (${RACK_REFURBISH_VALUE[server.tier] ?? 0})
               </button>
             )}
 

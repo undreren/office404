@@ -66,18 +66,6 @@ function pushEvent(events: GameEvent[], type: GameEvent['type'], message: string
   return [entry, ...events].slice(0, MAX_EVENTS)
 }
 
-function createStarterServer(): Server {
-  return {
-    id: uid('srv'),
-    name: 'Basement Mark Mini',
-    tier: 'mark_mini',
-    capacity: RACK_CONFIG.mark_mini.capacity,
-    gpuLevel: 1,
-    onFire: false,
-    fireDuration: 0,
-  }
-}
-
 function createInitialState() {
   const tutorial = createTutorialProject()
   return {
@@ -95,7 +83,7 @@ function createInitialState() {
     totalRam: INITIAL_RAM,
     usedRam: 0,
     ownedLocalModels: ['local-7b', 'local-13b', 'local-34b'] as string[],
-    servers: [createStarterServer()],
+    servers: [] as Server[],
     agents: [] as Agent[],
     projects: [tutorial],
     leads: [] as Lead[],
@@ -914,6 +902,25 @@ export const useGameStore = create<GameStore>()(
           cash: state.cash - config.cost,
           servers: [...state.servers, server],
           events: pushEvent(state.events, 'milestone', `Procured ${server.name}. Landlord concerned.`),
+        })
+        return true
+      },
+
+      sellServer(serverId) {
+        const state = get()
+        const server = state.servers.find((s) => s.id === serverId)
+        if (!server || server.onFire) return false
+        if (state.agents.some((a) => a.serverId === serverId)) return false
+
+        const payout = RACK_REFURBISH_VALUE[server.tier] ?? 0
+        set({
+          cash: state.cash + payout,
+          servers: state.servers.filter((s) => s.id !== serverId),
+          events: pushEvent(
+            state.events,
+            'milestone',
+            `Sold ${server.name} for $${payout} (50% loss). Buyer suspiciously cheerful.`,
+          ),
         })
         return true
       },
