@@ -130,6 +130,21 @@ body {
   justify-content: flex-end;
 }
 
+.resource--vibe__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.resource--vibe__row .btn--small {
+  width: auto;
+  flex-shrink: 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.65rem;
+}
+
 .surcharge {
   color: var(--warning);
   font-style: normal;
