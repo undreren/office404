@@ -946,11 +946,6 @@ export const useGameStore = create<GameStore>()(
             assignedAgentId: null,
             status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
           }))
-        } else if (agent.job === 'review' && agent.taskId) {
-          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
-            ...t,
-            revealedQualityHit: null,
-          }))
         }
 
         const nextAgents = state.agents.map((a) => (a.id === agentId ? clearAgentJob(a) : a))
@@ -971,7 +966,7 @@ export const useGameStore = create<GameStore>()(
         set({
           agents: state.agents.map((a) =>
             a.id === agentId
-              ? { ...a, status: 'working' as const, contextUsed: 0 }
+              ? { ...a, status: jobStatusFor(a.job), contextUsed: 0 }
               : a,
           ),
           events: pushEvent(state.events, 'system', `${agent.name} restarted. Context cleared — back to work.`),
