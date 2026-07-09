@@ -1,5 +1,5 @@
 import { getModel } from '../game/models'
-import { contextFillPct, effectiveSuccessRate, formatSuccessPct } from '../game/mechanics'
+import { contextFillPct, effectiveSuccessRate, formatStoryPoints, formatSuccessPct } from '../game/mechanics'
 import { useGameStore } from '../game/store'
 import type { Task } from '../game/types'
 
@@ -69,7 +69,7 @@ export function CloudAgentsPanel() {
                     />
                   </div>
                   <span className="task-sp">
-                    {task.storyPointsEarned} / {task.storyPointsRequired} SP
+                    {formatStoryPoints(task.storyPointsEarned)} / {formatStoryPoints(task.storyPointsRequired)} SP
                   </span>
                 </div>
               )}

@@ -1,4 +1,4 @@
-import { canAgentHandleTask } from '../game/mechanics'
+import { canAgentHandleTask, formatStoryPoints } from '../game/mechanics'
 import { getModel } from '../game/models'
 import { isReadyToDeliver, modelSuccessForTask, projectProgressPct, useGameStore } from '../game/store'
 
@@ -89,7 +89,7 @@ export function ProjectsPanel() {
                         <div className="meter__fill meter__fill--code" style={{ width: `${pct}%` }} />
                       </div>
                       <span className="task-sp">
-                        {task.storyPointsEarned} / {task.storyPointsRequired} SP
+                        {formatStoryPoints(task.storyPointsEarned)} / {formatStoryPoints(task.storyPointsRequired)} SP
                         {task.refined && ' · refined'}
                       </span>
                     </button>
@@ -113,7 +113,7 @@ export function ProjectsPanel() {
                     )}
 
                     {task.status !== 'merged' && task.status !== 'pr_ready' && isSelected && idleAgents.length === 0 && (
-                      <p className="hint">No agent can handle {task.storyPointsRequired} SP. Refine or upgrade.</p>
+                      <p className="hint">No agent can handle {formatStoryPoints(task.storyPointsRequired)} SP. Refine or upgrade.</p>
                     )}
                   </li>
                 )
