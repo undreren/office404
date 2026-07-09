@@ -586,17 +586,13 @@ export const useGameStore = create<GameStore>()(
               nextAgents[agentIdx] = agent
             }
 
-            fillAgentContext(agent, model, baseSpeed, deltaSec)
-            if (agent.contextUsed >= model.contextSize * 1000) {
-              overflow()
-              nextAgents[agentIdx] = agent
-              continue
-            }
-
+            // Refine is scope planning — don't burn context like a full coding pass.
             agent.jobProgress += dayProgress * baseSpeed
             if (agent.jobProgress >= agent.jobDuration) {
-              const success = refineSuccessRate(model.parameters, targetSp)
-              if (Math.random() < success) {
+              const rollSuccess =
+                target.kind === 'requirement' ||
+                Math.random() < refineSuccessRate(model.parameters, targetSp)
+              if (rollSuccess) {
                 if (target.kind === 'requirement') {
                   const task = requirementToTask(target.requirement)
                   nextAgents = releaseRefineClaims(
@@ -647,12 +643,10 @@ export const useGameStore = create<GameStore>()(
               } else {
                 agent.jobProgress = 0
                 agent.taskId = null
-                const label =
-                  target.kind === 'requirement' ? target.requirement.title : target.task.title
                 nextEvents = pushEvent(
                   nextEvents,
                   'project',
-                  `${agent.name} botched refining "${label}". Scope survived. Barely.`,
+                  `${agent.name} botched refining "${target.task.title}". Scope survived. Barely.`,
                 )
               }
             }
