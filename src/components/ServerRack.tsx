@@ -104,9 +104,7 @@ export function ServerRack() {
                         </div>
                       </div>
                     )}
-                    {agent.status === 'warming' && (
-                      <p className="agent-meta">Warming up… {agent.warmupRemaining.toFixed(1)}d</p>
-                    )}
+
                     {agent.status === 'compacted' && (
                       <button type="button" className="btn btn--small" onClick={() => restartAgent(agent.id)}>
                         Restart

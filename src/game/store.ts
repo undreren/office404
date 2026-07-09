@@ -411,19 +411,10 @@ export const useGameStore = create<GameStore>()(
           if (!server || server.onFire) continue
 
           if (agent.status === 'compacted') continue
-
-          if (agent.status === 'warming') {
-            agent.warmupRemaining -= dayProgress
-            if (agent.warmupRemaining <= 0) {
-              agent.status = 'working'
-              agent.warmupRemaining = 0
-            }
-            continue
-          }
-
           if (agent.status !== 'working') continue
 
-          const tickSpeed = agentTickSpeed(agent, nextAgents, gpuUnits) * dayProgress
+          const baseSpeed = agentTickSpeed(agent, nextAgents, gpuUnits)
+          const tickSpeed = baseSpeed * dayProgress
           agent.uptime += dayProgress
 
           if (model.kind === 'cloud') {
@@ -447,9 +438,10 @@ export const useGameStore = create<GameStore>()(
             continue
           }
 
-          if (Math.random() < model.successChance * tickSpeed) {
+          const spGain = model.successChance * baseSpeed * SPRINT_SP_PER_DAY * dayProgress
+          if (spGain > 0) {
             nextProjects = updateTask(nextProjects, agent.taskId, (t) => {
-              const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + 1 * tickSpeed * 2)
+              const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + spGain)
               const status = earned >= t.storyPointsRequired ? 'pr_ready' : 'in_progress'
               return { ...t, storyPointsEarned: earned, status }
             })
@@ -738,11 +730,10 @@ export const useGameStore = create<GameStore>()(
         if (found.task.status === 'merged' || found.task.status === 'pr_ready') return
         if (found.task.assignedAgentId) return
 
-        const warmup = Math.ceil((getModel(agent.modelId)?.contextSize ?? 8) * 0.15)
         set({
           agents: state.agents.map((a) =>
             a.id === agentId
-              ? { ...a, taskId, status: 'warming' as const, warmupRemaining: warmup, contextUsed: 0 }
+              ? { ...a, taskId, status: 'working' as const, contextUsed: 0 }
               : a,
           ),
           projects: updateTask(state.projects, taskId, (t) => ({
@@ -763,7 +754,7 @@ export const useGameStore = create<GameStore>()(
         set({
           agents: state.agents.map((a) =>
             a.id === agentId
-              ? { ...a, taskId: null, status: 'idle' as const, contextUsed: 0, warmupRemaining: 0 }
+              ? { ...a, taskId: null, status: 'idle' as const, contextUsed: 0 }
               : a,
           ),
           projects: updateTask(state.projects, taskId, (t) => ({
@@ -784,15 +775,13 @@ export const useGameStore = create<GameStore>()(
         const agent = state.agents.find((a) => a.id === agentId)
         if (!agent || agent.status !== 'compacted') return
 
-        const model = getModel(agent.modelId)
-        const warmup = Math.ceil((model?.contextSize ?? 8) * 0.2)
         set({
           agents: state.agents.map((a) =>
             a.id === agentId
-              ? { ...a, status: 'warming' as const, contextUsed: 0, warmupRemaining: warmup }
+              ? { ...a, status: 'working' as const, contextUsed: 0 }
               : a,
           ),
-          events: pushEvent(state.events, 'system', `${agent.name} restarted. Context rebuilding…`),
+          events: pushEvent(state.events, 'system', `${agent.name} restarted. Context cleared — back to work.`),
         })
       },
 
@@ -840,7 +829,6 @@ export const useGameStore = create<GameStore>()(
           status: 'idle',
           personality: generatePersonality(),
           contextUsed: 0,
-          warmupRemaining: 0,
           totalTokensBurned: 0,
           uptime: 0,
         }
@@ -871,7 +859,6 @@ export const useGameStore = create<GameStore>()(
           status: 'idle',
           personality: generatePersonality(),
           contextUsed: 0,
-          warmupRemaining: 0,
           totalTokensBurned: 0,
           uptime: 0,
         }
@@ -1004,11 +991,18 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
-      version: 3,
-      migrate: (persisted) => {
+      version: 4,
+      migrate: (persisted, version) => {
         const s = persisted as Partial<GameStore>
         if (s.agents) {
-          s.agents = s.agents.map((a) => ({ ...a, modelId: migrateModelId(a.modelId) }))
+          s.agents = s.agents.map((a) => {
+            const agent = { ...a, modelId: migrateModelId(a.modelId) }
+            if (version < 4 && (agent.status as string) === 'warming') {
+              agent.status = 'working'
+            }
+            delete (agent as { warmupRemaining?: number }).warmupRemaining
+            return agent
+          })
         }
         return s as GameStore
       },
