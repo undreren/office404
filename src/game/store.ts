@@ -60,7 +60,6 @@ import {
   LAPTOP_HOST_ID,
   agentJobDurationDays,
   agentTickSpeed,
-  amnesiaLossFraction,
   bugDiscoveryChance,
   computeBugChance,
   computePrQualityFromReview,
@@ -106,43 +105,12 @@ function clearAgentJob(agent: Agent): Agent {
   return { ...agent, ...emptyAgentJob(), contextUsed: 0, compactingRemainingSec: 0 }
 }
 
-function applyCompactionAmnesia(agent: Agent, projects: Project[]): Project[] {
-  if (!agent.job || agent.job === 'refactor') return projects
-
-  const loss = amnesiaLossFraction()
-  if (loss <= 0) return projects
-
-  if (agent.job === 'code' && agent.taskId) {
-    return updateTask(projects, agent.taskId, (t) => ({
-      ...t,
-      storyPointsEarned: Math.max(0, t.storyPointsEarned * (1 - loss)),
-    }))
-  }
-  if (agent.job === 'test' && agent.taskId) {
-    return updateTask(projects, agent.taskId, (t) => ({
-      ...t,
-      testStoryPointsEarned: Math.max(0, t.testStoryPointsEarned * (1 - loss)),
-    }))
-  }
-  if (agent.job === 'review' || agent.job === 'refine') {
-    agent.jobProgress = Math.max(0, agent.jobProgress * (1 - loss))
-  }
-  return projects
-}
-
-function finishCompaction(
-  agent: Agent,
-  projects: Project[],
-): { agent: Agent; projects: Project[] } {
-  const nextProjects = applyCompactionAmnesia(agent, projects)
+function finishCompaction(agent: Agent): Agent {
   return {
-    agent: {
-      ...agent,
-      contextUsed: 0,
-      compactingRemainingSec: 0,
-      status: jobStatusFor(agent.job),
-    },
-    projects: nextProjects,
+    ...agent,
+    contextUsed: 0,
+    compactingRemainingSec: 0,
+    status: jobStatusFor(agent.job),
   }
 }
 
@@ -499,14 +467,12 @@ export const useGameStore = create<GameStore>()(
             continue
           }
 
-          const finished = finishCompaction(agent, nextProjects)
-          agent = finished.agent
-          nextProjects = finished.projects
+          agent = finishCompaction(agent)
           nextAgents[agentIdx] = agent
           nextEvents = pushEvent(
             nextEvents,
             'crash',
-            `${agent.name} context compacted. Woke up fuzzy — some task progress lost.`,
+            `${agent.name} context compacted. Back on task.`,
           )
         }
 
@@ -1248,14 +1214,10 @@ export const useGameStore = create<GameStore>()(
         const agent = state.agents.find((a) => a.id === agentId)
         if (!agent || (agent.status !== 'compacting' && agent.status !== 'compacted')) return
 
-        const finished = finishCompaction(
-          { ...agent, compactingRemainingSec: 0 },
-          state.projects,
-        )
+        const finished = finishCompaction({ ...agent, compactingRemainingSec: 0 })
 
         set({
-          agents: state.agents.map((a) => (a.id === agentId ? finished.agent : a)),
-          projects: finished.projects,
+          agents: state.agents.map((a) => (a.id === agentId ? finished : a)),
           events: pushEvent(
             state.events,
             'system',

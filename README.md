@@ -84,7 +84,7 @@ npm run preview:pages
 
 - **Local shelf models** — free, RAM-hungry, capped tick speed
 - **Fabulous5 cloud** — tokens per tick, 1 tick/sec, actually useful
-- **Context window** fills per tick; overflow → compaction → progress reverses until restart
+- **Context window** fills per tick; overflow → auto-compaction (5s pause, context reset)
 - One agent per ticket; parallelism via Refine only
 
 ### Projects & clients
