@@ -529,9 +529,3 @@ export function createBugFixTask(source: Task): Task {
     refined: true,
   }
 }
-
-export function hiddenBugsOnProject(project: Project): Task[] {
-  return project.tasks.filter(
-    (t) => t.status === 'merged' && t.hasUndiscoveredBug && !t.bugDiscovered,
-  )
-}
