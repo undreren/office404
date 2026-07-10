@@ -5,9 +5,6 @@ import {
 } from '../game/mechanics'
 import {
   allImplementationMerged,
-  projectHasRefactorWork,
-  projectHasRefineWork,
-  projectHasTestWork,
   resolvedReviewComments,
   reviewCommentsOnTask,
   syncTestScope,
@@ -50,7 +47,6 @@ export function ProjectsPanel() {
   const selectTask = useGameStore((s) => s.selectTask)
   const assignAgentToProject = useGameStore((s) => s.assignAgentToProject)
   const unassignAgent = useGameStore((s) => s.unassignAgent)
-  const mergePr = useGameStore((s) => s.mergePr)
   const justMergePr = useGameStore((s) => s.justMergePr)
   const deliverProject = useGameStore((s) => s.deliverProject)
 
@@ -81,17 +77,7 @@ export function ProjectsPanel() {
         const merged = project.tasks.filter((t) => t.status === 'merged' && !t.isReviewComment).length
         const readyToDeliver = isReadyToDeliver(project)
         const openRequirements = project.requirements.filter((r) => r.status === 'open')
-        const hasRefineWork = projectHasRefineWork(project)
-        const hasRefactorWork = projectHasRefactorWork(project)
-        const hasTestWork = projectHasTestWork(project)
         const implMerged = allImplementationMerged(synced)
-        const hasCodeWork = project.tasks.some(
-          (t) =>
-            !t.isReviewComment &&
-            (t.status === 'open' || t.status === 'in_progress') &&
-            t.storyPointsEarned < t.storyPointsRequired,
-        )
-        const hasReviewWork = project.tasks.some((t) => t.status === 'pr_ready' && !t.reviewed)
         const tasks = topLevelTasks(project)
 
         return (
@@ -168,16 +154,6 @@ export function ProjectsPanel() {
               <h4>Project crew</h4>
               {PROJECT_JOBS.map(({ job, label }) => {
                 const assigned = projectAgents(project.id, job)
-                const disabled =
-                  job === 'refine'
-                    ? !hasRefineWork
-                    : job === 'code'
-                      ? !hasCodeWork && tasks.length === 0
-                      : job === 'refactor'
-                        ? !hasRefactorWork
-                        : job === 'test'
-                          ? !hasTestWork
-                          : !hasReviewWork
 
                 return (
                   <div key={job} className="crew-row">
@@ -220,7 +196,6 @@ export function ProjectsPanel() {
                                 key={a.id}
                                 type="button"
                                 className="btn btn--small"
-                                disabled={disabled}
                                 onClick={() => assignAgentToProject(a.id, project.id, job)}
                               >
                                 {label} → {a.name} ({hint})
@@ -326,15 +301,6 @@ export function ProjectsPanel() {
 
                       {task.status === 'pr_ready' && (
                         <div className="assign-row">
-                          {task.reviewed && (
-                            <button
-                              type="button"
-                              className="btn btn--small"
-                              onClick={() => mergePr(task.id)}
-                            >
-                              Merge
-                            </button>
-                          )}
                           <button
                             type="button"
                             className="btn btn--small btn--danger"

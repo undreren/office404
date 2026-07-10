@@ -389,6 +389,11 @@ export function resolvedReviewComments(project: Project, parentTaskId: string): 
   )
 }
 
+export function allReviewCommentsAddressed(project: Project, parentTaskId: string): boolean {
+  const comments = reviewCommentsOnTask(project, parentTaskId)
+  return comments.every((c) => c.storyPointsEarned >= c.storyPointsRequired)
+}
+
 export function createReviewCommentTasks(
   parent: Task,
   agentParams: number,

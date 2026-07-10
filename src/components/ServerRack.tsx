@@ -40,7 +40,7 @@ function HostRack({
 
   const hostAgents = agents.filter((a) => a.serverId === hostId && getModel(a.modelId)?.kind === 'local')
   const hostLoads = loadedModels.filter((lm) => lm.hostId === hostId)
-  const workingCount = hostAgents.filter((a) => a.job).length
+  const workingCount = hostAgents.filter((a) => a.job && a.status !== 'idle').length
   const gpuShare = workingCount > 0 ? `GPU ×${gpus} ÷${workingCount}` : `GPU ×${gpus}`
 
   function findTask(taskId: string | null): Task | null {

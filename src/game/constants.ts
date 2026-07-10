@@ -26,7 +26,7 @@ export const VIBE_MIN_DAYS = 1
 export const QUALITY_BASE_HIT = 8
 export const QUALITY_REFACTOR_PER_DAY = 12
 /** Refactor quality gains are multiplied by this over the base per-day rate. */
-export const REFACTOR_SPEED_MULTIPLIER = 3
+export const REFACTOR_SPEED_MULTIPLIER = 10
 /** Local 4B is the baseline for refine/refactor speed. */
 export const AGENT_SKILL_REFERENCE_PARAMS = 4
 

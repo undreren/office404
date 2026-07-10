@@ -46,17 +46,13 @@ export function pickLeadFibonacci(reputation: number): number {
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
-/** params / (params + taskSP), dampened when context > 60% full */
+/** params / (params + taskSP) */
 export function effectiveSuccessRate(
   parameters: number,
   taskSp: number,
-  contextFillPct: number,
+  _contextFillPct: number,
 ): number {
-  let rate = parameters / (parameters + taskSp)
-  if (contextFillPct > 60) {
-    rate *= (40 - (contextFillPct - 60)) / 40
-  }
-  return Math.max(0, rate)
+  return parameters / (parameters + taskSp)
 }
 
 export function formatSuccessPct(rate: number): string {
@@ -216,6 +212,11 @@ export function agentIsBusy(agent: Agent): boolean {
   )
 }
 
+/** Local agents actively using GPU share on a host (idle-assigned agents excluded). */
+export function agentUsesGpu(agent: Agent): boolean {
+  return agentIsBusy(agent) && agent.status !== 'idle'
+}
+
 export function jobStatusFor(job: Agent['job']): Agent['status'] {
   switch (job) {
     case 'code':
@@ -295,7 +296,7 @@ export function getHostRam(hostId: string, servers: Server[], rackRam: Record<st
 
 export function activeAgentsOnHost(agents: Agent[], hostId: string): Agent[] {
   return agents.filter(
-    (a) => a.serverId === hostId && agentIsBusy(a) && getModel(a.modelId)?.kind === 'local',
+    (a) => a.serverId === hostId && agentUsesGpu(a) && getModel(a.modelId)?.kind === 'local',
   )
 }
 
