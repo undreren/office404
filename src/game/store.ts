@@ -13,12 +13,15 @@ import {
   pickRefineTarget,
   pickCodingTask as pickCodingTaskFromProject,
   pickReviewTask,
+  pickTestTask,
   projectHasTestWork,
   resolvedReviewComments,
   refineTargetId,
   requirementToTask,
   splitTask,
   syncTestScope,
+  taskIsTested,
+  taskNeedsTesting,
 } from './projects'
 import { generateAgentName, generatePersonality } from './personalities'
 import {
@@ -77,6 +80,7 @@ import {
   reviewAccuracy,
   reviewJobDurationDays,
   storyPointIncrement,
+  testStoryPointIncrement,
   testSuccessRate,
 } from './mechanics'
 
@@ -727,13 +731,22 @@ export const useGameStore = create<GameStore>()(
               continue
             }
 
-            const synced = syncTestScope(project)
-            if (!projectHasTestWork(synced)) {
+            if (!projectHasTestWork(project)) {
               Object.assign(agent, clearAgentJob(agent))
               continue
             }
 
-            nextProjects = nextProjects.map((p) => (p.id === project.id ? synced : p))
+            let testTask = agent.taskId
+              ? project.tasks.find((t) => t.id === agent.taskId && taskNeedsTesting(t)) ?? null
+              : null
+            if (!testTask) {
+              testTask = pickTestTask(project, agent.id, nextAgents)
+              if (!testTask) {
+                Object.assign(agent, clearAgentJob(agent))
+                continue
+              }
+              agent.taskId = testTask.id
+            }
 
             const fillPct = fillAgentContext(agent, model, baseSpeed, deltaSec)
             if (agent.contextUsed >= model.contextSize * 1000) {
@@ -743,54 +756,64 @@ export const useGameStore = create<GameStore>()(
 
             const success = testSuccessRate(model.parameters, fillPct)
             if (Math.random() < success * baseSpeed) {
-              const increment = storyPointIncrement(
-                synced.testStoryPointsRequired,
-                synced.testStoryPointsCompleted,
+              const increment = testStoryPointIncrement(
+                testTask.storyPointsRequired,
+                testTask.testStoryPointsEarned,
               )
-              const completed = Math.min(
-                synced.testStoryPointsRequired,
-                synced.testStoryPointsCompleted + increment,
+              const testEarned = Math.min(
+                testTask.storyPointsRequired,
+                testTask.testStoryPointsEarned + increment,
               )
+              const taskFullyTested = testEarned >= testTask.storyPointsRequired
 
-              let updatedProject: Project = {
-                ...synced,
-                testStoryPointsCompleted: completed,
-                testPercent:
-                  synced.testStoryPointsRequired > 0
-                    ? (completed / synced.testStoryPointsRequired) * 100
-                    : 0,
-              }
-
-              const hiddenBugTasks = hiddenBugsOnProject(updatedProject)
               let discoveredSource: Task | null = null
-              for (const bugTask of hiddenBugTasks) {
+              if (
+                testTask.hasUndiscoveredBug &&
+                !testTask.bugDiscovered
+              ) {
                 const chance =
-                  bugDiscoveryChance(model.parameters, bugTask.storyPointsRequired) * increment
+                  bugDiscoveryChance(model.parameters, testTask.storyPointsRequired) * increment
                 if (Math.random() < chance) {
-                  discoveredSource = bugTask
-                  break
+                  discoveredSource = testTask
                 }
               }
 
-              if (discoveredSource) {
-                const fixTask = createBugFixTask(discoveredSource)
-                updatedProject = {
-                  ...updatedProject,
-                  tasks: updatedProject.tasks
-                    .map((t) =>
-                      t.id === discoveredSource!.id ? { ...t, bugDiscovered: true } : t,
-                    )
-                    .concat(fixTask),
-                  totalStoryPoints: updatedProject.totalStoryPoints + fixTask.storyPointsRequired,
-                }
-                nextEvents = pushEvent(
-                  nextEvents,
-                  'project',
-                  `${agent.name} found a bug in "${discoveredSource.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened.`,
-                )
-              }
+              nextProjects = updateTask(nextProjects, testTask.id, (t) => ({
+                ...t,
+                testStoryPointsEarned: testEarned,
+                bugDiscovered: discoveredSource ? true : t.bugDiscovered,
+              }))
 
-              nextProjects = nextProjects.map((p) => (p.id === project.id ? updatedProject : p))
+              const projectAfterTask = nextProjects.find((p) => p.id === project.id)
+              if (projectAfterTask) {
+                const synced = syncTestScope(projectAfterTask)
+                let updatedProject: Project = synced
+
+                if (discoveredSource) {
+                  const fixTask = createBugFixTask(discoveredSource)
+                  updatedProject = {
+                    ...synced,
+                    tasks: synced.tasks.concat(fixTask),
+                    totalStoryPoints: synced.totalStoryPoints + fixTask.storyPointsRequired,
+                  }
+                  nextEvents = pushEvent(
+                    nextEvents,
+                    'project',
+                    `${agent.name} found a bug in "${discoveredSource.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened.`,
+                  )
+                }
+
+                if (taskFullyTested) {
+                  nextEvents = pushEvent(
+                    nextEvents,
+                    'project',
+                    `${agent.name} finished QA on "${testTask.title}".`,
+                  )
+                  agent.taskId = null
+                }
+
+                nextProjects = nextProjects.map((p) => (p.id === project.id ? updatedProject : p))
+              }
             }
           }
 
@@ -1030,6 +1053,7 @@ export const useGameStore = create<GameStore>()(
         }
 
         const codingTask = job === 'code' ? pickCodingTask(project, agentId, state.agents) : null
+        const testTask = job === 'test' ? pickTestTask(project, agentId, state.agents) : null
 
         const nextAgents = state.agents.map((a) =>
           a.id === agentId
@@ -1037,7 +1061,7 @@ export const useGameStore = create<GameStore>()(
                 ...a,
                 job,
                 projectId,
-                taskId: codingTask?.id ?? null,
+                taskId: codingTask?.id ?? testTask?.id ?? null,
                 jobProgress: 0,
                 jobDuration: 0,
                 status:
@@ -1393,7 +1417,7 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
-      version: 10,
+      version: 11,
       migrate: (persisted, version) => {
         const s = persisted as Partial<GameStore> & { reviewRevealedHit?: number | null }
         if (version < 6) {
@@ -1457,6 +1481,7 @@ export const useGameStore = create<GameStore>()(
                 sourceTaskId: t.sourceTaskId ?? null,
                 isReviewComment: t.isReviewComment ?? false,
                 reviewed: t.reviewed ?? false,
+                testStoryPointsEarned: t.testStoryPointsEarned ?? 0,
                 status,
               }
             })
@@ -1468,6 +1493,31 @@ export const useGameStore = create<GameStore>()(
               testStoryPointsRequired: p.testStoryPointsRequired ?? 0,
               testStoryPointsCompleted: p.testStoryPointsCompleted ?? 0,
             }
+          })
+        }
+        if (version < 11 && s.projects) {
+          s.projects = s.projects.map((p) => {
+            let poolRemaining = p.testStoryPointsCompleted ?? 0
+            const mergedOrdered = [...p.tasks]
+              .filter((t) => t.status === 'merged' && !t.isReviewComment)
+              .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+
+            const grants = new Map<string, number>()
+            for (const task of mergedOrdered) {
+              if (poolRemaining <= 0) {
+                grants.set(task.id, 0)
+                continue
+              }
+              const grant = Math.min(task.storyPointsRequired, poolRemaining)
+              grants.set(task.id, grant)
+              poolRemaining -= grant
+            }
+
+            const tasks = p.tasks.map((t) => ({
+              ...t,
+              testStoryPointsEarned: grants.get(t.id) ?? t.testStoryPointsEarned ?? 0,
+            }))
+            return syncTestScope({ ...p, tasks })
           })
         }
         if (version < 10 && s.projects) {
@@ -1561,13 +1611,14 @@ export function projectProgressPct(project: Project): number {
 export function isReadyToDeliver(project: Project): boolean {
   const synced = syncTestScope(project)
   const shippableTasks = project.tasks.filter((t) => !t.isReviewComment)
+  const mergedImpl = shippableTasks.filter((t) => t.status === 'merged')
   return (
     project.status === 'active' &&
     project.requirements.every((r) => r.status === 'refined') &&
     shippableTasks.length > 0 &&
     shippableTasks.every((t) => t.status === 'merged') &&
     synced.testStoryPointsRequired > 0 &&
-    synced.testStoryPointsCompleted >= synced.testStoryPointsRequired
+    mergedImpl.every(taskIsTested)
   )
 }
 

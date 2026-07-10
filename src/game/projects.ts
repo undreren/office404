@@ -110,6 +110,7 @@ export function createTask(
     sourceTaskId: null,
     isReviewComment: false,
     reviewed: false,
+    testStoryPointsEarned: 0,
   }
 }
 
@@ -418,10 +419,39 @@ export function implementationTasks(project: Project): Task[] {
   return project.tasks.filter((t) => !t.isBugFix && !t.isReviewComment)
 }
 
+export function mergedImplementationTasks(project: Project): Task[] {
+  return implementationTasks(project).filter((t) => t.status === 'merged')
+}
+
+export function taskNeedsTesting(task: Task): boolean {
+  return (
+    task.status === 'merged' &&
+    !task.isReviewComment &&
+    task.testStoryPointsEarned < task.storyPointsRequired
+  )
+}
+
+export function taskIsTested(task: Task): boolean {
+  return (
+    task.status === 'merged' &&
+    !task.isReviewComment &&
+    task.testStoryPointsEarned >= task.storyPointsRequired
+  )
+}
+
 export function deliveredStoryPoints(project: Project): number {
-  return implementationTasks(project)
-    .filter((t) => t.status === 'merged')
-    .reduce((sum, t) => sum + t.storyPointsRequired, 0)
+  return mergedImplementationTasks(project).reduce((sum, t) => sum + t.storyPointsRequired, 0)
+}
+
+export function completedTestStoryPoints(project: Project): number {
+  return mergedImplementationTasks(project).reduce(
+    (sum, t) => sum + Math.min(t.testStoryPointsEarned, t.storyPointsRequired),
+    0,
+  )
+}
+
+export function untestedMergedTasks(project: Project): Task[] {
+  return mergedImplementationTasks(project).filter(taskNeedsTesting)
 }
 
 export function allImplementationMerged(project: Project): boolean {
@@ -431,15 +461,7 @@ export function allImplementationMerged(project: Project): boolean {
 
 export function syncTestScope(project: Project): Project {
   const required = deliveredStoryPoints(project)
-  if (required <= 0) {
-    return {
-      ...project,
-      testStoryPointsRequired: 0,
-      testStoryPointsCompleted: 0,
-      testPercent: 0,
-    }
-  }
-  const completed = Math.min(project.testStoryPointsCompleted, required)
+  const completed = completedTestStoryPoints(project)
   return {
     ...project,
     testStoryPointsRequired: required,
@@ -449,11 +471,23 @@ export function syncTestScope(project: Project): Project {
 }
 
 export function projectHasTestWork(project: Project): boolean {
-  const synced = syncTestScope(project)
-  return (
-    synced.testStoryPointsRequired > 0 &&
-    synced.testStoryPointsCompleted < synced.testStoryPointsRequired
-  )
+  return untestedMergedTasks(project).length > 0
+}
+
+export function pickTestTask(project: Project, agentId: string, agents: Agent[]): Task | null {
+  const claimed = jobClaimedTaskIds(agents, project.id, 'test', agentId)
+  const self = agents.find((a) => a.id === agentId)
+
+  if (self?.taskId) {
+    const current = project.tasks.find((t) => t.id === self.taskId && taskNeedsTesting(t))
+    if (current) return current
+  }
+
+  const available = untestedMergedTasks(project)
+    .filter((t) => !claimed.has(t.id))
+    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+
+  return available[0] ?? null
 }
 
 export function createBugFixTask(source: Task): Task {

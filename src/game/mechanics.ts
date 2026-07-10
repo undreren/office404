@@ -186,6 +186,14 @@ export function testSuccessRate(agentParams: number, contextFillPct: number): nu
   return effectiveSuccessRate(agentParams, TEST_DIFFICULTY_SP, contextFillPct)
 }
 
+/** One test tick worth of QA progress — TEST_SPEED_MULTIPLIER faster than coding increments. */
+export function testStoryPointIncrement(required: number, earned: number): number {
+  const remaining = required - earned
+  if (remaining <= 0) return 0
+  const base = remaining <= 0.1 ? remaining : 0.1
+  return Math.min(remaining, base * TEST_SPEED_MULTIPLIER)
+}
+
 export function refactorRatePerDay(agentParams: number): number {
   return QUALITY_REFACTOR_PER_DAY * (agentParams / AGENT_SKILL_REFERENCE_PARAMS)
 }
