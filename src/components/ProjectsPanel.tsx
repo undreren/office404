@@ -11,6 +11,7 @@ import {
   resolvedReviewComments,
   reviewCommentsOnTask,
   syncTestScope,
+  untestedMergedTasks,
 } from '../game/projects'
 import { getModel } from '../game/models'
 import type { Agent, AgentJob, Project, Task } from '../game/types'
@@ -81,7 +82,7 @@ export function ProjectsPanel() {
         const openRequirements = project.requirements.filter((r) => r.status === 'open')
         const hasRefineWork = projectHasRefineWork(project)
         const hasRefactorWork = projectHasRefactorWork(project)
-        const hasTestWork = projectHasTestWork(synced)
+        const hasTestWork = projectHasTestWork(project)
         const implMerged = allImplementationMerged(synced)
         const hasCodeWork = project.tasks.some(
           (t) =>
@@ -242,9 +243,16 @@ export function ProjectsPanel() {
               <ul className="task-list">
                 {tasks.map((task) => {
                   const pct = (task.storyPointsEarned / task.storyPointsRequired) * 100
+                  const testPct =
+                    task.status === 'merged'
+                      ? (task.testStoryPointsEarned / task.storyPointsRequired) * 100
+                      : 0
                   const isSelected = selectedTaskId === task.id
                   const codingAgent = agents.find(
                     (a) => a.job === 'code' && a.taskId === task.id,
+                  )
+                  const testingAgent = agents.find(
+                    (a) => a.job === 'test' && a.taskId === task.id,
                   )
                   const { comments, resolved, total, saved } = commentSummary(project, task, agents)
 
@@ -270,7 +278,12 @@ export function ProjectsPanel() {
                           {task.hasUndiscoveredBug && task.status === 'merged' && !task.bugDiscovered && (
                             <> · untested</>
                           )}
+                          {task.status === 'merged' && testPct < 100 && (
+                            <> · QA {Math.floor(testPct)}%</>
+                          )}
+                          {task.status === 'merged' && testPct >= 100 && <> · QA done</>}
                           {codingAgent && ` · ${codingAgent.name} coding`}
+                          {testingAgent && ` · ${testingAgent.name} testing`}
                           {task.status === 'pr_ready' && !task.reviewed && ' · awaiting review'}
                           {task.status === 'pr_ready' && task.reviewed && task.revealedQualityHit !== null && (
                             <> · review est. -{task.revealedQualityHit.toFixed(1)}</>
@@ -348,9 +361,13 @@ export function ProjectsPanel() {
               <p className="hint">
                 {implMerged
                   ? 'Implementation merged.'
-                  : 'Partial delivery in QA.'}{' '}
-                Assign a Test agent — {formatStoryPoints(synced.testStoryPointsRequired)} SP in the
-                queue.
+                  : 'Merged tasks queue for QA as they land.'}{' '}
+                Assign a Test agent — {untestedMergedTasks(synced).length} task
+                {untestedMergedTasks(synced).length === 1 ? '' : 's'} (
+                {formatStoryPoints(
+                  synced.testStoryPointsRequired - synced.testStoryPointsCompleted,
+                )}{' '}
+                SP) waiting.
               </p>
             )}
 

@@ -110,6 +110,8 @@ export interface Task {
   isReviewComment: boolean
   /** PR received its one allowed review pass. */
   reviewed: boolean
+  /** QA progress on this merged task (0 → storyPointsRequired). */
+  testStoryPointsEarned: number
 }
 
 export interface Project {

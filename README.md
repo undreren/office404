@@ -74,7 +74,7 @@ npm run preview:pages
 - **Review** — one pass per PR (~half expected coding time); spawns absurd review comments that coders must address to reduce merge damage
 - **Refine** — split big tickets; small models botch it sometimes
 - **Refactor** — slowly raises project quality while assigned (always available on active projects)
-- **Test** — QA on merged work; incremental queue, 5× faster than coding
+- **Test** — QA each merged task as it lands; 5× faster than coding
 
 ### Manager actions
 
