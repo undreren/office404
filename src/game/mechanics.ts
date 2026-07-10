@@ -240,11 +240,6 @@ export function jobStatusFor(job: Agent['job']): Agent['status'] {
   }
 }
 
-/** Random fraction of current task progress lost on compaction (0–50%). */
-export function amnesiaLossFraction(): number {
-  return Math.random() * 0.5
-}
-
 export function agentRoleLabel(job: AgentJob): string {
   switch (job) {
     case 'code':
