@@ -1,12 +1,12 @@
+import { COMPACT_DURATION_SEC } from '../game/constants'
 import { getModel } from '../game/models'
-import { contextFillPct, effectiveSuccessRate, formatStoryPoints, formatSuccessPct } from '../game/mechanics'
+import { contextFillPct, effectiveSuccessRate, formatAgentDutyLabel, formatStoryPoints, formatSuccessPct } from '../game/mechanics'
 import { useGameStore } from '../game/store'
 import type { Task } from '../game/types'
 
 export function CloudAgentsPanel() {
   const agents = useGameStore((s) => s.agents)
   const projects = useGameStore((s) => s.projects)
-  const restartAgent = useGameStore((s) => s.restartAgent)
   const unassignAgent = useGameStore((s) => s.unassignAgent)
   const offloadAgent = useGameStore((s) => s.offloadAgent)
 
@@ -22,18 +22,9 @@ export function CloudAgentsPanel() {
   }
 
   function dutyLabel(agent: (typeof agents)[number]): string {
-    if (!agent.job) return 'Idle'
     const project = projects.find((p) => p.id === agent.projectId)
-    const client = project?.clientName ?? 'project'
-    if (agent.job === 'refactor') return `Refactoring: ${client}`
-    if (agent.job === 'refine') return `Refining scope: ${client}`
-    if (agent.job === 'review') return `Reviewing PRs: ${client}`
-    if (agent.job === 'test') {
-      const task = findTask(agent.taskId)
-      return task ? `Testing: ${task.title}` : `Testing: ${client}`
-    }
     const task = findTask(agent.taskId)
-    return `Coding: ${task?.title ?? client}`
+    return formatAgentDutyLabel(agent, project?.clientName, task?.title)
   }
 
   return (
@@ -57,7 +48,9 @@ export function CloudAgentsPanel() {
             <div key={agent.id} className={`agent-card agent-card--cloud agent-card--${agent.status}`}>
               <div className="agent-card__header">
                 <strong>{agent.name}</strong>
-                <span className="agent-status">{agent.status}</span>
+                <span className="agent-status">
+                  {agent.job && agent.status === 'idle' ? 'idle (assigned)' : agent.status}
+                </span>
               </div>
               <p className="agent-vendor">{model?.name ?? agent.modelId}</p>
               <p className="agent-personality">{agent.personality}</p>
@@ -117,7 +110,7 @@ export function CloudAgentsPanel() {
                 </div>
               )}
 
-              {agent.job && agent.status !== 'compacted' && model && (
+              {agent.job && agent.status !== 'compacting' && agent.status !== 'compacted' && model && (
                 <div className="meter-row">
                   <label>Context</label>
                   <div className="meter meter--sm">
@@ -129,17 +122,27 @@ export function CloudAgentsPanel() {
                 </div>
               )}
 
+              {agent.status === 'compacting' && (
+                <div className="meter-row">
+                  <label>Auto-compacting</label>
+                  <div className="meter meter--sm">
+                    <div
+                      className="meter__fill meter__fill--danger"
+                      style={{
+                        width: `${Math.min(100, ((COMPACT_DURATION_SEC - agent.compactingRemainingSec) / COMPACT_DURATION_SEC) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="task-sp">{agent.compactingRemainingSec.toFixed(0)}s</span>
+                </div>
+              )}
+
               {model && (
                 <p className="agent-meta">
                   {model.tokenCostPerTick} tok/tick · {agent.totalTokensBurned.toFixed(0)} burned
                 </p>
               )}
 
-              {agent.status === 'compacted' && (
-                <button type="button" className="btn btn--small" onClick={() => restartAgent(agent.id)}>
-                  Restart
-                </button>
-              )}
               {agent.job && (
                 <button type="button" className="btn btn--small btn--danger" onClick={() => unassignAgent(agent.id)}>
                   Yank

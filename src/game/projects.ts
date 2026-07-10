@@ -415,6 +415,31 @@ export function projectHasRefactorWork(project: Project): boolean {
   return project.status === 'active'
 }
 
+/** Whether an assigned role has actionable work on this project right now. */
+export function projectRoleHasWork(
+  project: Project,
+  job: AgentJob,
+  agentId: string,
+  agents: Agent[],
+): boolean {
+  if (project.status !== 'active') return false
+  switch (job) {
+    case 'code':
+      return pickCodingTask(project, agentId, agents) !== null
+    case 'review':
+      return (
+        project.tasks.some((t) => t.status === 'pr_ready' && !t.reviewed) &&
+        pickReviewTask(project, agentId, agents) !== null
+      )
+    case 'refine':
+      return pickRefineTarget(project, agents, agentId) !== null
+    case 'refactor':
+      return projectHasRefactorWork(project)
+    case 'test':
+      return projectHasTestWork(project) && pickTestTask(project, agentId, agents) !== null
+  }
+}
+
 export function implementationTasks(project: Project): Task[] {
   return project.tasks.filter((t) => !t.isBugFix && !t.isReviewComment)
 }

@@ -1,8 +1,9 @@
-import { RACK_CONFIG, EXTINGUISH_COST, RACK_REFURBISH_VALUE } from '../game/constants'
+import { RACK_CONFIG, EXTINGUISH_COST, RACK_REFURBISH_VALUE, COMPACT_DURATION_SEC } from '../game/constants'
 import { getModel } from '../game/models'
 import {
   contextFillPct,
   effectiveSuccessRate,
+  formatAgentDutyLabel,
   formatStoryPoints,
   formatSuccessPct,
   getHostGpus,
@@ -31,7 +32,6 @@ function HostRack({
   const projects = useGameStore((s) => s.projects)
   const cash = useGameStore((s) => s.cash)
   const servers = useGameStore((s) => s.servers)
-  const restartAgent = useGameStore((s) => s.restartAgent)
   const unassignAgent = useGameStore((s) => s.unassignAgent)
   const offloadAgent = useGameStore((s) => s.offloadAgent)
   const extinguishFire = useGameStore((s) => s.extinguishFire)
@@ -53,18 +53,9 @@ function HostRack({
   }
 
   function dutyLabel(agent: (typeof agents)[number]): string {
-    if (!agent.job) return 'Idle'
     const project = projects.find((p) => p.id === agent.projectId)
-    const client = project?.clientName ?? 'project'
-    if (agent.job === 'refactor') return `Refactoring: ${client}`
-    if (agent.job === 'refine') return `Refining scope: ${client}`
-    if (agent.job === 'review') return `Reviewing PRs: ${client}`
-    if (agent.job === 'test') {
-      const task = findTask(agent.taskId)
-      return task ? `Testing: ${task.title}` : `Testing: ${client}`
-    }
     const task = findTask(agent.taskId)
-    return `Coding: ${task?.title ?? client}`
+    return formatAgentDutyLabel(agent, project?.clientName, task?.title)
   }
 
   function renderLoadedModel(lm: LoadedModel) {
@@ -96,7 +87,9 @@ function HostRack({
               <div key={agent.id} className={`agent-card agent-card--${agent.status}`}>
                 <div className="agent-card__header">
                   <strong>{agent.name}</strong>
-                  <span className="agent-status">{agent.status}</span>
+                  <span className="agent-status">
+                    {agent.job && agent.status === 'idle' ? 'idle (assigned)' : agent.status}
+                  </span>
                 </div>
                 <p className="agent-personality">{agent.personality}</p>
                 <p className="agent-meta">{dutyLabel(agent)}</p>
@@ -155,7 +148,7 @@ function HostRack({
                   </div>
                 )}
 
-                {agent.job && agent.status !== 'compacted' && (
+                {agent.job && agent.status !== 'compacting' && agent.status !== 'compacted' && (
                   <div className="meter-row">
                     <label>Context</label>
                     <div className="meter meter--sm">
@@ -167,10 +160,19 @@ function HostRack({
                   </div>
                 )}
 
-                {agent.status === 'compacted' && (
-                  <button type="button" className="btn btn--small" onClick={() => restartAgent(agent.id)}>
-                    Restart
-                  </button>
+                {agent.status === 'compacting' && (
+                  <div className="meter-row">
+                    <label>Auto-compacting</label>
+                    <div className="meter meter--sm">
+                      <div
+                        className="meter__fill meter__fill--danger"
+                        style={{
+                          width: `${Math.min(100, ((COMPACT_DURATION_SEC - agent.compactingRemainingSec) / COMPACT_DURATION_SEC) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="task-sp">{agent.compactingRemainingSec.toFixed(0)}s</span>
+                  </div>
                 )}
                 {agent.job && (
                   <button type="button" className="btn btn--small btn--danger" onClick={() => unassignAgent(agent.id)}>

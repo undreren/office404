@@ -50,12 +50,13 @@ export function ProjectsPanel() {
   const selectTask = useGameStore((s) => s.selectTask)
   const assignAgentToProject = useGameStore((s) => s.assignAgentToProject)
   const unassignAgent = useGameStore((s) => s.unassignAgent)
-  const restartAgent = useGameStore((s) => s.restartAgent)
   const mergePr = useGameStore((s) => s.mergePr)
   const justMergePr = useGameStore((s) => s.justMergePr)
   const deliverProject = useGameStore((s) => s.deliverProject)
 
-  const idleAgents = agents.filter((a) => !a.job && a.status !== 'compacted')
+  const idleAgents = agents.filter(
+    (a) => !a.job && a.status !== 'compacted' && a.status !== 'compacting',
+  )
 
   function projectAgents(projectId: string, job: AgentJob) {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
@@ -184,17 +185,12 @@ export function ProjectsPanel() {
                     <div className="crew-row__content">
                       {assigned.map((a) => (
                         <div key={a.id} className="crew-agent-row">
-                          <span className="crew-agent-name">{a.name}</span>
+                          <span className="crew-agent-name">
+                            {a.name}
+                            {a.job && a.status === 'idle' && ' · idle'}
+                            {a.status === 'compacting' && ' · compacting'}
+                          </span>
                           <div className="assign-row">
-                            {a.status === 'compacted' && (
-                              <button
-                                type="button"
-                                className="btn btn--small"
-                                onClick={() => restartAgent(a.id)}
-                              >
-                                Restart
-                              </button>
-                            )}
                             {a.job && (
                               <button
                                 type="button"

@@ -15,6 +15,7 @@ import {
   pickReviewTask,
   pickTestTask,
   projectHasTestWork,
+  projectRoleHasWork,
   resolvedReviewComments,
   refineTargetId,
   requirementToTask,
@@ -50,6 +51,7 @@ import {
   SANITY_VIBE_RESTORE,
   SAVE_KEY,
   SECONDS_PER_GAME_DAY,
+  COMPACT_DURATION_SEC,
   TOKEN_PACK_AMOUNT,
   TOKEN_PACK_COST,
   WIN_NET_WORTH,
@@ -58,6 +60,7 @@ import {
   LAPTOP_HOST_ID,
   agentJobDurationDays,
   agentTickSpeed,
+  amnesiaLossFraction,
   bugDiscoveryChance,
   computeBugChance,
   computePrQualityFromReview,
@@ -100,7 +103,47 @@ function emptyAgentJob(): Pick<Agent, 'job' | 'taskId' | 'projectId' | 'jobProgr
 }
 
 function clearAgentJob(agent: Agent): Agent {
-  return { ...agent, ...emptyAgentJob(), contextUsed: 0 }
+  return { ...agent, ...emptyAgentJob(), contextUsed: 0, compactingRemainingSec: 0 }
+}
+
+function applyCompactionAmnesia(agent: Agent, projects: Project[]): Project[] {
+  if (!agent.job || agent.job === 'refactor') return projects
+
+  const loss = amnesiaLossFraction()
+  if (loss <= 0) return projects
+
+  if (agent.job === 'code' && agent.taskId) {
+    return updateTask(projects, agent.taskId, (t) => ({
+      ...t,
+      storyPointsEarned: Math.max(0, t.storyPointsEarned * (1 - loss)),
+    }))
+  }
+  if (agent.job === 'test' && agent.taskId) {
+    return updateTask(projects, agent.taskId, (t) => ({
+      ...t,
+      testStoryPointsEarned: Math.max(0, t.testStoryPointsEarned * (1 - loss)),
+    }))
+  }
+  if (agent.job === 'review' || agent.job === 'refine') {
+    agent.jobProgress = Math.max(0, agent.jobProgress * (1 - loss))
+  }
+  return projects
+}
+
+function finishCompaction(
+  agent: Agent,
+  projects: Project[],
+): { agent: Agent; projects: Project[] } {
+  const nextProjects = applyCompactionAmnesia(agent, projects)
+  return {
+    agent: {
+      ...agent,
+      contextUsed: 0,
+      compactingRemainingSec: 0,
+      status: jobStatusFor(agent.job),
+    },
+    projects: nextProjects,
+  }
 }
 
 function createInitialState() {
@@ -445,11 +488,35 @@ export const useGameStore = create<GameStore>()(
         let tokenBurn = 0
         const gpus = rackGpus()
         const tokensBeforeTick = tokens
+
+        for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
+          let agent = nextAgents[agentIdx]
+          if (agent.status !== 'compacting') continue
+
+          agent.compactingRemainingSec = Math.max(0, agent.compactingRemainingSec - deltaSec)
+          if (agent.compactingRemainingSec > 0) {
+            nextAgents[agentIdx] = agent
+            continue
+          }
+
+          const finished = finishCompaction(agent, nextProjects)
+          agent = finished.agent
+          nextProjects = finished.projects
+          nextAgents[agentIdx] = agent
+          nextEvents = pushEvent(
+            nextEvents,
+            'crash',
+            `${agent.name} context compacted. Woke up fuzzy — some task progress lost.`,
+          )
+        }
+
         for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
           let agent = nextAgents[agentIdx]
           const model = getModel(agent.modelId)
           if (!model || !agent.job) continue
-          if (agent.status === 'compacted' || agent.status === 'crashed') continue
+          if (agent.status === 'compacting' || agent.status === 'compacted' || agent.status === 'crashed') {
+            continue
+          }
 
           if (model.kind === 'local') {
             const hostId = agent.serverId
@@ -473,13 +540,14 @@ export const useGameStore = create<GameStore>()(
           }
 
           const overflow = () => {
-            agent.status = 'compacted'
+            agent.status = 'compacting'
+            agent.compactingRemainingSec = COMPACT_DURATION_SEC
             agent.contextUsed = model.contextSize * 1000
             nextStats.compactionsSurvived += 1
             nextEvents = pushEvent(
               nextEvents,
               'crash',
-              `${agent.name} compacted! Context overflow. Tap restart.`,
+              `${agent.name} context full — auto-compacting (${COMPACT_DURATION_SEC}s)...`,
             )
           }
 
@@ -498,7 +566,13 @@ export const useGameStore = create<GameStore>()(
               (taskRef.task.isReviewComment && taskRef.task.status === 'done')
             ) {
               const nextTask = pickCodingTask(project, agent.id, nextAgents)
-              if (!nextTask) continue
+              if (!nextTask) {
+                agent.status = 'idle'
+                nextAgents[agentIdx] = agent
+                continue
+              }
+
+              agent.status = 'working'
 
               agent.taskId = nextTask.id
               nextAgents[agentIdx] = agent
@@ -509,6 +583,8 @@ export const useGameStore = create<GameStore>()(
               }))
               taskRef = { project, task: nextTask }
             }
+
+            agent.status = 'working'
 
             const fillPct = fillAgentContext(agent, model, baseSpeed, deltaSec)
             if (agent.contextUsed >= model.contextSize * 1000) {
@@ -548,10 +624,21 @@ export const useGameStore = create<GameStore>()(
             }
 
             const prTasks = project.tasks.filter((t) => t.status === 'pr_ready' && !t.reviewed)
-            if (prTasks.length === 0) continue
+            if (prTasks.length === 0) {
+              agent.status = 'idle'
+              agent.taskId = null
+              nextAgents[agentIdx] = agent
+              continue
+            }
 
             const task = pickReviewTask(project, agent.id, nextAgents)
-            if (!task) continue
+            if (!task) {
+              agent.status = 'idle'
+              nextAgents[agentIdx] = agent
+              continue
+            }
+
+            agent.status = 'reviewing'
 
             if (agent.taskId !== task.id) {
               agent.taskId = task.id
@@ -620,13 +707,16 @@ export const useGameStore = create<GameStore>()(
 
             const target = pickRefineTarget(project, nextAgents, agent.id)
             if (!target) {
+              agent.status = 'idle'
               if (agent.taskId) {
                 agent.taskId = null
                 agent.jobProgress = 0
-                nextAgents[agentIdx] = agent
               }
+              nextAgents[agentIdx] = agent
               continue
             }
+
+            agent.status = 'refining'
 
             const targetId = refineTargetId(target)
             const targetSp =
@@ -831,14 +921,6 @@ export const useGameStore = create<GameStore>()(
             'token',
             'Out of tokens. Cloud agents paused until you buy more.',
           )
-        }
-
-        for (const agent of nextAgents) {
-          if (agent.status !== 'compacted' || agent.job !== 'code' || !agent.taskId) continue
-          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
-            ...t,
-            storyPointsEarned: Math.max(0, t.storyPointsEarned - 1 * dayProgress),
-          }))
         }
 
         for (const server of nextServers) {
@@ -1087,6 +1169,7 @@ export const useGameStore = create<GameStore>()(
 
         const codingTask = job === 'code' ? pickCodingTask(project, agentId, state.agents) : null
         const testTask = job === 'test' ? pickTestTask(project, agentId, state.agents) : null
+        const roleHasWork = projectRoleHasWork(project, job, agentId, state.agents)
 
         const nextAgents = state.agents.map((a) =>
           a.id === agentId
@@ -1097,17 +1180,9 @@ export const useGameStore = create<GameStore>()(
                 taskId: codingTask?.id ?? testTask?.id ?? null,
                 jobProgress: 0,
                 jobDuration: 0,
-                status:
-                  job === 'code'
-                    ? ('working' as const)
-                    : job === 'review'
-                      ? ('reviewing' as const)
-                      : job === 'refine'
-                        ? ('refining' as const)
-                        : job === 'test'
-                          ? ('testing' as const)
-                          : ('refactoring' as const),
+                status: roleHasWork ? jobStatusFor(job) : ('idle' as const),
                 contextUsed: 0,
+                compactingRemainingSec: 0,
               }
             : a,
         )
@@ -1171,15 +1246,21 @@ export const useGameStore = create<GameStore>()(
       restartAgent(agentId) {
         const state = get()
         const agent = state.agents.find((a) => a.id === agentId)
-        if (!agent || agent.status !== 'compacted') return
+        if (!agent || (agent.status !== 'compacting' && agent.status !== 'compacted')) return
+
+        const finished = finishCompaction(
+          { ...agent, compactingRemainingSec: 0 },
+          state.projects,
+        )
 
         set({
-          agents: state.agents.map((a) =>
-            a.id === agentId
-              ? { ...a, status: jobStatusFor(a.job), contextUsed: 0 }
-              : a,
+          agents: state.agents.map((a) => (a.id === agentId ? finished.agent : a)),
+          projects: finished.projects,
+          events: pushEvent(
+            state.events,
+            'system',
+            `${agent.name} context cleared — back to work.`,
           ),
-          events: pushEvent(state.events, 'system', `${agent.name} restarted. Context cleared — back to work.`),
         })
       },
 
@@ -1226,6 +1307,7 @@ export const useGameStore = create<GameStore>()(
           ...emptyAgentJob(),
           personality: generatePersonality(),
           contextUsed: 0,
+          compactingRemainingSec: 0,
           totalTokensBurned: 0,
           uptime: 0,
         }
@@ -1273,6 +1355,7 @@ export const useGameStore = create<GameStore>()(
           ...emptyAgentJob(),
           personality: generatePersonality(),
           contextUsed: 0,
+          compactingRemainingSec: 0,
           totalTokensBurned: 0,
           uptime: 0,
         }
@@ -1308,6 +1391,7 @@ export const useGameStore = create<GameStore>()(
           ...emptyAgentJob(),
           personality: generatePersonality(),
           contextUsed: 0,
+          compactingRemainingSec: 0,
           totalTokensBurned: 0,
           uptime: 0,
         }
@@ -1450,7 +1534,7 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: SAVE_KEY,
-      version: 11,
+      version: 12,
       migrate: (persisted, version) => {
         const s = persisted as Partial<GameStore> & { reviewRevealedHit?: number | null }
         if (version < 6) {
@@ -1465,6 +1549,7 @@ export const useGameStore = create<GameStore>()(
               projectId: a.projectId ?? null,
               jobProgress: a.jobProgress ?? 0,
               jobDuration: a.jobDuration ?? 0,
+              compactingRemainingSec: a.compactingRemainingSec ?? 0,
             }
             if (version < 7) {
               if (base.taskId && base.status === 'working') {
@@ -1476,6 +1561,13 @@ export const useGameStore = create<GameStore>()(
               const project = s.projects?.find((p) => p.tasks.some((t) => t.id === base.taskId))
               if (project) {
                 return { ...base, projectId: project.id }
+              }
+            }
+            if (version < 12 && base.status === 'compacted') {
+              return {
+                ...base,
+                status: 'compacting' as const,
+                compactingRemainingSec: COMPACT_DURATION_SEC,
               }
             }
             return base
