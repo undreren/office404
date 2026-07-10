@@ -6,6 +6,7 @@ import {
   countActiveTasks,
   createBugFixTask,
   createProjectFromLead,
+  allReviewCommentsAddressed,
   createReviewCommentTasks,
   createTutorialProject,
   generateLead,
@@ -244,6 +245,23 @@ function mergeTaskOnProject(
     : `Just Merged "${found.task.title}" without review. Quality -${hit.toFixed(1)}.${orphanNote}${bugNote}`
 
   return { projects: nextProjects, eventMessage, introducedBug }
+}
+
+function tryAutoMergeReviewedPr(
+  projects: Project[],
+  parentTaskId: string,
+  agents: Agent[],
+): { projects: Project[]; eventMessage: string | null } {
+  const found = findTask(projects, parentTaskId)
+  if (!found || found.task.status !== 'pr_ready' || !found.task.reviewed) {
+    return { projects, eventMessage: null }
+  }
+  if (!allReviewCommentsAddressed(found.project, parentTaskId)) {
+    return { projects, eventMessage: null }
+  }
+  const result = mergeTaskOnProject(projects, parentTaskId, agents, true)
+  if (!result) return { projects, eventMessage: null }
+  return { projects: result.projects, eventMessage: result.eventMessage }
 }
 
 function computeNetWorth(state: Pick<GameStore, 'cash' | 'servers'>): number {
@@ -570,11 +588,20 @@ export const useGameStore = create<GameStore>()(
                 )
               } else if (result.becameDone) {
                 agent.taskId = null
+                const parentId = taskRef.task.parentTaskId
                 nextEvents = pushEvent(
                   nextEvents,
                   'project',
                   `${agent.name} addressed review comment: "${taskRef.task.title}".`,
                 )
+                if (parentId) {
+                  const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, nextAgents)
+                  nextProjects = autoMerge.projects
+                  if (autoMerge.eventMessage) {
+                    nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
+                    nextStats.tasksMerged += 1
+                  }
+                }
               }
             }
           } else if (agent.job === 'review' && agent.projectId) {
@@ -658,6 +685,13 @@ export const useGameStore = create<GameStore>()(
                 'project',
                 `${agent.name} reviewed "${task.title}". Est. quality hit: -${revealed.toFixed(1)}.${commentNote}`,
               )
+
+              const autoMerge = tryAutoMergeReviewedPr(nextProjects, task.id, nextAgents)
+              nextProjects = autoMerge.projects
+              if (autoMerge.eventMessage) {
+                nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
+                nextStats.tasksMerged += 1
+              }
             }
           } else if (agent.job === 'refine' && agent.projectId) {
             const project = nextProjects.find((p) => p.id === agent.projectId)
@@ -783,7 +817,9 @@ export const useGameStore = create<GameStore>()(
             }
 
             if (!projectHasTestWork(project)) {
-              Object.assign(agent, clearAgentJob(agent))
+              agent.status = 'idle'
+              agent.taskId = null
+              nextAgents[agentIdx] = agent
               continue
             }
 
@@ -793,9 +829,12 @@ export const useGameStore = create<GameStore>()(
             if (!testTask) {
               testTask = pickTestTask(project, agent.id, nextAgents)
               if (!testTask) {
-                Object.assign(agent, clearAgentJob(agent))
+                agent.status = 'idle'
+                agent.taskId = null
+                nextAgents[agentIdx] = agent
                 continue
               }
+              agent.status = 'testing'
               agent.taskId = testTask.id
             }
 
