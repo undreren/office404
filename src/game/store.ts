@@ -349,8 +349,8 @@ export const useGameStore = create<GameStore>()(
       ...createInitialState(),
 
       tick(deltaSec: number) {
-        const state = get()
-        if (state.phase !== 'playing') return
+        const stateAtStart = get()
+        if (stateAtStart.phase !== 'playing') return
 
         const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
         let {
@@ -371,7 +371,7 @@ export const useGameStore = create<GameStore>()(
           playerAction,
           leadSpawnCooldown,
           selectedTaskId,
-        } = state
+        } = stateAtStart
 
         let nextAgents = agents.map((a) => ({ ...a }))
         let nextServers = servers.map((s) => ({ ...s }))
@@ -385,7 +385,7 @@ export const useGameStore = create<GameStore>()(
         let nextEvents = [...events]
         let nextStats = { ...stats }
         let nextPlayerAction = playerAction ? { ...playerAction } : null
-        let phase: GameStore['phase'] = state.phase
+        let phase: GameStore['phase'] = stateAtStart.phase
 
         gameDay += dayProgress
         rentDueInDays -= dayProgress
@@ -393,7 +393,7 @@ export const useGameStore = create<GameStore>()(
         leadSpawnCooldown -= dayProgress
 
         if (rentDueInDays <= 0) {
-          const rent = APARTMENT_CONFIG[state.apartment].rent
+          const rent = APARTMENT_CONFIG[stateAtStart.apartment].rent
           cash -= rent
           rentDueInDays += RENT_INTERVAL_DAYS
           nextEvents = pushEvent(nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`)
@@ -866,6 +866,24 @@ export const useGameStore = create<GameStore>()(
 
         const ram = syncRam({ loadedModels: nextLoadedModels, agents: nextAgents, servers: nextServers })
 
+        const latest = get()
+        if (latest !== stateAtStart) {
+          set({
+            ...latest,
+            gameDay: latest.gameDay + dayProgress,
+            rentDueInDays: latest.rentDueInDays - dayProgress,
+            apartmentLeaseRemaining: latest.apartmentLeaseRemaining - dayProgress,
+            leadSpawnCooldown: latest.leadSpawnCooldown - dayProgress,
+            sanity: Math.min(100, latest.sanity + SANITY_VIBE_RESTORE * dayProgress),
+            ...syncRam({
+              loadedModels: latest.loadedModels,
+              agents: latest.agents,
+              servers: latest.servers,
+            }),
+          })
+          return
+        }
+
         set({
           cash,
           tokens,
@@ -886,7 +904,7 @@ export const useGameStore = create<GameStore>()(
           selectedTaskId,
           phase,
           ...ram,
-          tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+          tutorialDone: stateAtStart.tutorialDone || !nextProjects.some((p) => p.isTutorial),
         })
       },
 
@@ -950,79 +968,94 @@ export const useGameStore = create<GameStore>()(
       },
 
       deliverProject(projectId) {
-        const state = get()
-        const project = state.projects.find((p) => p.id === projectId)
-        if (!project || project.status !== 'active') return
-        if (!isReadyToDeliver(project)) return
+        set((state) => {
+          const project = state.projects.find((p) => p.id === projectId)
+          if (!project || project.status !== 'active') return state
+          if (!isReadyToDeliver(project)) return state
 
-        const bugsShipped = hiddenBugsOnProject(project)
-        let payment = project.payment
-        const onTime = project.lateCount === 0
-        let reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS : 1)
-        let sanity = state.sanity
+          const bugsShipped = hiddenBugsOnProject(project)
+          let payment = project.payment
+          const onTime = project.lateCount === 0
+          let reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS : 1)
+          let sanity = state.sanity
 
-        const nextStats = { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 }
-        const nextProjects = state.projects.filter((p) => p.id !== projectId)
-
-        let nextEvents = state.events
-        if (bugsShipped.length > 0) {
-          const paymentPenalty = Math.round(payment * BUG_SHIPPED_PAYMENT_PENALTY * bugsShipped.length)
-          payment -= paymentPenalty
-          reputation = Math.max(0, reputation - BUG_SHIPPED_REP_PENALTY * bugsShipped.length)
-          sanity = Math.max(0, sanity - BUG_SHIPPED_SANITY_PENALTY * bugsShipped.length)
-          nextEvents = pushEvent(
-            nextEvents,
-            'client',
-            `${project.clientName} found ${bugsShipped.length} bug${bugsShipped.length > 1 ? 's' : ''} in production. -$${paymentPenalty}, -${BUG_SHIPPED_REP_PENALTY * bugsShipped.length} rep. They're livid.`,
+          const nextStats = { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 }
+          const nextProjects = state.projects.filter((p) => p.id !== projectId)
+          const nextAgents = state.agents.map((a) =>
+            a.projectId === projectId ? clearAgentJob(a) : a,
           )
-        }
 
-        const finalCash = state.cash + payment
-        if (project.isTutorial && !state.tutorialDone) {
-          nextEvents = pushEvent(
-            nextEvents,
-            'milestone',
-            `Tutorial complete! +$${payment}. Buy a Mark Mini. You've been deluded into hope.`,
-          )
-        } else {
-          nextEvents = pushEvent(
-            nextEvents,
-            'milestone',
-            `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ' (late, but done)'}${bugsShipped.length > 0 ? ' (bugs included — free of charge)' : ''}.`,
-          )
-        }
+          let nextEvents = state.events
+          if (bugsShipped.length > 0) {
+            const paymentPenalty = Math.round(payment * BUG_SHIPPED_PAYMENT_PENALTY * bugsShipped.length)
+            payment -= paymentPenalty
+            reputation = Math.max(0, reputation - BUG_SHIPPED_REP_PENALTY * bugsShipped.length)
+            sanity = Math.max(0, sanity - BUG_SHIPPED_SANITY_PENALTY * bugsShipped.length)
+            nextEvents = pushEvent(
+              nextEvents,
+              'client',
+              `${project.clientName} found ${bugsShipped.length} bug${bugsShipped.length > 1 ? 's' : ''} in production. -$${paymentPenalty}, -${BUG_SHIPPED_REP_PENALTY * bugsShipped.length} rep. They're livid.`,
+            )
+          }
 
-        let nextPlayerAction = state.playerAction
-        if (nextPlayerAction?.taskId && project.tasks.some((t) => t.id === nextPlayerAction!.taskId)) {
-          nextPlayerAction = null
-        }
+          const finalCash = state.cash + payment
+          if (project.isTutorial && !state.tutorialDone) {
+            nextEvents = pushEvent(
+              nextEvents,
+              'milestone',
+              `Tutorial complete! +$${payment}. Buy a Mark Mini. You've been deluded into hope.`,
+            )
+          } else {
+            nextEvents = pushEvent(
+              nextEvents,
+              'milestone',
+              `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ' (late, but done)'}${bugsShipped.length > 0 ? ' (bugs included — free of charge)' : ''}.`,
+            )
+          }
 
-        let selectedTaskId = state.selectedTaskId
-        if (selectedTaskId && project.tasks.some((t) => t.id === selectedTaskId)) {
-          selectedTaskId = nextProjects[0]?.tasks[0]?.id ?? null
-        }
+          let nextPlayerAction = state.playerAction
+          if (nextPlayerAction?.taskId && project.tasks.some((t) => t.id === nextPlayerAction!.taskId)) {
+            nextPlayerAction = null
+          }
 
-        let phase = state.phase
-        const netWorth = computeNetWorth({ cash: finalCash, servers: state.servers })
-        if (netWorth >= WIN_NET_WORTH) {
-          phase = 'won'
-          nextEvents = pushEvent(nextEvents, 'milestone', '$10M net worth. Sell the racks. Retire. You win.')
-        } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
-          phase = 'lost'
-          nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.')
-        }
+          let selectedTaskId = state.selectedTaskId
+          if (selectedTaskId && project.tasks.some((t) => t.id === selectedTaskId)) {
+            selectedTaskId = nextProjects[0]?.tasks[0]?.id ?? null
+          }
 
-        set({
-          cash: finalCash,
-          reputation,
-          sanity,
-          projects: nextProjects,
-          stats: nextStats,
-          events: nextEvents,
-          playerAction: nextPlayerAction,
-          selectedTaskId,
-          phase,
-          tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+          let phase = state.phase
+          const netWorth = computeNetWorth({ cash: finalCash, servers: state.servers })
+          if (netWorth >= WIN_NET_WORTH) {
+            phase = 'won'
+            nextEvents = pushEvent(nextEvents, 'milestone', '$10M net worth. Sell the racks. Retire. You win.')
+          } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
+            phase = 'lost'
+            nextEvents = pushEvent(
+              nextEvents,
+              'system',
+              'No reputation. No clients. Cardboard box acquired. Game over.',
+            )
+          }
+
+          return {
+            ...state,
+            cash: finalCash,
+            reputation,
+            sanity,
+            projects: nextProjects,
+            agents: nextAgents,
+            stats: nextStats,
+            events: nextEvents,
+            playerAction: nextPlayerAction,
+            selectedTaskId,
+            phase,
+            tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+            ...syncRam({
+              loadedModels: state.loadedModels,
+              agents: nextAgents,
+              servers: state.servers,
+            }),
+          }
         })
       },
 
