@@ -4,6 +4,7 @@ import {
   BUG_DISCOVERY_RATE,
   PLAYER_ACTION_BASE_DAYS,
   QUALITY_REFACTOR_PER_DAY,
+  REFACTOR_SPEED_MULTIPLIER,
   REFINE_SPEED_MULTIPLIER,
   REVIEW_CODE_TIME_FRACTION,
   REVIEW_COMMENT_REDUCTION_CAP,
@@ -195,7 +196,11 @@ export function testStoryPointIncrement(required: number, earned: number): numbe
 }
 
 export function refactorRatePerDay(agentParams: number): number {
-  return QUALITY_REFACTOR_PER_DAY * (agentParams / AGENT_SKILL_REFERENCE_PARAMS)
+  return (
+    QUALITY_REFACTOR_PER_DAY *
+    (agentParams / AGENT_SKILL_REFERENCE_PARAMS) *
+    REFACTOR_SPEED_MULTIPLIER
+  )
 }
 
 export function fillAgentContext(
