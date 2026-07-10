@@ -856,6 +856,13 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.crew-row__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .crew-label {
   font-size: 0.65rem;
   text-transform: uppercase;
@@ -872,7 +879,6 @@ body {
 .crew-agent-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
@@ -880,6 +886,27 @@ body {
 .crew-agent-name {
   font-size: 0.75rem;
   color: var(--text-dim);
+  min-width: 4.5rem;
+}
+
+.crew-agent-meter {
+  flex: 1;
+  min-width: 3rem;
+  margin-top: 0;
+}
+
+.crew-agent-progress {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  min-width: 2rem;
+  text-align: right;
+}
+
+.crew-agent-duty {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  flex: 1;
 }
 
 .task-item {
