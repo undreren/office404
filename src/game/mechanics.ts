@@ -12,7 +12,7 @@ import {
 } from './constants'
 import { getModelTier, MODEL_TIERS } from './models'
 import { GPU_UPGRADES, RAM_UPGRADES } from './upgrades'
-import type { Agent, AgentJob, FineTuneRole, GameState } from './types'
+import type { Agent, AgentJob, FineTuneRole, GameState, Task } from './types'
 
 export const FIBONACCI = [0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
 
@@ -36,7 +36,7 @@ export function storyPointIncrement(required: number, earned: number): number {
 
 export function pickLeadFibonacci(reputation: number): number {
   let pool: number[]
-  if (reputation < 10) pool = [5, 8]
+  if (reputation < 10) pool = [3, 4, 5]
   else if (reputation < 25) pool = [8, 13]
   else pool = [13, 21, 34]
   return pool[Math.floor(Math.random() * pool.length)]
@@ -178,6 +178,25 @@ export function agentRoleLabel(job: AgentJob): string {
     case 'conductor':
       return 'Conductor'
   }
+}
+
+export function agentWorkProgressPct(
+  agent: Pick<Agent, 'job' | 'status' | 'jobProgress' | 'jobDuration'>,
+  task: Pick<Task, 'storyPointsRequired' | 'storyPointsEarned' | 'testStoryPointsEarned'> | null,
+): number | null {
+  if (agent.status === 'idle' || agent.status === 'compacting' || agent.job === 'conductor') {
+    return null
+  }
+  if (agent.job === 'code' && task) {
+    return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
+  }
+  if (agent.job === 'test' && task) {
+    return Math.min(100, (task.testStoryPointsEarned / task.storyPointsRequired) * 100)
+  }
+  if ((agent.job === 'refine' || agent.job === 'review') && agent.jobDuration > 0) {
+    return Math.min(100, (agent.jobProgress / agent.jobDuration) * 100)
+  }
+  return null
 }
 
 export function formatAgentDutyLabel(

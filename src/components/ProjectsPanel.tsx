@@ -1,5 +1,9 @@
-import { formatStoryPoints } from '../game/mechanics'
-import { hasConductorCourse } from '../game/mechanics'
+import {
+  agentWorkProgressPct,
+  formatAgentDutyLabel,
+  formatStoryPoints,
+  hasConductorCourse,
+} from '../game/mechanics'
 import {
   allImplementationMerged,
   resolvedReviewComments,
@@ -7,7 +11,7 @@ import {
   syncTestScope,
   untestedMergedTasks,
 } from '../game/projects'
-import type { AgentJob, Project, Task } from '../game/types'
+import type { Agent, AgentJob, Project, Task } from '../game/types'
 import { agentCapacity, isReadyToDeliver, projectProgressPct, useGameStore } from '../game/store'
 
 const STAFF_JOBS: { job: AgentJob; label: string }[] = [
@@ -21,43 +25,78 @@ function topLevelTasks(project: Project): Task[] {
   return project.tasks.filter((t) => !t.isReviewComment)
 }
 
+function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
+  const task = agent.taskId ? project.tasks.find((t) => t.id === agent.taskId) : undefined
+  const duty = formatAgentDutyLabel(agent, project.clientName, task?.title)
+  const progress = agentWorkProgressPct(agent, task ?? null)
+
+  return (
+    <div className="crew-agent-row">
+      <span className="crew-agent-name">{agent.name}</span>
+      {progress !== null ? (
+        <>
+          <div className="meter meter--sm crew-agent-meter">
+            <div className="meter__fill meter__fill--code" style={{ width: `${progress}%` }} />
+          </div>
+          <span className="crew-agent-progress">{Math.floor(progress)}%</span>
+        </>
+      ) : (
+        <span className="crew-agent-duty">{duty}</span>
+      )}
+    </div>
+  )
+}
+
 function RoleCounter({
   projectId,
   job,
   label,
   count,
   canAdd,
+  agents,
+  project,
 }: {
   projectId: string
   job: AgentJob
   label: string
   count: number
   canAdd: boolean
+  agents: Agent[]
+  project: Project
 }) {
   const adjustRoleCount = useGameStore((s) => s.adjustRoleCount)
 
   return (
     <div className="crew-row">
-      <span className="crew-label">{label}</span>
-      <div className="crew-counter">
-        <button
-          type="button"
-          className="btn btn--small"
-          disabled={count <= 0}
-          onClick={() => adjustRoleCount(projectId, job, -1)}
-        >
-          −
-        </button>
-        <span className="crew-count">{count}</span>
-        <button
-          type="button"
-          className="btn btn--small"
-          disabled={!canAdd}
-          onClick={() => adjustRoleCount(projectId, job, 1)}
-        >
-          +
-        </button>
+      <div className="crew-row__header">
+        <span className="crew-label">{label}</span>
+        <div className="crew-counter">
+          <button
+            type="button"
+            className="btn btn--small"
+            disabled={count <= 0}
+            onClick={() => adjustRoleCount(projectId, job, -1)}
+          >
+            −
+          </button>
+          <span className="crew-count">{count}</span>
+          <button
+            type="button"
+            className="btn btn--small"
+            disabled={!canAdd}
+            onClick={() => adjustRoleCount(projectId, job, 1)}
+          >
+            +
+          </button>
+        </div>
       </div>
+      {agents.length > 0 && (
+        <div className="crew-row__content">
+          {agents.map((agent) => (
+            <AgentCrewRow key={agent.id} agent={agent} project={project} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -218,6 +257,8 @@ export function ProjectsPanel() {
                     label="Conductor"
                     count={project.roleCounts.conductor}
                     canAdd={canSpawn && project.roleCounts.conductor < 1}
+                    agents={projectAgents(project.id, 'conductor')}
+                    project={project}
                   />
                   <p className="hint">
                     Conductor auto-staffs refine → code → review → test within crew cap (
@@ -226,6 +267,18 @@ export function ProjectsPanel() {
                       : 'assign conductor first'}
                     ).
                   </p>
+                  {STAFF_JOBS.map(({ job, label }) => (
+                    <RoleCounter
+                      key={job}
+                      projectId={project.id}
+                      job={job}
+                      label={label}
+                      count={project.roleCounts[job]}
+                      canAdd={false}
+                      agents={projectAgents(project.id, job)}
+                      project={project}
+                    />
+                  ))}
                 </>
               ) : (
                 STAFF_JOBS.map(({ job, label }) => (
@@ -236,11 +289,11 @@ export function ProjectsPanel() {
                     label={label}
                     count={project.roleCounts[job]}
                     canAdd={canSpawn}
+                    agents={projectAgents(project.id, job)}
+                    project={project}
                   />
                 ))
               )}
-
-              <AgentsPanelInline projectId={project.id} />
             </div>
 
             {tasks.length > 0 && (
@@ -330,40 +383,5 @@ export function ProjectsPanel() {
         )
       })}
     </section>
-  )
-}
-
-function AgentsPanelInline({ projectId }: { projectId: string }) {
-  const agents = useGameStore((s) => s.agents)
-  const projects = useGameStore((s) => s.projects)
-  const projectAgents = agents.filter((a) => a.projectId === projectId)
-
-  if (projectAgents.length === 0) return null
-
-  return (
-    <ul className="agent-mini-list agent-mini-list--inline">
-      {projectAgents.map((agent) => {
-        const project = projects.find((p) => p.id === projectId)
-        const task = agent.taskId
-          ? project?.tasks.find((t) => t.id === agent.taskId)
-          : undefined
-        const duty =
-          agent.job === 'conductor'
-            ? 'Conducting'
-            : agent.job
-              ? `${agent.job}${agent.status === 'idle' ? ' (idle)' : ''}`
-              : '—'
-
-        return (
-          <li key={agent.id} className="agent-mini-card">
-            <span className="agent-mini-card__name">{agent.name}</span>
-            <span className="agent-mini-card__duty">
-              {duty}
-              {task ? ` · ${task.title.slice(0, 24)}` : project ? ` · ${project.clientName}` : ''}
-            </span>
-          </li>
-        )
-      })}
-    </ul>
   )
 }

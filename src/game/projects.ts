@@ -164,19 +164,23 @@ function defaultProjectFields(projectId: string, sp: number) {
 
 export function createTutorialProject(): Project {
   const projectId = uid('proj')
-  const sp = 5
+  const sp = 4
 
   return {
     id: projectId,
     clientName: 'Friendly Neighbor App',
-    blurb: 'Tutorial gig. Assign a Refiner (+), turn the requirement into a task, then ship.',
+    blurb: 'Tutorial gig. Refine each requirement into a task, then ship.',
     payment: TUTORIAL_PAYMENT,
     durationDays: 20,
     daysRemaining: 20,
     isTutorial: true,
     repPenaltyMultiplier: 1,
     ...defaultProjectFields(projectId, sp),
-    requirements: [createRequirement(projectId, 'Users must be able to log in', sp)],
+    requirements: [
+      createRequirement(projectId, 'Users must be able to log in', 2),
+      createRequirement(projectId, 'Dashboard needs to not look like 2009', 1),
+      createRequirement(projectId, 'API must return JSON sometimes', 1),
+    ],
   }
 }
 
