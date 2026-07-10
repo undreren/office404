@@ -1,23 +1,19 @@
-export type ModelKind = 'local' | 'cloud'
-
-export type AgentJob = 'code' | 'review' | 'refactor' | 'refine' | 'test'
+export type AgentJob = 'code' | 'review' | 'refine' | 'test' | 'conductor'
 
 export type AgentStatus =
   | 'idle'
   | 'working'
   | 'reviewing'
-  | 'refactoring'
   | 'refining'
   | 'testing'
+  | 'conducting'
   | 'compacting'
   | 'compacted'
   | 'crashed'
 
-export type PlayerActionType = 'vibe'
-
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'pr_ready' | 'merged'
 
-export type RequirementStatus = 'open' | 'refined'
+export type RequirementStatus = 'open' | 'refined' | 'split'
 
 export type ProjectStatus = 'active' | 'completed' | 'abandoned'
 
@@ -25,38 +21,35 @@ export type LeadStatus = 'available' | 'expired' | 'accepted' | 'rejected'
 
 export type GamePhase = 'playing' | 'won' | 'lost'
 
-export type ApartmentTier = 'cardboard' | 'studio' | 'loft' | 'penthouse'
+export type ApartmentTier = 'cardboard' | 'shared_1br' | 'studio' | 'loft' | 'penthouse'
 
-export type RackTier = 'mark_mini' | 'mark_stfu' | 'cuda_cluster'
+export type FineTuneRole = 'code' | 'review' | 'refine' | 'test'
+
+export type StaffJob = Exclude<AgentJob, 'conductor'>
 
 export interface ModelDef {
   id: string
-  name: string
-  kind: ModelKind
-  vendor?: string
+  displayName: string
   tagline: string
   parameters: number
   /** Context window in thousands of tokens */
   contextSize: number
-  /** Base RAM to load model (GB) */
-  loadRam: number
-  tokenCostPerTick: number
-  purchaseCost: number
-  deployCost: number
+  /** RAM consumed per agent at this tier (GB) */
+  ramPerAgent: number
+  upgradeCost: number
 }
 
-export interface LoadedModel {
-  id: string
-  modelId: string
-  hostId: string
+export interface ProjectRoleCounts {
+  refine: number
+  code: number
+  review: number
+  test: number
+  conductor: number
 }
 
 export interface Agent {
   id: string
   name: string
-  modelId: string
-  loadedModelId: string | null
-  serverId: string | null
   job: AgentJob | null
   taskId: string | null
   projectId: string | null
@@ -65,18 +58,8 @@ export interface Agent {
   status: AgentStatus
   personality: string
   contextUsed: number
-  /** Seconds remaining while auto-compacting after context overflow. */
   compactingRemainingSec: number
-  totalTokensBurned: number
   uptime: number
-}
-
-export interface Server {
-  id: string
-  name: string
-  tier: RackTier
-  onFire: boolean
-  fireDuration: number
 }
 
 export interface Requirement {
@@ -98,22 +81,18 @@ export interface Task {
   status: TaskStatus
   assignedAgentId: string | null
   completedByAgentId: string | null
-  pendingQualityHit: number
-  revealedQualityHit: number | null
   parentTaskId: string | null
-  /** Bug introduced at merge; hidden until testing finds it. */
+  /** PR quality 0–100; set at merge. */
+  prQuality: number | null
+  /** Builds during review; resolved comments add +10%. */
+  prQualityStaging: number
+  /** Bug roll pending at QA (set at merge). */
   hasUndiscoveredBug: boolean
-  /** Testing agent surfaced this bug. */
   bugDiscovered: boolean
-  /** Fix task spawned after a discovered bug. */
   isBugFix: boolean
-  /** Merged task this fix addresses. */
   sourceTaskId: string | null
-  /** Review nitpick spawned on a PR; resolving reduces merge quality hit. */
   isReviewComment: boolean
-  /** PR received its one allowed review pass. */
   reviewed: boolean
-  /** QA progress on this merged task (0 → storyPointsRequired). */
   testStoryPointsEarned: number
 }
 
@@ -124,12 +103,10 @@ export interface Project {
   payment: number
   durationDays: number
   daysRemaining: number
-  quality: number
-  /** QA progress toward testing the full delivered scope (0–100). */
+  /** Average merged PR quality — display + rep on delivery. */
+  deliveryQuality: number
   testPercent: number
-  /** Story points of delivered scope that must be tested (equals original delivery SP). */
   testStoryPointsRequired: number
-  /** Story points of QA work completed so far. */
   testStoryPointsCompleted: number
   totalStoryPoints: number
   status: ProjectStatus
@@ -138,6 +115,9 @@ export interface Project {
   isTutorial: boolean
   lateCount: number
   repPenaltyMultiplier: number
+  crewCap: number
+  roleCounts: ProjectRoleCounts
+  useConductor: boolean
 }
 
 export interface Lead {
@@ -152,42 +132,32 @@ export interface Lead {
   repRequired: number
 }
 
-export interface PlayerAction {
-  type: PlayerActionType
-  taskId: string
-  progress: number
-  duration: number
-  forced?: boolean
-}
-
 export interface GameEvent {
   id: string
   timestamp: number
-  type: 'crash' | 'fire' | 'client' | 'token' | 'milestone' | 'system' | 'project' | 'lead'
+  type: 'crash' | 'client' | 'milestone' | 'system' | 'project' | 'lead'
   message: string
 }
 
 export interface GameState {
   phase: GamePhase
   cash: number
-  tokens: number
-  maxTokens: number
-  sanity: number
   reputation: number
   gameDay: number
   rentDueInDays: number
   apartment: ApartmentTier
   apartmentLeaseRemaining: number
-  usedRam: number
   totalRam: number
-  ownedLocalModels: string[]
-  loadedModels: LoadedModel[]
-  servers: Server[]
+  totalGpus: number
+  modelTierIndex: number
+  purchasedRamUpgrades: string[]
+  purchasedGpuUpgrades: string[]
+  purchasedFineTunes: string[]
+  vibingCourses: string[]
   agents: Agent[]
   projects: Project[]
   leads: Lead[]
   selectedTaskId: string | null
-  playerAction: PlayerAction | null
   tutorialDone: boolean
   leadSpawnCooldown: number
   events: GameEvent[]
@@ -202,26 +172,20 @@ export interface GameState {
 export interface GameActions {
   tick: (deltaSec: number) => void
   selectTask: (taskId: string | null) => void
-  startVibe: () => void
   mergePr: (taskId: string) => void
   justMergePr: (taskId: string) => void
-  cancelPlayerAction: () => void
   acceptLead: (leadId: string) => void
   rejectLead: (leadId: string) => void
   deliverProject: (projectId: string) => void
-  assignAgentToProject: (agentId: string, projectId: string, job: AgentJob) => void
-  unassignAgent: (agentId: string) => void
-  restartAgent: (agentId: string) => void
-  offloadAgent: (agentId: string) => void
-  deployCloudAgent: (modelId: string) => boolean
-  loadLocalModel: (modelId: string, hostId: string, forceNewInstance?: boolean) => boolean
-  spawnLocalAgent: (loadedModelId: string) => boolean
-  unloadModel: (loadedModelId: string) => boolean
-  buyServer: (tier: RackTier) => boolean
-  sellServer: (serverId: string) => boolean
-  buyTokens: () => boolean
+  adjustRoleCount: (projectId: string, job: AgentJob, delta: number) => void
+  adjustCrewCap: (projectId: string, delta: number) => void
+  toggleConductor: (projectId: string, enabled: boolean) => void
+  buyRamUpgrade: (upgradeId: string) => boolean
+  buyGpuUpgrade: (upgradeId: string) => boolean
+  upgradeModelTier: () => boolean
+  buyFineTune: (fineTuneId: string) => boolean
+  buyVibingCourse: (courseId: string) => boolean
   upgradeApartment: () => boolean
-  extinguishFire: (serverId: string) => boolean
   retire: () => void
   resetGame: () => void
 }

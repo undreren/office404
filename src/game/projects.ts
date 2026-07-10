@@ -1,13 +1,19 @@
-import type { Agent, AgentJob, Lead, Project, Requirement, Task } from './types'
-import { MIN_STORY_POINTS, REFINE_MIN_STORY_POINTS, REVIEW_COMMENT_SP, TUTORIAL_PAYMENT } from './constants'
-import { agentIsBusy, FIBONACCI, fibIndex, isFibonacci, pickLeadFibonacci, reviewCommentSpawnCount } from './mechanics'
+import type { Agent, AgentJob, Lead, Project, Requirement, StaffJob, Task } from './types'
+import { TUTORIAL_PAYMENT } from './constants'
+import {
+  agentIsBusy,
+  FIBONACCI,
+  fibIndex,
+  pickLeadFibonacci,
+  reviewCommentSpawnCount,
+} from './mechanics'
 
 const CLIENTS = [
   'Nexus Dynamics',
   'PivotPal',
   'StealthStartup.io',
   'MegaCorp Subsidiary',
-  'Dave\'s Enterprise Solutions',
+  "Dave's Enterprise Solutions",
   'Blockchain For Dogs',
   'The Other Uber',
   'CloudSync (not that one)',
@@ -17,8 +23,8 @@ const BLURBS = [
   'Rebuild the dashboard but make it "pop".',
   'AI-powered spreadsheet. Yes, another one.',
   'Migrate our monolith to microservices by Friday.',
-  'Add blockchain. We don\'t know why either.',
-  'Fix the bug that only happens on the CEO\'s laptop.',
+  "Add blockchain. We don't know why either.",
+  "Fix the bug that only happens on the CEO's laptop.",
   'Implement Web3 login. Wallet optional, panic required.',
   'Refactor legacy PHP. The legacy is emotional.',
   'Make the app 10x faster without changing anything.',
@@ -26,7 +32,7 @@ const BLURBS = [
 
 export const REVIEW_COMMENT_TEXTS = [
   'We use 13-space indents here',
-  'I don\'t like Times New Roman',
+  "I don't like Times New Roman",
   'Please rename `data` to `theDataObjectFinal_v2`',
   'Could we use a different shade of beige?',
   'This function is 3 lines too long for my taste',
@@ -35,7 +41,7 @@ export const REVIEW_COMMENT_TEXTS = [
   'The variable name `user` feels too personal',
   'Needs more design patterns. Any will do.',
   'Can we make the logo bigger? In the backend?',
-  'I don\'t think this aligns with my horoscope',
+  "I don't think this aligns with my horoscope",
   'Please remove all vowels for performance',
   'This would read better in Comic Sans',
   'Where is the blockchain integration?',
@@ -54,6 +60,14 @@ const REQUIREMENT_TITLES = [
   'Error messages humans can parse',
   'Caching layer because DB cried',
 ]
+
+const EMPTY_ROLE_COUNTS = {
+  refine: 0,
+  code: 0,
+  review: 0,
+  test: 0,
+  conductor: 0,
+}
 
 let idCounter = 0
 function uid(prefix: string): string {
@@ -97,13 +111,13 @@ export function createTask(
     storyPointsRequired: storyPoints,
     storyPointsEarned: 0,
     complexity,
-    refined: false,
+    refined: true,
     status: 'open',
     assignedAgentId: null,
     completedByAgentId: null,
-    pendingQualityHit: 0,
-    revealedQualityHit: null,
     parentTaskId,
+    prQuality: null,
+    prQualityStaging: 0,
     hasUndiscoveredBug: false,
     bugDiscovered: false,
     isBugFix: false,
@@ -131,6 +145,23 @@ function createRequirementsForProject(projectId: string, totalSp: number): Requi
   ]
 }
 
+function defaultProjectFields(projectId: string, sp: number) {
+  return {
+    deliveryQuality: 0,
+    testPercent: 0,
+    testStoryPointsRequired: 0,
+    testStoryPointsCompleted: 0,
+    totalStoryPoints: sp,
+    status: 'active' as const,
+    requirements: createRequirementsForProject(projectId, sp),
+    tasks: [] as Task[],
+    lateCount: 0,
+    crewCap: 1,
+    roleCounts: { ...EMPTY_ROLE_COUNTS, refine: 1 },
+    useConductor: false,
+  }
+}
+
 export function createTutorialProject(): Project {
   const projectId = uid('proj')
   const sp = 5
@@ -138,21 +169,14 @@ export function createTutorialProject(): Project {
   return {
     id: projectId,
     clientName: 'Friendly Neighbor App',
-    blurb: 'Tutorial gig. One requirement. Refine it into work before anyone codes.',
+    blurb: 'Tutorial gig. Assign a Refiner (+), turn the requirement into a task, then ship.',
     payment: TUTORIAL_PAYMENT,
     durationDays: 20,
     daysRemaining: 20,
-    quality: 88,
-    testPercent: 0,
-    testStoryPointsRequired: 0,
-    testStoryPointsCompleted: 0,
-    totalStoryPoints: sp,
-    status: 'active',
-    requirements: [createRequirement(projectId, 'Users must be able to log in', sp)],
-    tasks: [],
     isTutorial: true,
-    lateCount: 0,
     repPenaltyMultiplier: 1,
+    ...defaultProjectFields(projectId, sp),
+    requirements: [createRequirement(projectId, 'Users must be able to log in', sp)],
   }
 }
 
@@ -166,7 +190,7 @@ export function generateLead(reputation: number): Lead {
     Math.round((isUnreasonable ? randInt(10, 18) : randInt(15, 35)) / repFactor),
   )
   const payment = Math.round(
-    (storyPoints * (4 + reputation * 0.3)) * (isUnreasonable ? 0.75 : 1),
+    storyPoints * (4 + reputation * 0.3) * (isUnreasonable ? 0.75 : 1),
   )
 
   return {
@@ -193,17 +217,9 @@ export function createProjectFromLead(lead: Lead): Project {
     payment: lead.payment,
     durationDays: lead.durationDays,
     daysRemaining: lead.durationDays,
-    quality: 75,
-    testPercent: 0,
-    testStoryPointsRequired: 0,
-    testStoryPointsCompleted: 0,
-    totalStoryPoints: sp,
-    status: 'active',
-    requirements: createRequirementsForProject(projectId, sp),
-    tasks: [],
     isTutorial: false,
-    lateCount: 0,
     repPenaltyMultiplier: 1 + lead.durationDays / 40,
+    ...defaultProjectFields(projectId, sp),
   }
 }
 
@@ -211,64 +227,45 @@ export function canRefineRequirement(requirement: Requirement): boolean {
   return requirement.status === 'open'
 }
 
-/** Leaf tickets (0.5 SP) are done refining; larger tickets can always be split further. */
-export function isRefineLeaf(sp: number): boolean {
-  return sp < REFINE_MIN_STORY_POINTS
-}
-
-export function canRefineTask(task: Task): boolean {
-  return (
-    !isRefineLeaf(task.storyPointsRequired) &&
-    isFibonacci(task.storyPointsRequired) &&
-    task.status !== 'merged' &&
-    task.status !== 'pr_ready' &&
-    task.status !== 'done'
-  )
-}
-
 export function requirementToTask(requirement: Requirement): Task {
   const sp = requirement.storyPoints
-  return {
-    ...createTask(requirement.projectId, requirement.title, sp, fibIndex(sp)),
-    refined: isRefineLeaf(sp),
-  }
+  return createTask(requirement.projectId, requirement.title, sp, fibIndex(sp))
 }
 
-export function splitTask(task: Task): Task[] {
-  const sp = task.storyPointsRequired
-  const idx = fibIndex(sp)
-  if (idx < 1) {
-    throw new Error(`Cannot refine ${sp} SP task (minimum leaf is ${MIN_STORY_POINTS} SP)`)
-  }
-
-  const spA = FIBONACCI[idx - 1]
-  const spB = sp - spA
-  const earnedA = Math.min(spA, Math.round(task.storyPointsEarned * (spA / sp) * 2) / 2)
-  const earnedB = task.storyPointsEarned - earnedA
-
+/** Split one requirement into two equal-SP tasks (Prompt Engineering). */
+export function splitRequirementToTasks(requirement: Requirement): Task[] {
+  const half = requirement.storyPoints / 2
   return [
-    {
-      ...createTask(task.projectId, `${task.title} (A)`, spA, fibIndex(spA), task.id),
-      storyPointsEarned: earnedA,
-      refined: isRefineLeaf(spA),
-    },
-    {
-      ...createTask(task.projectId, `${task.title} (B)`, spB, fibIndex(spB), task.id),
-      storyPointsEarned: earnedB,
-      refined: isRefineLeaf(spB),
-    },
+    createTask(requirement.projectId, `${requirement.title} (1)`, half, fibIndex(half)),
+    createTask(requirement.projectId, `${requirement.title} (2)`, half, fibIndex(half)),
   ]
 }
 
-export type RefineTarget =
-  | { kind: 'requirement'; requirement: Requirement }
-  | { kind: 'task'; task: Task }
+export function pickRefineTarget(
+  project: Project,
+  agents: Agent[],
+  agentId: string,
+): Requirement | null {
+  const claimed = jobClaimedTaskIds(agents, project.id, 'refine', agentId)
+  const self = agents.find((a) => a.id === agentId)
 
-export function refineTargetId(target: RefineTarget): string {
-  return target.kind === 'requirement' ? target.requirement.id : target.task.id
+  if (self?.taskId) {
+    const req = project.requirements.find((r) => r.id === self.taskId && canRefineRequirement(r))
+    if (req) return req
+  }
+
+  const openRequirements = project.requirements
+    .filter(canRefineRequirement)
+    .filter((r) => !claimed.has(r.id))
+    .sort((a, b) => b.storyPoints - a.storyPoints)
+
+  return openRequirements[0] ?? null
 }
 
-/** Task IDs already claimed by other agents on the same project role. */
+export function projectHasRefineWork(project: Project): boolean {
+  return project.requirements.some(canRefineRequirement)
+}
+
 export function jobClaimedTaskIds(
   agents: Agent[],
   projectId: string,
@@ -279,51 +276,10 @@ export function jobClaimedTaskIds(
   for (const agent of agents) {
     if (agent.id === exceptAgentId) continue
     if (agent.job !== job || agent.projectId !== projectId || !agent.taskId) continue
-    if (!agentIsBusy(agent)) continue
+    if (!agentIsBusy(agent) && agent.status !== 'refining') continue
     ids.add(agent.taskId)
   }
   return ids
-}
-
-/** Pick the largest unclaimed refinable requirement or task for one agent. */
-export function pickRefineTarget(project: Project, agents: Agent[], agentId: string): RefineTarget | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'refine', agentId)
-  const self = agents.find((a) => a.id === agentId)
-
-  if (self?.taskId) {
-    const req = project.requirements.find((r) => r.id === self.taskId && canRefineRequirement(r))
-    if (req) return { kind: 'requirement', requirement: req }
-    const task = project.tasks.find((t) => t.id === self.taskId && canRefineTask(t))
-    if (task) return { kind: 'task', task }
-  }
-
-  const openRequirements = project.requirements
-    .filter(canRefineRequirement)
-    .filter((r) => !claimed.has(r.id))
-    .sort((a, b) => b.storyPoints - a.storyPoints)
-  if (openRequirements.length > 0) {
-    return { kind: 'requirement', requirement: openRequirements[0] }
-  }
-
-  const refinableTasks = project.tasks
-    .filter(canRefineTask)
-    .filter((t) => !claimed.has(t.id))
-    .sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
-  if (refinableTasks.length > 0) {
-    return { kind: 'task', task: refinableTasks[0] }
-  }
-
-  return null
-}
-
-export function projectHasRefineWork(project: Project): boolean {
-  const openRequirements = project.requirements.some(canRefineRequirement)
-  if (openRequirements) return true
-  return project.tasks.some(canRefineTask)
-}
-
-export function countActiveTasks(project: Project): number {
-  return project.tasks.filter((t) => t.status !== 'merged' && !t.isReviewComment).length
 }
 
 export function pickCodingTask(project: Project, agentId: string, agents: Agent[]): Task | null {
@@ -373,10 +329,11 @@ export function pickReviewTask(project: Project, agentId: string, agents: Agent[
     if (current) return current
   }
 
-  const prTasks = project.tasks.filter(
-    (t) => t.status === 'pr_ready' && !t.reviewed && !claimed.has(t.id),
+  return (
+    project.tasks.find(
+      (t) => t.status === 'pr_ready' && !t.reviewed && !claimed.has(t.id),
+    ) ?? null
   )
-  return prTasks[0] ?? null
 }
 
 export function reviewCommentsOnTask(project: Project, parentTaskId: string): Task[] {
@@ -394,12 +351,8 @@ export function allReviewCommentsAddressed(project: Project, parentTaskId: strin
   return comments.every((c) => c.storyPointsEarned >= c.storyPointsRequired)
 }
 
-export function createReviewCommentTasks(
-  parent: Task,
-  agentParams: number,
-  isCloud: boolean,
-): Task[] {
-  const count = reviewCommentSpawnCount(agentParams, parent.storyPointsRequired, isCloud)
+export function createReviewCommentTasks(parent: Task): Task[] {
+  const count = reviewCommentSpawnCount(parent.storyPointsRequired)
   const pool = [...REVIEW_COMMENT_TEXTS]
   const comments: Task[] = []
 
@@ -407,23 +360,17 @@ export function createReviewCommentTasks(
     const idx = Math.floor(Math.random() * pool.length)
     const text = pool.splice(idx, 1)[0] ?? REVIEW_COMMENT_TEXTS[0]
     comments.push({
-      ...createTask(parent.projectId, text, REVIEW_COMMENT_SP, 0, parent.id),
+      ...createTask(parent.projectId, text, 0.5, 0, parent.id),
       isReviewComment: true,
-      refined: true,
     })
   }
 
   return comments
 }
 
-export function projectHasRefactorWork(project: Project): boolean {
-  return project.status === 'active'
-}
-
-/** Whether an assigned role has actionable work on this project right now. */
 export function projectRoleHasWork(
   project: Project,
-  job: AgentJob,
+  job: StaffJob,
   agentId: string,
   agents: Agent[],
 ): boolean {
@@ -438,8 +385,6 @@ export function projectRoleHasWork(
       )
     case 'refine':
       return pickRefineTarget(project, agents, agentId) !== null
-    case 'refactor':
-      return projectHasRefactorWork(project)
     case 'test':
       return projectHasTestWork(project) && pickTestTask(project, agentId, agents) !== null
   }
@@ -501,7 +446,14 @@ export function syncTestScope(project: Project): Project {
     testStoryPointsRequired: required,
     testStoryPointsCompleted: completed,
     testPercent: required > 0 ? (completed / required) * 100 : 0,
+    deliveryQuality: averageMergedPrQuality(project),
   }
+}
+
+function averageMergedPrQuality(project: Project): number {
+  const merged = mergedShippableTasks(project).filter((t) => t.prQuality !== null)
+  if (merged.length === 0) return 0
+  return merged.reduce((sum, t) => sum + (t.prQuality ?? 0), 0) / merged.length
 }
 
 export function projectHasTestWork(project: Project): boolean {
@@ -535,6 +487,7 @@ export function createBugFixTask(source: Task): Task {
     ),
     isBugFix: true,
     sourceTaskId: source.id,
-    refined: true,
   }
 }
+
+export const CONDUCTOR_ROLE_PRIORITY: StaffJob[] = ['refine', 'code', 'review', 'test']

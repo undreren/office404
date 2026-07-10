@@ -1,8 +1,5 @@
-import {
-  computeReviewCommentReduction,
-  formatStoryPoints,
-  formatSuccessPct,
-} from '../game/mechanics'
+import { formatStoryPoints } from '../game/mechanics'
+import { hasConductorCourse } from '../game/mechanics'
 import {
   allImplementationMerged,
   resolvedReviewComments,
@@ -10,20 +7,12 @@ import {
   syncTestScope,
   untestedMergedTasks,
 } from '../game/projects'
-import { getModel } from '../game/models'
-import type { Agent, AgentJob, Project, Task } from '../game/types'
-import {
-  isReadyToDeliver,
-  modelSuccessForTask,
-  projectedQualityHit,
-  projectProgressPct,
-  useGameStore,
-} from '../game/store'
+import type { AgentJob, Project, Task } from '../game/types'
+import { agentCapacity, isReadyToDeliver, projectProgressPct, useGameStore } from '../game/store'
 
-const PROJECT_JOBS: { job: AgentJob; label: string }[] = [
+const STAFF_JOBS: { job: AgentJob; label: string }[] = [
   { job: 'refine', label: 'Refine' },
   { job: 'code', label: 'Code' },
-  { job: 'refactor', label: 'Refactor' },
   { job: 'review', label: 'Review' },
   { job: 'test', label: 'Test' },
 ]
@@ -32,27 +21,62 @@ function topLevelTasks(project: Project): Task[] {
   return project.tasks.filter((t) => !t.isReviewComment)
 }
 
-function commentSummary(project: Project, task: Task, agents: Agent[]) {
-  const comments = reviewCommentsOnTask(project, task.id)
-  const resolved = resolvedReviewComments(project, task.id).length
-  const baseHit = projectedQualityHit(task, agents, project)
-  const saved = computeReviewCommentReduction(baseHit, resolved)
-  return { comments, resolved, total: comments.length, saved }
+function RoleCounter({
+  projectId,
+  job,
+  label,
+  count,
+  canAdd,
+}: {
+  projectId: string
+  job: AgentJob
+  label: string
+  count: number
+  canAdd: boolean
+}) {
+  const adjustRoleCount = useGameStore((s) => s.adjustRoleCount)
+
+  return (
+    <div className="crew-row">
+      <span className="crew-label">{label}</span>
+      <div className="crew-counter">
+        <button
+          type="button"
+          className="btn btn--small"
+          disabled={count <= 0}
+          onClick={() => adjustRoleCount(projectId, job, -1)}
+        >
+          −
+        </button>
+        <span className="crew-count">{count}</span>
+        <button
+          type="button"
+          className="btn btn--small"
+          disabled={!canAdd}
+          onClick={() => adjustRoleCount(projectId, job, 1)}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export function ProjectsPanel() {
   const projects = useGameStore((s) => s.projects)
   const selectedTaskId = useGameStore((s) => s.selectedTaskId)
   const agents = useGameStore((s) => s.agents)
+  const vibingCourses = useGameStore((s) => s.vibingCourses)
+  const state = useGameStore()
   const selectTask = useGameStore((s) => s.selectTask)
-  const assignAgentToProject = useGameStore((s) => s.assignAgentToProject)
-  const unassignAgent = useGameStore((s) => s.unassignAgent)
   const justMergePr = useGameStore((s) => s.justMergePr)
   const deliverProject = useGameStore((s) => s.deliverProject)
+  const adjustCrewCap = useGameStore((s) => s.adjustCrewCap)
+  const toggleConductor = useGameStore((s) => s.toggleConductor)
 
-  const idleAgents = agents.filter(
-    (a) => !a.job && a.status !== 'compacted' && a.status !== 'compacting',
-  )
+  const { max } = agentCapacity(state)
+  const canSpawn = agents.length < max
+  const conductorUnlocked = hasConductorCourse(vibingCourses)
 
   function projectAgents(projectId: string, job: AgentJob) {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
@@ -99,14 +123,14 @@ export function ProjectsPanel() {
             </header>
 
             <div className="meter-row">
-              <label>Delivery Quality</label>
+              <label>Delivery Quality (avg PR)</label>
               <div className="meter">
                 <div
-                  className={`meter__fill meter__fill--sanity ${project.quality < 40 ? 'meter__fill--critical' : ''}`}
-                  style={{ width: `${project.quality}%` }}
+                  className={`meter__fill meter__fill--sanity ${synced.deliveryQuality < 40 ? 'meter__fill--critical' : ''}`}
+                  style={{ width: `${synced.deliveryQuality}%` }}
                 />
               </div>
-              <span>{Math.floor(project.quality)}%</span>
+              <span>{Math.floor(synced.deliveryQuality)}%</span>
             </div>
 
             <div className="meter-row">
@@ -142,72 +166,81 @@ export function ProjectsPanel() {
                       className={`requirement-item requirement-item--${req.status}`}
                     >
                       <span>{req.title}</span>
-                      <span>{formatStoryPoints(req.storyPoints)} SP · {req.status}</span>
+                      <span>
+                        {formatStoryPoints(req.storyPoints)} SP · {req.status}
+                      </span>
                     </li>
                   ))}
                 </ul>
-                <p className="hint">Assign a Refine agent to turn requirements into tasks.</p>
               </div>
             )}
 
             <div className="project-crew">
-              <h4>Project crew</h4>
-              {PROJECT_JOBS.map(({ job, label }) => {
-                const assigned = projectAgents(project.id, job)
-
-                return (
-                  <div key={job} className="crew-row">
-                    <span className="crew-label">{label}</span>
-                    <div className="crew-row__content">
-                      {assigned.map((a) => (
-                        <div key={a.id} className="crew-agent-row">
-                          <span className="crew-agent-name">
-                            {a.name}
-                            {a.job && a.status === 'idle' && ' · idle'}
-                            {a.status === 'compacting' && ' · compacting'}
-                          </span>
-                          <div className="assign-row">
-                            {a.job && (
-                              <button
-                                type="button"
-                                className="btn btn--small btn--danger"
-                                onClick={() => unassignAgent(a.id)}
-                              >
-                                Yank
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                      {idleAgents.length > 0 && (
-                        <div className="assign-row">
-                          {idleAgents.slice(0, 2).map((a) => {
-                            const model = getModel(a.modelId)
-                            const hint =
-                              job === 'code' && tasks[0]
-                                ? formatSuccessPct(
-                                    modelSuccessForTask(a.modelId, tasks[0].storyPointsRequired),
-                                  )
-                                : model
-                                  ? `${model.parameters}B · ${model.contextSize}k ctx`
-                                  : '?'
-                            return (
-                              <button
-                                key={a.id}
-                                type="button"
-                                className="btn btn--small"
-                                onClick={() => assignAgentToProject(a.id, project.id, job)}
-                              >
-                                {label} → {a.name} ({hint})
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
+              <h4>Staffing</h4>
+              {conductorUnlocked && (
+                <div className="crew-row">
+                  <label className="crew-label">
+                    <input
+                      type="checkbox"
+                      checked={project.useConductor}
+                      onChange={(e) => toggleConductor(project.id, e.target.checked)}
+                    />{' '}
+                    Conductor mode
+                  </label>
+                  {project.useConductor && (
+                    <div className="crew-counter">
+                      <span className="crew-label">Crew cap</span>
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => adjustCrewCap(project.id, -1)}
+                      >
+                        −
+                      </button>
+                      <span className="crew-count">{project.crewCap}</span>
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => adjustCrewCap(project.id, 1)}
+                      >
+                        +
+                      </button>
                     </div>
-                  </div>
-                )
-              })}
+                  )}
+                </div>
+              )}
+
+              {project.useConductor && conductorUnlocked ? (
+                <>
+                  <RoleCounter
+                    projectId={project.id}
+                    job="conductor"
+                    label="Conductor"
+                    count={project.roleCounts.conductor}
+                    canAdd={canSpawn && project.roleCounts.conductor < 1}
+                  />
+                  <p className="hint">
+                    Conductor auto-staffs refine → code → review → test within crew cap (
+                    {projectAgents(project.id, 'conductor').length > 0
+                      ? `${project.crewCap - 1} worker slots`
+                      : 'assign conductor first'}
+                    ).
+                  </p>
+                </>
+              ) : (
+                STAFF_JOBS.map(({ job, label }) => (
+                  <RoleCounter
+                    key={job}
+                    projectId={project.id}
+                    job={job}
+                    label={label}
+                    count={project.roleCounts[job]}
+                    canAdd={canSpawn}
+                  />
+                ))
+              )}
+
+              <AgentsPanelInline projectId={project.id} />
             </div>
 
             {tasks.length > 0 && (
@@ -219,13 +252,8 @@ export function ProjectsPanel() {
                       ? (task.testStoryPointsEarned / task.storyPointsRequired) * 100
                       : 0
                   const isSelected = selectedTaskId === task.id
-                  const codingAgent = agents.find(
-                    (a) => a.job === 'code' && a.taskId === task.id,
-                  )
-                  const testingAgent = agents.find(
-                    (a) => a.job === 'test' && a.taskId === task.id,
-                  )
-                  const { comments, resolved, total, saved } = commentSummary(project, task, agents)
+                  const comments = reviewCommentsOnTask(project, task.id)
+                  const resolved = resolvedReviewComments(project, task.id).length
 
                   return (
                     <li
@@ -243,61 +271,23 @@ export function ProjectsPanel() {
                         <span className="task-sp">
                           {formatStoryPoints(task.storyPointsEarned)} /{' '}
                           {formatStoryPoints(task.storyPointsRequired)} SP
-                          {task.refined && ' · refined'}
                           {task.isBugFix && ' · bug fix'}
                           {task.bugDiscovered && ' · bug found'}
+                          {task.status === 'merged' && task.prQuality !== null && (
+                            <> · PR {Math.round(task.prQuality)}%</>
+                          )}
                           {task.status === 'merged' && testPct < 100 && (
                             <> · QA {Math.floor(testPct)}%</>
                           )}
-                          {task.status === 'merged' && testPct >= 100 && <> · QA done</>}
-                          {codingAgent && ` · ${codingAgent.name} coding`}
-                          {testingAgent && ` · ${testingAgent.name} testing`}
                           {task.status === 'pr_ready' && !task.reviewed && ' · awaiting review'}
-                          {task.status === 'pr_ready' && task.reviewed && task.revealedQualityHit !== null && (
-                            <> · review est. -{task.revealedQualityHit.toFixed(1)}</>
+                          {task.status === 'pr_ready' && task.reviewed && (
+                            <> · PR ~{Math.round(task.prQualityStaging)}%</>
                           )}
-                          {task.status === 'pr_ready' && total > 0 && (
-                            <> · comments {resolved}/{total}{saved > 0 ? ` (−${saved.toFixed(1)} saved)` : ''}</>
+                          {task.status === 'pr_ready' && comments.length > 0 && (
+                            <> · comments {resolved}/{comments.length}</>
                           )}
                         </span>
                       </button>
-
-                      {comments.length > 0 && (
-                        <ul className="review-comment-list">
-                          {comments.map((comment) => {
-                            const commentPct =
-                              (comment.storyPointsEarned / comment.storyPointsRequired) * 100
-                            const commentCoder = agents.find(
-                              (a) => a.job === 'code' && a.taskId === comment.id,
-                            )
-                            const addressed = comment.storyPointsEarned >= comment.storyPointsRequired
-
-                            return (
-                              <li
-                                key={comment.id}
-                                className={`review-comment ${addressed ? 'review-comment--resolved' : ''}`}
-                              >
-                                <div className="review-comment__header">
-                                  <span className="review-comment__label">Review comment</span>
-                                  {addressed && <span className="review-comment__status">addressed</span>}
-                                </div>
-                                <p className="review-comment__text">"{comment.title}"</p>
-                                <div className="meter meter--sm">
-                                  <div
-                                    className="meter__fill meter__fill--code"
-                                    style={{ width: `${commentPct}%` }}
-                                  />
-                                </div>
-                                <span className="task-sp">
-                                  {formatStoryPoints(comment.storyPointsEarned)} /{' '}
-                                  {formatStoryPoints(comment.storyPointsRequired)} SP
-                                  {commentCoder && ` · ${commentCoder.name} fixing`}
-                                </span>
-                              </li>
-                            )
-                          })}
-                        </ul>
-                      )}
 
                       {task.status === 'pr_ready' && (
                         <div className="assign-row">
@@ -318,24 +308,20 @@ export function ProjectsPanel() {
 
             {synced.testStoryPointsRequired > 0 && !readyToDeliver && synced.testPercent < 100 && (
               <p className="hint">
-                {implMerged
-                  ? 'Implementation merged.'
-                  : 'Merged tasks queue for QA as they land.'}{' '}
-                Assign a Test agent — {untestedMergedTasks(synced).length} task
-                {untestedMergedTasks(synced).length === 1 ? '' : 's'} (
-                {formatStoryPoints(
-                  synced.testStoryPointsRequired - synced.testStoryPointsCompleted,
-                )}{' '}
-                SP) waiting.
+                {implMerged ? 'Implementation merged.' : 'Merged tasks queue for QA as they land.'}{' '}
+                {untestedMergedTasks(synced).length} task
+                {untestedMergedTasks(synced).length === 1 ? '' : 's'} waiting for QA.
               </p>
             )}
 
             {readyToDeliver && (
               <div className="deliver-row">
-                <p className="hint">
-                  All tasks merged and QA complete. Ship it.
-                </p>
-                <button type="button" className="btn btn--deploy" onClick={() => deliverProject(project.id)}>
+                <p className="hint">All tasks merged and QA complete. Ship it.</p>
+                <button
+                  type="button"
+                  className="btn btn--deploy"
+                  onClick={() => deliverProject(project.id)}
+                >
                   Deliver to {project.clientName}
                 </button>
               </div>
@@ -344,5 +330,40 @@ export function ProjectsPanel() {
         )
       })}
     </section>
+  )
+}
+
+function AgentsPanelInline({ projectId }: { projectId: string }) {
+  const agents = useGameStore((s) => s.agents)
+  const projects = useGameStore((s) => s.projects)
+  const projectAgents = agents.filter((a) => a.projectId === projectId)
+
+  if (projectAgents.length === 0) return null
+
+  return (
+    <ul className="agent-mini-list agent-mini-list--inline">
+      {projectAgents.map((agent) => {
+        const project = projects.find((p) => p.id === projectId)
+        const task = agent.taskId
+          ? project?.tasks.find((t) => t.id === agent.taskId)
+          : undefined
+        const duty =
+          agent.job === 'conductor'
+            ? 'Conducting'
+            : agent.job
+              ? `${agent.job}${agent.status === 'idle' ? ' (idle)' : ''}`
+              : '—'
+
+        return (
+          <li key={agent.id} className="agent-mini-card">
+            <span className="agent-mini-card__name">{agent.name}</span>
+            <span className="agent-mini-card__duty">
+              {duty}
+              {task ? ` · ${task.title.slice(0, 24)}` : project ? ` · ${project.clientName}` : ''}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }

@@ -1,15 +1,14 @@
 import { useState } from 'react'
-import { WIN_NET_WORTH } from '../game/constants'
-import { getNetWorth, useGameStore } from '../game/store'
+import { WIN_CASH } from '../game/constants'
+import { useGameStore } from '../game/store'
 
 export function NewGameButton() {
   const resetGame = useGameStore((s) => s.resetGame)
   const retire = useGameStore((s) => s.retire)
   const cash = useGameStore((s) => s.cash)
-  const servers = useGameStore((s) => s.servers)
   const [confirming, setConfirming] = useState(false)
 
-  const canRetire = getNetWorth({ cash, servers }) >= WIN_NET_WORTH
+  const canRetire = cash >= WIN_CASH
 
   function handleClick() {
     if (canRetire) {
