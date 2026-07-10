@@ -18,7 +18,7 @@ export function GameOverlay() {
         {phase === 'lost' && (
           <>
             <h2>Cardboard Box Acquired</h2>
-            <p>No reputation. No clients. The agents keep working for whoever has tokens.</p>
+            <p>No reputation. No clients. The agents would keep working, but nobody's paying.</p>
           </>
         )}
         <button type="button" className="btn btn--sprint" onClick={resetGame}>

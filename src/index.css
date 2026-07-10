@@ -1075,3 +1075,67 @@ body {
   background: var(--border);
   border-radius: 2px;
 }
+
+.crew-counter {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.crew-count {
+  min-width: 1.25rem;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.agent-mini-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.agent-mini-list--inline {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.agent-mini-card {
+  display: grid;
+  grid-template-columns: 5rem 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.3rem 0.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
+
+.agent-mini-card__name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.agent-mini-card__duty {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-mini-card__ctx {
+  color: var(--text-dim);
+  font-size: 0.65rem;
+}
+
+.vendor-card--compact {
+  padding: 0.5rem;
+}
+
+.agents-panel .hint {
+  margin-bottom: 0.5rem;
+}

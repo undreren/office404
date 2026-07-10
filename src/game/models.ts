@@ -1,119 +1,103 @@
-import type { ModelDef } from './types'
+import type { FineTuneRole, ModelDef } from './types'
 
-export const CLOUD_VENDORS = {
-  anthropomorphic: {
-    id: 'anthropomorphic',
-    name: 'Anthropomorphic',
-    tagline: 'We put the "human" in "inhuman pricing."',
-  },
-  obstinate: {
-    id: 'obstinate',
-    name: 'ObstinateAI',
-    tagline: 'Your problem. Our terms of service.',
-  },
-  precursor: {
-    id: 'precursor',
-    name: 'PreCursor',
-    tagline: 'Ship fast. Crash faster. Tab-complete your regrets.',
-  },
-} as const
-
-export const MODELS: Record<string, ModelDef> = {
-  'local-1b': {
-    id: 'local-1b',
-    name: 'TinyLlama 1B',
-    kind: 'local',
+export const MODEL_TIERS: ModelDef[] = [
+  {
+    id: 'tinyllama-1b',
+    displayName: 'TinyLlama:1B',
     tagline: 'Fits on a laptop. Barely fits in production.',
     parameters: 1,
     contextSize: 4,
-    loadRam: 2,
-    tokenCostPerTick: 0,
-    purchaseCost: 0,
-    deployCost: 0,
+    ramPerAgent: 2,
+    upgradeCost: 0,
   },
-  'local-2b': {
-    id: 'local-2b',
-    name: 'SmallCode 2B',
-    kind: 'local',
+  {
+    id: 'smallcode-2b',
+    displayName: 'SmallCode:2B',
     tagline: 'Twice the params. Still unemployable.',
     parameters: 2,
     contextSize: 8,
-    loadRam: 4,
-    tokenCostPerTick: 0,
-    purchaseCost: 0,
-    deployCost: 0,
+    ramPerAgent: 3,
+    upgradeCost: 120,
   },
-  'local-4b': {
-    id: 'local-4b',
-    name: 'CodeLlama 4B',
-    kind: 'local',
+  {
+    id: 'codellama-4b',
+    displayName: 'CodeLlama:4B',
     tagline: 'Big enough to disappoint professionally.',
     parameters: 4,
     contextSize: 16,
-    loadRam: 6,
-    tokenCostPerTick: 0,
-    purchaseCost: 0,
-    deployCost: 0,
+    ramPerAgent: 4,
+    upgradeCost: 280,
   },
-  obstinate: {
-    id: 'obstinate',
-    name: 'ObstinateAI',
-    vendor: 'obstinate',
-    kind: 'cloud',
+  {
+    id: 'obstinate-20b',
+    displayName: 'ObstinateAI:20B',
     tagline: 'Your problem. Our terms of service.',
     parameters: 20,
     contextSize: 80,
-    loadRam: 0,
-    tokenCostPerTick: 1.2,
-    purchaseCost: 0,
-    deployCost: 45,
+    ramPerAgent: 8,
+    upgradeCost: 650,
   },
-  precursor: {
-    id: 'precursor',
-    name: 'PreCursor',
-    vendor: 'precursor',
-    kind: 'cloud',
+  {
+    id: 'precursor-28b',
+    displayName: 'PreCursor:28B',
     tagline: 'Ship fast. Crash faster. Tab-complete your regrets.',
     parameters: 28,
     contextSize: 112,
-    loadRam: 0,
-    tokenCostPerTick: 1.8,
-    purchaseCost: 0,
-    deployCost: 75,
+    ramPerAgent: 10,
+    upgradeCost: 1200,
   },
-  anthropomorphic: {
-    id: 'anthropomorphic',
-    name: 'Anthropomorphic',
-    vendor: 'anthropomorphic',
-    kind: 'cloud',
+  {
+    id: 'anthropomorphic-36b',
+    displayName: 'Anthropomorphic:36B',
     tagline: 'We put the "human" in "inhuman pricing."',
     parameters: 36,
     contextSize: 144,
-    loadRam: 0,
-    tokenCostPerTick: 2.6,
-    purchaseCost: 0,
-    deployCost: 120,
+    ramPerAgent: 12,
+    upgradeCost: 2400,
   },
+]
+
+export const FINE_TUNE_BONUS = 0.12
+export const FINE_TUNE_COST = 90
+
+export const FINE_TUNE_ROLES: FineTuneRole[] = ['code', 'review', 'refine', 'test']
+
+export const FINE_TUNE_LABELS: Record<FineTuneRole, string> = {
+  code: 'Code-tuned',
+  review: 'Review-tuned',
+  refine: 'Refine-tuned',
+  test: 'Test-tuned',
 }
 
 /** Migrate saves from older model IDs */
 export const MODEL_ID_MIGRATION: Record<string, string> = {
-  'fab-lite': 'obstinate',
-  'fab-pro': 'precursor',
-  'fab-ultra': 'anthropomorphic',
-  'local-7b': 'local-1b',
-  'local-13b': 'local-2b',
-  'local-34b': 'local-4b',
+  'local-1b': 'tinyllama-1b',
+  'local-2b': 'smallcode-2b',
+  'local-4b': 'codellama-4b',
+  obstinate: 'obstinate-20b',
+  precursor: 'precursor-28b',
+  anthropomorphic: 'anthropomorphic-36b',
+  'fab-lite': 'obstinate-20b',
+  'fab-pro': 'precursor-28b',
+  'fab-ultra': 'anthropomorphic-36b',
+  'local-7b': 'tinyllama-1b',
+  'local-13b': 'smallcode-2b',
+  'local-34b': 'codellama-4b',
 }
 
-export const LOCAL_MODEL_LIST = Object.values(MODELS).filter((m) => m.kind === 'local')
-export const CLOUD_MODEL_LIST = Object.values(MODELS).filter((m) => m.kind === 'cloud')
+export function getModelTier(index: number): ModelDef | undefined {
+  return MODEL_TIERS[index]
+}
 
 export function getModel(id: string): ModelDef | undefined {
   const migrated = MODEL_ID_MIGRATION[id] ?? id
-  return MODELS[migrated]
+  return MODEL_TIERS.find((m) => m.id === migrated)
 }
 
 export function migrateModelId(id: string): string {
   return MODEL_ID_MIGRATION[id] ?? id
+}
+
+export function fineTuneId(tierIndex: number, role: FineTuneRole): string {
+  return `tune-${tierIndex}-${role}`
 }

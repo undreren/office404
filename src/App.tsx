@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react'
 import { ResourceBar } from './components/ResourceBar'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { LeadsPanel } from './components/LeadsPanel'
-import { MarketplacePanel } from './components/MarketplacePanel'
-import { CloudAgentsPanel } from './components/CloudAgentsPanel'
-import { ServerRack } from './components/ServerRack'
+import { UpgradesPanel } from './components/UpgradesPanel'
+import { AgentsPanel } from './components/AgentsPanel'
 import { EventLog } from './components/EventLog'
 import { GameOverlay } from './components/GameOverlay'
 import { useGameStore } from './game/store'
@@ -37,9 +36,8 @@ function App() {
       <main className="main">
         <ProjectsPanel />
         <LeadsPanel />
-        <ServerRack />
-        <CloudAgentsPanel />
-        <MarketplacePanel />
+        <AgentsPanel />
+        <UpgradesPanel />
         <EventLog />
       </main>
 

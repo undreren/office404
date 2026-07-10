@@ -1,25 +1,34 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Agent, GameEvent, GameStore, Lead, LoadedModel, PlayerAction, Project, Server, Task, TaskStatus } from './types'
-import { getModel, migrateModelId } from './models'
+import type {
+  Agent,
+  AgentJob,
+  GameEvent,
+  GameStore,
+  Project,
+  StaffJob,
+  Task,
+  TaskStatus,
+} from './types'
+import { fineTuneId, getModelTier, MODEL_TIERS } from './models'
 import {
-  countActiveTasks,
+  allReviewCommentsAddressed,
+  CONDUCTOR_ROLE_PRIORITY,
   createBugFixTask,
   createProjectFromLead,
-  allReviewCommentsAddressed,
   createReviewCommentTasks,
   createTutorialProject,
   generateLead,
+  pickCodingTask,
   pickRefineTarget,
-  pickCodingTask as pickCodingTaskFromProject,
   pickReviewTask,
   pickTestTask,
+  projectHasRefineWork,
   projectHasTestWork,
   projectRoleHasWork,
-  resolvedReviewComments,
-  refineTargetId,
   requirementToTask,
-  splitTask,
+  resolvedReviewComments,
+  splitRequirementToTasks,
   syncTestScope,
   taskIsTested,
   taskNeedsTesting,
@@ -27,60 +36,54 @@ import {
 import { generateAgentName, generatePersonality } from './personalities'
 import {
   APARTMENT_CONFIG,
+  COMPACT_DURATION_SEC,
   EXPIRED_LEAD_REP_PENALTY,
-  EXTINGUISH_COST,
   INITIAL_CASH,
-  INITIAL_MAX_TOKENS,
   INITIAL_REPUTATION,
-  INITIAL_SANITY,
-  INITIAL_TOKENS,
+  JUST_MERGE_PR_QUALITY,
   LATE_FEE_PERCENT,
   LATE_REP_PENALTY_BASE,
   LEAD_SPAWN_INTERVAL_DAYS,
   LOSE_REPUTATION,
-  MAX_EVENTS,
   MAX_ACTIVE_PROJECTS,
+  MAX_EVENTS,
   MAX_LEADS,
   ON_TIME_REP_BONUS,
-  RACK_CONFIG,
-  RACK_REFURBISH_VALUE,
   RENT_INTERVAL_DAYS,
-  SANITY_VIBE_RESTORE,
   SAVE_KEY,
   SECONDS_PER_GAME_DAY,
-  COMPACT_DURATION_SEC,
-  TOKEN_PACK_AMOUNT,
-  TOKEN_PACK_COST,
-  WIN_NET_WORTH,
+  WIN_CASH,
 } from './constants'
 import {
-  LAPTOP_HOST_ID,
-  agentJobDurationDays,
   agentTickSpeed,
-  computeBugChance,
-  computePrQualityFromReview,
-  computeQualityHit,
-  computeRevealedQualityHit,
-  computeReviewCommentReduction,
-  computeHostUsedRam,
-  computeTotalAvailableRam,
-  computeTotalUsedRam,
+  canUpgradeModelTier,
+  computePrBaseQuality,
+  contextFillMultiplier,
   effectiveSuccessRate,
   fillAgentContext,
   formatStoryPoints,
   getAgentParameters,
-  getHostRam,
-  getTaskQualityParameters,
+  getTotalGpus,
+  getTotalRam,
+  hasConductorCourse,
+  hasPromptEngineering,
   jobStatusFor,
-  ramForLoadedModel,
-  refactorRatePerDay,
+  maxAgents,
+  prQualityAfterComments,
   refineJobDurationDays,
-  reviewAccuracy,
   reviewJobDurationDays,
+  rollBugAtQa,
   storyPointIncrement,
   testStoryPointIncrement,
   testSuccessRate,
+  usedRam,
 } from './mechanics'
+import {
+  GPU_UPGRADES,
+  housingMeetsRequirement,
+  RAM_UPGRADES,
+  VIBING_COURSES,
+} from './upgrades'
 
 let idCounter = 0
 function uid(prefix: string): string {
@@ -110,43 +113,61 @@ function finishCompaction(agent: Agent): Agent {
   }
 }
 
-function createInitialState() {
-  const tutorial = createTutorialProject()
+function createAgent(): Agent {
   return {
-    phase: 'playing' as const,
+    id: uid('agt'),
+    name: generateAgentName(),
+    ...emptyAgentJob(),
+    personality: generatePersonality(),
+    contextUsed: 0,
+    compactingRemainingSec: 0,
+    uptime: 0,
+  }
+}
+
+function createInitialState(): Omit<GameStore, keyof import('./types').GameActions> {
+  const tutorial = createTutorialProject()
+  const starter = createAgent()
+  starter.job = 'refine'
+  starter.projectId = tutorial.id
+  starter.status = 'refining'
+
+  const totalRam = 2
+  const totalGpus = 1
+
+  return {
+    phase: 'playing',
     cash: INITIAL_CASH,
-    tokens: INITIAL_TOKENS,
-    maxTokens: INITIAL_MAX_TOKENS,
-    sanity: INITIAL_SANITY,
     reputation: INITIAL_REPUTATION,
     gameDay: 0,
     rentDueInDays: RENT_INTERVAL_DAYS,
-    apartment: 'cardboard' as const,
+    apartment: 'cardboard',
     apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
-    usedRam: 0,
-    totalRam: 4,
-    ownedLocalModels: ['local-1b', 'local-2b', 'local-4b'] as string[],
-    loadedModels: [] as LoadedModel[],
-    servers: [] as Server[],
-    agents: [] as Agent[],
+    totalRam,
+    totalGpus,
+    modelTierIndex: 0,
+    purchasedRamUpgrades: [],
+    purchasedGpuUpgrades: [],
+    purchasedFineTunes: [],
+    vibingCourses: [],
+    agents: [starter],
     projects: [tutorial],
-    leads: [] as Lead[],
+    leads: [],
     selectedTaskId: null,
-    playerAction: null as PlayerAction | null,
     tutorialDone: false,
     leadSpawnCooldown: LEAD_SPAWN_INTERVAL_DAYS,
     events: [
       {
         id: uid('evt'),
         timestamp: Date.now(),
-        type: 'system' as const,
-        message: 'Day 0. $0. Load a 1B on your laptop. You manage; they code. You vibe.',
+        type: 'system',
+        message: 'Day 0. $0. One agent. One laptop. Infinite audacity.',
       },
     ],
     stats: {
       projectsCompleted: 0,
       tasksMerged: 0,
-      agentsDeployed: 0,
+      agentsDeployed: 1,
       compactionsSurvived: 0,
     },
   }
@@ -167,37 +188,98 @@ function updateTask(projects: Project[], taskId: string, updater: (t: Task) => T
   }))
 }
 
+function agentParamsFor(state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>, job: AgentJob | null): number {
+  return getAgentParameters(state.modelTierIndex, state.purchasedFineTunes, job)
+}
+
+function canSpawnAgent(state: GameStore): boolean {
+  const ram = getTotalRam(state)
+  const cap = maxAgents(ram, state.modelTierIndex)
+  if (state.agents.length >= cap) return false
+  const nextUsed = usedRam(state.agents.length + 1, state.modelTierIndex)
+  return nextUsed <= ram
+}
+
+function isAgentBusy(agent: Agent): boolean {
+  if (!agent.job) return false
+  if (agent.status === 'compacting') return true
+  if (agent.job === 'conductor') return false
+  return agentIsWorking(agent)
+}
+
+function agentIsWorking(agent: Agent): boolean {
+  return (
+    agent.status === 'working' ||
+    agent.status === 'reviewing' ||
+    agent.status === 'refining' ||
+    agent.status === 'testing'
+  )
+}
+
+function projectAgents(projectId: string, job: AgentJob, agents: Agent[]): Agent[] {
+  return agents.filter((a) => a.projectId === projectId && a.job === job)
+}
+
+function despawnAgentFromRole(
+  agents: Agent[],
+  projectId: string,
+  job: AgentJob,
+  projects: Project[],
+): { agents: Agent[]; projects: Project[] } | null {
+  const candidates = projectAgents(projectId, job, agents).filter((a) => !isAgentBusy(a))
+  const victim = candidates[candidates.length - 1]
+  if (!victim) return null
+
+  let nextProjects = projects
+  if (job === 'code' && victim.taskId) {
+    nextProjects = updateTask(nextProjects, victim.taskId, (t) => ({
+      ...t,
+      assignedAgentId: null,
+      status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
+    }))
+  }
+
+  return {
+    agents: agents.filter((a) => a.id !== victim.id),
+    projects: nextProjects,
+  }
+}
+
+function spawnAgentForRole(
+  state: GameStore,
+  projectId: string,
+  job: AgentJob,
+): Agent | null {
+  if (!canSpawnAgent(state)) return null
+  const agent = createAgent()
+  agent.job = job
+  agent.projectId = projectId
+  agent.status = job === 'conductor' ? 'conducting' : 'idle'
+  return agent
+}
+
 function mergeTaskOnProject(
   projects: Project[],
   taskId: string,
-  agents: Agent[],
+  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>,
   reviewed: boolean,
-): { projects: Project[]; eventMessage: string; introducedBug: boolean } | null {
+): { projects: Project[]; eventMessage: string } | null {
   const found = findTask(projects, taskId)
   if (!found || found.task.status !== 'pr_ready') return null
   if (reviewed && !found.task.reviewed) return null
 
-  const params = getTaskQualityParameters(found.task, agents)
-  const taskCount = countActiveTasks(found.project)
-  const baseHit = computeQualityHit(found.task.storyPointsRequired, params, taskCount)
-  const resolvedCount = reviewed
-    ? resolvedReviewComments(found.project, taskId).length
-    : 0
-  const commentReduction = reviewed
-    ? computeReviewCommentReduction(baseHit, resolvedCount)
-    : 0
-  const hit = Math.max(0.5, baseHit - commentReduction)
-  const prQuality = computePrQualityFromReview(
-    baseHit,
-    reviewed ? found.task.revealedQualityHit : null,
-  )
-  const bugChance = computeBugChance(
-    found.project.quality,
-    params,
-    found.task.storyPointsRequired,
-    prQuality,
-  )
-  const introducedBug = Math.random() < bugChance
+  const authorParams = found.task.completedByAgentId
+    ? agentParamsFor(state, 'code')
+    : agentParamsFor(state, 'code')
+
+  const resolvedCount = reviewed ? resolvedReviewComments(found.project, taskId).length : 0
+  const base =
+    reviewed && found.task.prQualityStaging > 0
+      ? found.task.prQualityStaging
+      : computePrBaseQuality(authorParams, found.task.storyPointsRequired)
+  const prQuality = reviewed
+    ? prQualityAfterComments(base, resolvedCount)
+    : JUST_MERGE_PR_QUALITY
 
   const commentTasks = found.project.tasks.filter(
     (t) => t.isReviewComment && t.parentTaskId === taskId,
@@ -215,42 +297,29 @@ function mergeTaskOnProject(
           ? {
               ...t,
               status: 'merged' as const,
-              pendingQualityHit: hit,
-              hasUndiscoveredBug: introducedBug,
+              prQuality,
+              hasUndiscoveredBug: false,
             }
           : t,
       )
-    return syncTestScope({
-      ...p,
-      quality: Math.max(0, p.quality - hit),
-      tasks: updatedTasks,
-    })
+    return syncTestScope({ ...p, tasks: updatedTasks })
   })
 
-  const reviewNote =
-    reviewed && found.task.revealedQualityHit !== null
-      ? `review guessed -${found.task.revealedQualityHit.toFixed(1)}`
-      : 'no review'
-  const reductionNote =
-    reviewed && commentReduction > 0
-      ? `, comments saved ${commentReduction.toFixed(1)}`
-      : ''
   const orphanNote =
     unresolvedComments.length > 0
       ? ` ${unresolvedComments.length} review comment${unresolvedComments.length > 1 ? 's' : ''} left to rot in GitHub purgatory.`
       : ''
-  const bugNote = introducedBug ? ' A bug slithered in.' : ''
   const eventMessage = reviewed
-    ? `Merged "${found.task.title}". Quality -${hit.toFixed(1)} (${reviewNote}${reductionNote}).${orphanNote}${bugNote}`
-    : `Just Merged "${found.task.title}" without review. Quality -${hit.toFixed(1)}.${orphanNote}${bugNote}`
+    ? `Merged "${found.task.title}". PR quality: ${Math.round(prQuality)}%.${orphanNote}`
+    : `Just Merged "${found.task.title}". PR quality: ${Math.round(prQuality)}%. YOLO.${orphanNote}`
 
-  return { projects: nextProjects, eventMessage, introducedBug }
+  return { projects: nextProjects, eventMessage }
 }
 
 function tryAutoMergeReviewedPr(
   projects: Project[],
   parentTaskId: string,
-  agents: Agent[],
+  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>,
 ): { projects: Project[]; eventMessage: string | null } {
   const found = findTask(projects, parentTaskId)
   if (!found || found.task.status !== 'pr_ready' || !found.task.reviewed) {
@@ -259,54 +328,16 @@ function tryAutoMergeReviewedPr(
   if (!allReviewCommentsAddressed(found.project, parentTaskId)) {
     return { projects, eventMessage: null }
   }
-  const result = mergeTaskOnProject(projects, parentTaskId, agents, true)
+  const result = mergeTaskOnProject(projects, parentTaskId, state, true)
   if (!result) return { projects, eventMessage: null }
   return { projects: result.projects, eventMessage: result.eventMessage }
-}
-
-function computeNetWorth(state: Pick<GameStore, 'cash' | 'servers'>): number {
-  const rackValue = state.servers.reduce((sum, s) => sum + (RACK_REFURBISH_VALUE[s.tier] ?? 0), 0)
-  return state.cash + rackValue
-}
-
-function rackGpus(): Record<string, number> {
-  return Object.fromEntries(Object.entries(RACK_CONFIG).map(([k, v]) => [k, v.gpus]))
-}
-
-function rackRam(): Record<string, number> {
-  return Object.fromEntries(Object.entries(RACK_CONFIG).map(([k, v]) => [k, v.ram]))
-}
-
-function syncRam(state: Pick<GameStore, 'loadedModels' | 'agents' | 'servers'>) {
-  return {
-    usedRam: computeTotalUsedRam(state.loadedModels, state.agents, state.servers),
-    totalRam: computeTotalAvailableRam(state.servers, rackRam()),
-  }
-}
-
-function pickCodingTask(project: Project, agentId: string, agents: Agent[]): Task | null {
-  return pickCodingTaskFromProject(project, agentId, agents)
-}
-
-function releaseRefineClaims(
-  agents: Agent[],
-  projectId: string,
-  targetId: string,
-  exceptAgentId: string,
-): Agent[] {
-  return agents.map((ag) => {
-    if (ag.id === exceptAgentId) return ag
-    if (ag.job === 'refine' && ag.projectId === projectId && ag.taskId === targetId) {
-      return { ...ag, taskId: null, jobProgress: 0 }
-    }
-    return ag
-  })
 }
 
 function tryProgressTask(
   projects: Project[],
   taskId: string,
   completedByAgentId: string | null,
+  authorParams: number,
 ): { projects: Project[]; becameDone: boolean; becamePrReady: boolean } {
   let becameDone = false
   let becamePrReady = false
@@ -325,10 +356,15 @@ function tryProgressTask(
       if (t.isReviewComment) becameDone = true
       else becamePrReady = true
     }
+    const prQualityStaging =
+      complete && !t.isReviewComment
+        ? computePrBaseQuality(authorParams, t.storyPointsRequired)
+        : t.prQualityStaging
     return {
       ...t,
       storyPointsEarned: earned,
       status,
+      prQualityStaging,
       completedByAgentId: complete ? completedByAgentId : t.completedByAgentId,
       assignedAgentId: complete ? null : t.assignedAgentId,
     }
@@ -336,1352 +372,934 @@ function tryProgressTask(
   return { projects: next, becameDone, becamePrReady }
 }
 
-function canFitLoadOnHost(
-  hostId: string,
-  modelId: string,
-  loadedModels: LoadedModel[],
+function reconcileProjectStaffing(
+  state: GameStore,
+  project: Project,
   agents: Agent[],
-  servers: Server[],
-): boolean {
-  const model = getModel(modelId)
-  if (!model) return false
-  const hostRam = getHostRam(hostId, servers, rackRam())
-  const used = computeHostUsedRam(hostId, loadedModels, agents)
-  return used + model.loadRam <= hostRam
-}
+): Agent[] {
+  let nextAgents = [...agents]
 
-function canFitTaskOnHost(
-  hostId: string,
-  loadedModelId: string,
-  modelId: string,
-  loadedModels: LoadedModel[],
-  agents: Agent[],
-  servers: Server[],
-): boolean {
-  const model = getModel(modelId)
-  if (!model) return false
-  const hostRam = getHostRam(hostId, servers, rackRam())
-  const used = computeHostUsedRam(hostId, loadedModels, agents)
-  const current = ramForLoadedModel(modelId, agents, loadedModelId)
-  const withTask = model.loadRam + (agents.filter((a) => a.loadedModelId === loadedModelId && a.taskId).length + 1) * (model.loadRam / 2)
-  return used - current + withTask <= hostRam
+  if (project.useConductor && hasConductorCourse(state.vibingCourses)) {
+    const conductors = projectAgents(project.id, 'conductor', nextAgents)
+    const hasConductor = conductors.length > 0
+    const desiredConductor = project.roleCounts.conductor > 0 ? 1 : 0
+
+    if (desiredConductor > 0 && !hasConductor && canSpawnAgent({ ...state, agents: nextAgents })) {
+      const c = spawnAgentForRole({ ...state, agents: nextAgents }, project.id, 'conductor')
+      if (c) nextAgents.push(c)
+    }
+    if (desiredConductor === 0 && hasConductor) {
+      const result = despawnAgentFromRole(nextAgents, project.id, 'conductor', state.projects)
+      if (result) nextAgents = result.agents
+    }
+
+    const workerCap = Math.max(0, project.crewCap - projectAgents(project.id, 'conductor', nextAgents).length)
+    const workers = nextAgents.filter(
+      (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
+    )
+
+    for (const w of workers) {
+      if (
+        w.job &&
+        w.job !== 'conductor' &&
+        w.status === 'idle' &&
+        !projectRoleHasWork(project, w.job, w.id, nextAgents)
+      ) {
+        const result = despawnAgentFromRole(nextAgents, project.id, w.job, state.projects)
+        if (result) nextAgents = result.agents
+      }
+    }
+
+    const workersAfter = nextAgents.filter(
+      (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
+    )
+    if (workersAfter.length > workerCap) {
+      const idle = workersAfter.filter((a) => !isAgentBusy(a))
+      for (let i = 0; i < workersAfter.length - workerCap && idle.length > 0; i++) {
+        const victim = idle.pop()!
+        if (victim.job) {
+          const result = despawnAgentFromRole(nextAgents, project.id, victim.job, state.projects)
+          if (result) nextAgents = result.agents
+        }
+      }
+    }
+
+    for (const role of CONDUCTOR_ROLE_PRIORITY) {
+      const current = projectAgents(project.id, role, nextAgents).length
+      const workersNow = nextAgents.filter(
+        (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
+      )
+      if (
+        workersNow.length < workerCap &&
+        projectRoleHasWork(project, role, 'conductor', nextAgents) &&
+        canSpawnAgent({ ...state, agents: nextAgents })
+      ) {
+        const spawned = spawnAgentForRole({ ...state, agents: nextAgents }, project.id, role)
+        if (spawned) {
+          spawned.status = projectRoleHasWork(project, role, spawned.id, nextAgents)
+            ? jobStatusFor(role)
+            : 'idle'
+          nextAgents.push(spawned)
+        }
+      }
+      void current
+    }
+    return nextAgents
+  }
+
+  for (const role of ['refine', 'code', 'review', 'test', 'conductor'] as AgentJob[]) {
+    const desired = project.roleCounts[role]
+    const current = projectAgents(project.id, role, nextAgents).length
+
+    if (current > desired) {
+      let toRemove = current - desired
+      while (toRemove > 0) {
+        const result = despawnAgentFromRole(nextAgents, project.id, role, state.projects)
+        if (!result) break
+        nextAgents = result.agents
+        toRemove -= 1
+      }
+    }
+
+    if (current < desired) {
+      let toAdd = desired - projectAgents(project.id, role, nextAgents).length
+      while (toAdd > 0 && canSpawnAgent({ ...state, agents: nextAgents })) {
+        const spawned = spawnAgentForRole({ ...state, agents: nextAgents }, project.id, role)
+        if (!spawned) break
+        if (role !== 'conductor') {
+          const hasWork =
+            role === 'refine'
+              ? projectHasRefineWork(project)
+              : role === 'test'
+                ? projectHasTestWork(project)
+                : projectRoleHasWork(project, role as StaffJob, spawned.id, nextAgents)
+          spawned.status = hasWork ? jobStatusFor(role) : 'idle'
+        }
+        nextAgents.push(spawned)
+        toAdd -= 1
+      }
+    }
+  }
+
+  return nextAgents
 }
 
 export const useGameStore = create<GameStore>()(
   persist(
-    (set, get) => ({
-      ...createInitialState(),
+    (set, get) => {
+      const initial = createInitialState()
 
-      tick(deltaSec: number) {
-        const stateAtStart = get()
-        if (stateAtStart.phase !== 'playing') return
+      return {
+        ...initial,
 
-        const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
-        let {
-          cash,
-          tokens,
-          sanity,
-          reputation,
-          gameDay,
-          rentDueInDays,
-          apartmentLeaseRemaining,
-          agents,
-          servers,
-          loadedModels,
-          projects,
-          leads,
-          events,
-          stats,
-          playerAction,
-          leadSpawnCooldown,
-          selectedTaskId,
-        } = stateAtStart
+        tick(deltaSec: number) {
+          const stateAtStart = get()
+          if (stateAtStart.phase !== 'playing') return
 
-        let nextAgents = agents.map((a) => ({ ...a }))
-        let nextServers = servers.map((s) => ({ ...s }))
-        let nextLoadedModels = loadedModels.map((lm) => ({ ...lm }))
-        let nextProjects = projects.map((p) => ({
-          ...p,
-          requirements: p.requirements.map((r) => ({ ...r })),
-          tasks: p.tasks.map((t) => ({ ...t })),
-        }))
-        let nextLeads = leads.map((l) => ({ ...l }))
-        let nextEvents = [...events]
-        let nextStats = { ...stats }
-        let nextPlayerAction = playerAction ? { ...playerAction } : null
-        let phase: GameStore['phase'] = stateAtStart.phase
+          const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
+          let {
+            cash,
+            reputation,
+            gameDay,
+            rentDueInDays,
+            apartmentLeaseRemaining,
+            agents,
+            projects,
+            leads,
+            events,
+            stats,
+            leadSpawnCooldown,
+            selectedTaskId,
+            modelTierIndex,
+            vibingCourses,
+          } = stateAtStart
 
-        gameDay += dayProgress
-        rentDueInDays -= dayProgress
-        apartmentLeaseRemaining -= dayProgress
-        leadSpawnCooldown -= dayProgress
+          let nextAgents = agents.map((a) => ({ ...a }))
+          let nextProjects = projects.map((p) => ({
+            ...p,
+            requirements: p.requirements.map((r) => ({ ...r })),
+            tasks: p.tasks.map((t) => ({ ...t })),
+          }))
+          let nextLeads = leads.map((l) => ({ ...l }))
+          let nextEvents = [...events]
+          let nextStats = { ...stats }
+          let phase: GameStore['phase'] = stateAtStart.phase
 
-        if (rentDueInDays <= 0) {
-          const rent = APARTMENT_CONFIG[stateAtStart.apartment].rent
-          cash -= rent
-          rentDueInDays += RENT_INTERVAL_DAYS
-          nextEvents = pushEvent(nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`)
-        }
+          const totalRam = getTotalRam(stateAtStart)
+          const totalGpus = getTotalGpus(stateAtStart)
+          const model = getModelTier(modelTierIndex)!
+          const ctxMult = contextFillMultiplier(vibingCourses)
 
-        if (leadSpawnCooldown <= 0 && nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS) {
-          nextLeads = [generateLead(reputation), ...nextLeads]
-          leadSpawnCooldown = LEAD_SPAWN_INTERVAL_DAYS
-          nextEvents = pushEvent(nextEvents, 'lead', 'New client lead appeared. They want it yesterday.')
-        }
+          gameDay += dayProgress
+          rentDueInDays -= dayProgress
+          apartmentLeaseRemaining -= dayProgress
+          leadSpawnCooldown -= dayProgress
 
-        for (const lead of nextLeads) {
-          if (lead.status === 'available') {
-            lead.daysToExpire -= dayProgress
-            if (lead.daysToExpire <= 0) {
-              lead.status = 'expired'
-              reputation = Math.max(0, reputation - EXPIRED_LEAD_REP_PENALTY)
-              nextEvents = pushEvent(
-                nextEvents,
-                'lead',
-                `${lead.clientName} ghosted you. Reputation -${EXPIRED_LEAD_REP_PENALTY}.`,
-              )
-            }
-          }
-        }
-
-        for (const project of nextProjects) {
-          if (project.status !== 'active') continue
-          project.daysRemaining -= dayProgress
-
-          if (project.daysRemaining <= 0 && !project.tasks.every((t) => t.status === 'merged')) {
-            project.lateCount += 1
-            project.daysRemaining += Math.round(project.durationDays * 0.35)
-            const fee = Math.round(project.payment * LATE_FEE_PERCENT * project.lateCount)
-            project.payment = Math.max(0, project.payment - fee)
-            const repHit = Math.round(LATE_REP_PENALTY_BASE * project.repPenaltyMultiplier * project.lateCount)
-            reputation = Math.max(0, reputation - repHit)
-            project.repPenaltyMultiplier += 0.25
-            nextEvents = pushEvent(
-              nextEvents,
-              'project',
-              `${project.clientName}: LATE. -$${fee} fee, -${repHit} rep. Extension granted. Suffering continues.`,
-            )
-          }
-        }
-
-        sanity = Math.min(100, sanity + SANITY_VIBE_RESTORE * dayProgress)
-
-        let tokenBurn = 0
-        const gpus = rackGpus()
-        const tokensBeforeTick = tokens
-
-        for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
-          let agent = nextAgents[agentIdx]
-          if (agent.status !== 'compacting') continue
-
-          agent.compactingRemainingSec = Math.max(0, agent.compactingRemainingSec - deltaSec)
-          if (agent.compactingRemainingSec > 0) {
-            nextAgents[agentIdx] = agent
-            continue
+          if (rentDueInDays <= 0) {
+            const rent = APARTMENT_CONFIG[stateAtStart.apartment].rent
+            cash -= rent
+            rentDueInDays += RENT_INTERVAL_DAYS
+            nextEvents = pushEvent(nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`)
           }
 
-          agent = finishCompaction(agent)
-          nextAgents[agentIdx] = agent
-          nextEvents = pushEvent(
-            nextEvents,
-            'crash',
-            `${agent.name} context compacted. Back on task.`,
-          )
-        }
-
-        for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
-          let agent = nextAgents[agentIdx]
-          const model = getModel(agent.modelId)
-          if (!model || !agent.job) continue
-          if (agent.status === 'compacting' || agent.status === 'compacted' || agent.status === 'crashed') {
-            continue
+          if (leadSpawnCooldown <= 0 && nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS) {
+            nextLeads = [generateLead(reputation), ...nextLeads]
+            leadSpawnCooldown = LEAD_SPAWN_INTERVAL_DAYS
+            nextEvents = pushEvent(nextEvents, 'lead', 'New client lead appeared. They want it yesterday.')
           }
 
-          if (model.kind === 'local') {
-            const hostId = agent.serverId
-            if (!hostId) continue
-            if (hostId !== LAPTOP_HOST_ID) {
-              const server = nextServers.find((s) => s.id === hostId)
-              if (!server || server.onFire) continue
-            }
-          }
-
-          const baseSpeed = agentTickSpeed(agent, nextAgents, nextServers, gpus)
-          if (baseSpeed <= 0) continue
-
-          agent.uptime += dayProgress
-
-          if (model.kind === 'cloud') {
-            const cost = model.tokenCostPerTick * baseSpeed * deltaSec
-            if (tokens <= 0) continue
-            tokenBurn += cost
-            agent.totalTokensBurned += cost
-          }
-
-          const overflow = () => {
-            agent.status = 'compacting'
-            agent.compactingRemainingSec = COMPACT_DURATION_SEC
-            agent.contextUsed = model.contextSize * 1000
-            nextStats.compactionsSurvived += 1
-            nextEvents = pushEvent(
-              nextEvents,
-              'crash',
-              `${agent.name} context full — auto-compacting (${COMPACT_DURATION_SEC}s)...`,
-            )
-          }
-
-          if (agent.job === 'code' && agent.projectId) {
-            const project = nextProjects.find((p) => p.id === agent.projectId)
-            if (!project || project.status !== 'active') {
-              Object.assign(agent, clearAgentJob(agent))
-              continue
-            }
-
-            let taskRef = agent.taskId ? findTask(nextProjects, agent.taskId) : null
-            if (
-              !taskRef ||
-              taskRef.task.status === 'merged' ||
-              taskRef.task.status === 'pr_ready' ||
-              (taskRef.task.isReviewComment && taskRef.task.status === 'done')
-            ) {
-              const nextTask = pickCodingTask(project, agent.id, nextAgents)
-              if (!nextTask) {
-                agent.status = 'idle'
-                nextAgents[agentIdx] = agent
-                continue
-              }
-
-              agent.status = 'working'
-
-              agent.taskId = nextTask.id
-              nextAgents[agentIdx] = agent
-              nextProjects = updateTask(nextProjects, nextTask.id, (t) => ({
-                ...t,
-                assignedAgentId: agent.id,
-                status: t.status === 'open' ? 'in_progress' : t.status,
-              }))
-              taskRef = { project, task: nextTask }
-            }
-
-            agent.status = 'working'
-
-            const fillPct = fillAgentContext(agent, model, baseSpeed, deltaSec)
-            if (agent.contextUsed >= model.contextSize * 1000) {
-              overflow()
-              continue
-            }
-
-            const success = effectiveSuccessRate(
-              model.parameters,
-              taskRef.task.storyPointsRequired,
-              fillPct,
-            )
-            if (Math.random() < success * baseSpeed) {
-              const result = tryProgressTask(nextProjects, agent.taskId!, agent.id)
-              nextProjects = result.projects
-              if (result.becamePrReady) {
-                agent.taskId = null
+          for (const lead of nextLeads) {
+            if (lead.status === 'available') {
+              lead.daysToExpire -= dayProgress
+              if (lead.daysToExpire <= 0) {
+                lead.status = 'expired'
+                reputation = Math.max(0, reputation - EXPIRED_LEAD_REP_PENALTY)
                 nextEvents = pushEvent(
                   nextEvents,
-                  'project',
-                  `${agent.name} finished "${taskRef.task.title}". PR opened — ready for review.`,
+                  'lead',
+                  `${lead.clientName} ghosted you. Reputation -${EXPIRED_LEAD_REP_PENALTY}.`,
                 )
-              } else if (result.becameDone) {
-                agent.taskId = null
-                const parentId = taskRef.task.parentTaskId
-                nextEvents = pushEvent(
-                  nextEvents,
-                  'project',
-                  `${agent.name} addressed review comment: "${taskRef.task.title}".`,
-                )
-                if (parentId) {
-                  const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, nextAgents)
-                  nextProjects = autoMerge.projects
-                  if (autoMerge.eventMessage) {
-                    nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
-                    nextStats.tasksMerged += 1
-                  }
-                }
               }
             }
-          } else if (agent.job === 'review' && agent.projectId) {
-            const project = nextProjects.find((p) => p.id === agent.projectId)
-            if (!project || project.status !== 'active') {
-              Object.assign(agent, clearAgentJob(agent))
-              continue
-            }
+          }
 
-            const prTasks = project.tasks.filter((t) => t.status === 'pr_ready' && !t.reviewed)
-            if (prTasks.length === 0) {
-              agent.status = 'idle'
-              agent.taskId = null
-              nextAgents[agentIdx] = agent
-              continue
-            }
+          for (const project of nextProjects) {
+            if (project.status !== 'active') continue
+            project.daysRemaining -= dayProgress
 
-            const task = pickReviewTask(project, agent.id, nextAgents)
-            if (!task) {
-              agent.status = 'idle'
-              nextAgents[agentIdx] = agent
-              continue
-            }
-
-            agent.status = 'reviewing'
-
-            if (agent.taskId !== task.id) {
-              agent.taskId = task.id
-              agent.jobProgress = 0
-              agent.jobDuration = reviewJobDurationDays(
-                task.storyPointsRequired,
-                project.quality,
-                model.parameters,
-              )
-              nextAgents[agentIdx] = agent
-            }
-
-            fillAgentContext(agent, model, baseSpeed, deltaSec)
-            if (agent.contextUsed >= model.contextSize * 1000) {
-              overflow()
-              nextAgents[agentIdx] = agent
-              continue
-            }
-
-            agent.jobProgress += dayProgress * baseSpeed
-            if (agent.jobProgress >= agent.jobDuration) {
-              const taskCount = countActiveTasks(project)
-              const authorParams = getTaskQualityParameters(task, nextAgents)
-              const trueHit = computeQualityHit(task.storyPointsRequired, authorParams, taskCount)
-              const revealed = computeRevealedQualityHit(
-                trueHit,
-                model.parameters,
-                task.storyPointsRequired,
-              )
-              const comments = createReviewCommentTasks(task, model.parameters, model.kind === 'cloud')
-
-              nextProjects = nextProjects.map((p) =>
-                p.id === project.id
-                  ? {
-                      ...p,
-                      tasks: [
-                        ...p.tasks.map((t) =>
-                          t.id === task.id
-                            ? { ...t, revealedQualityHit: revealed, reviewed: true }
-                            : t,
-                        ),
-                        ...comments,
-                      ],
-                    }
-                  : p,
-              )
-              agent.jobProgress = 0
-              agent.taskId = null
-
-              const commentNote =
-                comments.length > 0
-                  ? ` Left ${comments.length} review comment${comments.length > 1 ? 's' : ''}.`
-                  : ''
+            if (project.daysRemaining <= 0 && !project.tasks.every((t) => t.status === 'merged')) {
+              project.lateCount += 1
+              project.daysRemaining += Math.round(project.durationDays * 0.35)
+              const fee = Math.round(project.payment * LATE_FEE_PERCENT * project.lateCount)
+              project.payment = Math.max(0, project.payment - fee)
+              const repHit = Math.round(LATE_REP_PENALTY_BASE * project.repPenaltyMultiplier * project.lateCount)
+              reputation = Math.max(0, reputation - repHit)
+              project.repPenaltyMultiplier += 0.25
               nextEvents = pushEvent(
                 nextEvents,
                 'project',
-                `${agent.name} reviewed "${task.title}". Est. quality hit: -${revealed.toFixed(1)}.${commentNote}`,
-              )
-
-              const autoMerge = tryAutoMergeReviewedPr(nextProjects, task.id, nextAgents)
-              nextProjects = autoMerge.projects
-              if (autoMerge.eventMessage) {
-                nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
-                nextStats.tasksMerged += 1
-              }
-            }
-          } else if (agent.job === 'refine' && agent.projectId) {
-            const project = nextProjects.find((p) => p.id === agent.projectId)
-            if (!project || project.status !== 'active') {
-              Object.assign(agent, clearAgentJob(agent))
-              continue
-            }
-
-            const target = pickRefineTarget(project, nextAgents, agent.id)
-            if (!target) {
-              agent.status = 'idle'
-              if (agent.taskId) {
-                agent.taskId = null
-                agent.jobProgress = 0
-              }
-              nextAgents[agentIdx] = agent
-              continue
-            }
-
-            agent.status = 'refining'
-
-            const targetId = refineTargetId(target)
-            const targetSp =
-              target.kind === 'requirement'
-                ? target.requirement.storyPoints
-                : target.task.storyPointsRequired
-
-            if (agent.taskId !== targetId) {
-              agent.taskId = targetId
-              agent.jobProgress = 0
-              agent.jobDuration = refineJobDurationDays(
-                targetSp,
-                project.quality,
-                model.parameters,
-              )
-              nextAgents[agentIdx] = agent
-            }
-
-            fillAgentContext(agent, model, baseSpeed, deltaSec)
-            if (agent.contextUsed >= model.contextSize * 1000) {
-              overflow()
-              nextAgents[agentIdx] = agent
-              continue
-            }
-
-            agent.jobProgress += dayProgress * baseSpeed
-            if (agent.jobProgress >= agent.jobDuration) {
-              if (target.kind === 'requirement') {
-                const task = requirementToTask(target.requirement)
-                nextAgents = releaseRefineClaims(
-                  nextAgents,
-                  project.id,
-                  target.requirement.id,
-                  agent.id,
-                )
-                agent = nextAgents[agentIdx]
-                nextProjects = nextProjects.map((p) =>
-                  p.id === project.id
-                    ? {
-                        ...p,
-                        requirements: p.requirements.map((r) =>
-                          r.id === target.requirement.id ? { ...r, status: 'refined' as const } : r,
-                        ),
-                        tasks: [...p.tasks, task],
-                      }
-                    : p,
-                )
-                if (!selectedTaskId) selectedTaskId = task.id
-                nextEvents = pushEvent(
-                  nextEvents,
-                  'project',
-                  `${agent.name} refined requirement "${target.requirement.title}" into a ${formatStoryPoints(task.storyPointsRequired)} SP task.`,
-                )
-              } else {
-                const [a, b] = splitTask(target.task)
-                nextAgents = releaseRefineClaims(nextAgents, project.id, target.task.id, agent.id)
-                agent = nextAgents[agentIdx]
-                nextProjects = nextProjects.map((p) =>
-                  p.id === project.id
-                    ? {
-                        ...p,
-                        tasks: p.tasks.filter((t) => t.id !== target.task.id).concat([a, b]),
-                      }
-                    : p,
-                )
-                if (selectedTaskId === target.task.id) selectedTaskId = a.id
-                nextEvents = pushEvent(
-                  nextEvents,
-                  'project',
-                  `${agent.name} split "${target.task.title}" into ${formatStoryPoints(a.storyPointsRequired)}+${formatStoryPoints(b.storyPointsRequired)} SP.`,
-                )
-              }
-              agent.jobProgress = 0
-              agent.taskId = null
-            }
-          } else if (agent.job === 'refactor' && agent.projectId) {
-            const project = nextProjects.find((p) => p.id === agent.projectId)
-            if (!project || project.status !== 'active') {
-              Object.assign(agent, clearAgentJob(agent))
-              continue
-            }
-
-            fillAgentContext(agent, model, baseSpeed, deltaSec)
-            if (agent.contextUsed >= model.contextSize * 1000) {
-              overflow()
-              nextAgents[agentIdx] = agent
-              continue
-            }
-
-            const qualityGain = refactorRatePerDay(model.parameters) * dayProgress * baseSpeed
-            if (qualityGain > 0) {
-              nextProjects = nextProjects.map((p) =>
-                p.id === project.id
-                  ? { ...p, quality: Math.min(100, p.quality + qualityGain) }
-                  : p,
+                `${project.clientName}: LATE. -$${fee} fee, -${repHit} rep. Extension granted. Suffering continues.`,
               )
             }
-          } else if (agent.job === 'test' && agent.projectId) {
-            const project = nextProjects.find((p) => p.id === agent.projectId)
-            if (!project || project.status !== 'active') {
-              Object.assign(agent, clearAgentJob(agent))
-              continue
-            }
+          }
 
-            if (!projectHasTestWork(project)) {
-              agent.status = 'idle'
-              agent.taskId = null
+          for (const project of nextProjects.filter((p) => p.status === 'active')) {
+            nextAgents = reconcileProjectStaffing(stateAtStart, project, nextAgents)
+          }
+
+          const baseSpeedGlobal = agentTickSpeed(nextAgents, totalGpus)
+
+          for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
+            let agent = nextAgents[agentIdx]
+            if (agent.status === 'compacting') {
+              agent.compactingRemainingSec = Math.max(0, agent.compactingRemainingSec - deltaSec)
+              if (agent.compactingRemainingSec > 0) {
+                nextAgents[agentIdx] = agent
+                continue
+              }
+              agent = finishCompaction(agent)
               nextAgents[agentIdx] = agent
+              nextEvents = pushEvent(nextEvents, 'crash', `${agent.name} context compacted. Back on task.`)
+            }
+          }
+
+          for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
+            let agent = nextAgents[agentIdx]
+            if (!agent.job || agent.job === 'conductor') continue
+            if (agent.status === 'compacting' || agent.status === 'compacted' || agent.status === 'crashed') {
               continue
             }
 
-            let testTask = agent.taskId
-              ? project.tasks.find((t) => t.id === agent.taskId && taskNeedsTesting(t)) ?? null
-              : null
-            if (!testTask) {
-              testTask = pickTestTask(project, agent.id, nextAgents)
-              if (!testTask) {
+            const baseSpeed = baseSpeedGlobal
+            if (baseSpeed <= 0) continue
+
+            agent.uptime += dayProgress
+            const params = agentParamsFor(stateAtStart, agent.job)
+
+            const overflow = () => {
+              agent.status = 'compacting'
+              agent.compactingRemainingSec = COMPACT_DURATION_SEC
+              agent.contextUsed = model.contextSize * 1000
+              nextStats.compactionsSurvived += 1
+              nextEvents = pushEvent(
+                nextEvents,
+                'crash',
+                `${agent.name} context full — auto-compacting (${COMPACT_DURATION_SEC}s)...`,
+              )
+            }
+
+            if (agent.job === 'code' && agent.projectId) {
+              const project = nextProjects.find((p) => p.id === agent.projectId)
+              if (!project || project.status !== 'active') {
+                Object.assign(agent, clearAgentJob(agent))
+                continue
+              }
+
+              let taskRef = agent.taskId ? findTask(nextProjects, agent.taskId) : null
+              if (
+                !taskRef ||
+                taskRef.task.status === 'merged' ||
+                taskRef.task.status === 'pr_ready' ||
+                (taskRef.task.isReviewComment && taskRef.task.status === 'done')
+              ) {
+                const nextTask = pickCodingTask(project, agent.id, nextAgents)
+                if (!nextTask) {
+                  agent.status = 'idle'
+                  nextAgents[agentIdx] = agent
+                  continue
+                }
+                agent.status = 'working'
+                agent.taskId = nextTask.id
+                nextProjects = updateTask(nextProjects, nextTask.id, (t) => ({
+                  ...t,
+                  assignedAgentId: agent.id,
+                  status: t.status === 'open' ? 'in_progress' : t.status,
+                }))
+                taskRef = { project, task: nextTask }
+              }
+
+              agent.status = 'working'
+              fillAgentContext(agent, model.contextSize, baseSpeed, deltaSec, ctxMult)
+              if (agent.contextUsed >= model.contextSize * 1000) {
+                overflow()
+                continue
+              }
+
+              const success = effectiveSuccessRate(params, taskRef.task.storyPointsRequired)
+              if (Math.random() < success * baseSpeed) {
+                const result = tryProgressTask(nextProjects, agent.taskId!, agent.id, params)
+                nextProjects = result.projects
+                if (result.becamePrReady) {
+                  agent.taskId = null
+                  nextEvents = pushEvent(
+                    nextEvents,
+                    'project',
+                    `${agent.name} finished "${taskRef.task.title}". PR opened — ready for review.`,
+                  )
+                } else if (result.becameDone) {
+                  agent.taskId = null
+                  const parentId = taskRef.task.parentTaskId
+                  nextEvents = pushEvent(
+                    nextEvents,
+                    'project',
+                    `${agent.name} addressed review comment: "${taskRef.task.title}".`,
+                  )
+                  if (parentId) {
+                    const parent = findTask(nextProjects, parentId)
+                    if (parent) {
+                      const resolved = resolvedReviewComments(parent.project, parentId).length
+                      const staging = prQualityAfterComments(
+                        parent.task.prQualityStaging,
+                        resolved,
+                      )
+                      nextProjects = updateTask(nextProjects, parentId, (t) => ({
+                        ...t,
+                        prQualityStaging: staging,
+                      }))
+                    }
+                    const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, stateAtStart)
+                    nextProjects = autoMerge.projects
+                    if (autoMerge.eventMessage) {
+                      nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
+                      nextStats.tasksMerged += 1
+                    }
+                  }
+                }
+              }
+            } else if (agent.job === 'review' && agent.projectId) {
+              const project = nextProjects.find((p) => p.id === agent.projectId)
+              if (!project || project.status !== 'active') {
+                Object.assign(agent, clearAgentJob(agent))
+                continue
+              }
+
+              if (!project.tasks.some((t) => t.status === 'pr_ready' && !t.reviewed)) {
                 agent.status = 'idle'
                 agent.taskId = null
                 nextAgents[agentIdx] = agent
                 continue
               }
-              agent.status = 'testing'
-              agent.taskId = testTask.id
-            }
 
-            const fillPct = fillAgentContext(agent, model, baseSpeed, deltaSec)
-            if (agent.contextUsed >= model.contextSize * 1000) {
-              overflow()
-              continue
-            }
-
-            const success = testSuccessRate(model.parameters, fillPct)
-            if (Math.random() < success * baseSpeed) {
-              const increment = testStoryPointIncrement(
-                testTask.storyPointsRequired,
-                testTask.testStoryPointsEarned,
-              )
-              const testEarned = Math.min(
-                testTask.storyPointsRequired,
-                testTask.testStoryPointsEarned + increment,
-              )
-              const taskFullyTested = testEarned >= testTask.storyPointsRequired
-              const discoveredSource =
-                taskFullyTested && testTask.hasUndiscoveredBug && !testTask.bugDiscovered
-                  ? testTask
-                  : null
-
-              nextProjects = updateTask(nextProjects, testTask.id, (t) => ({
-                ...t,
-                testStoryPointsEarned: testEarned,
-                bugDiscovered: discoveredSource ? true : t.bugDiscovered,
-              }))
-
-              const projectAfterTask = nextProjects.find((p) => p.id === project.id)
-              if (projectAfterTask) {
-                const synced = syncTestScope(projectAfterTask)
-                let updatedProject: Project = synced
-
-                if (discoveredSource) {
-                  const fixTask = createBugFixTask(discoveredSource)
-                  updatedProject = {
-                    ...synced,
-                    tasks: synced.tasks.concat(fixTask),
-                    totalStoryPoints: synced.totalStoryPoints + fixTask.storyPointsRequired,
-                  }
-                  nextEvents = pushEvent(
-                    nextEvents,
-                    'project',
-                    `${agent.name} found a bug in "${discoveredSource.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened.`,
-                  )
-                }
-
-                if (taskFullyTested) {
-                  nextEvents = pushEvent(
-                    nextEvents,
-                    'project',
-                    `${agent.name} finished QA on "${testTask.title}".`,
-                  )
-                  agent.taskId = null
-                }
-
-                nextProjects = nextProjects.map((p) => (p.id === project.id ? updatedProject : p))
-              }
-            }
-          }
-
-          nextAgents[agentIdx] = agent
-        }
-
-        tokens = Math.max(0, tokens - tokenBurn)
-        if (
-          tokensBeforeTick > 0 &&
-          tokens <= 0 &&
-          nextAgents.some((a) => a.job && getModel(a.modelId)?.kind === 'cloud')
-        ) {
-          nextEvents = pushEvent(
-            nextEvents,
-            'token',
-            'Out of tokens. Cloud agents paused until you buy more.',
-          )
-        }
-
-        for (const server of nextServers) {
-          if (server.onFire) {
-            server.fireDuration = Math.max(0, server.fireDuration - dayProgress * SECONDS_PER_GAME_DAY)
-            if (server.fireDuration <= 0) {
-              server.onFire = false
-              nextEvents = pushEvent(nextEvents, 'fire', `${server.name} stopped smoldering.`)
-            }
-          } else if (Math.random() < 0.00008 * deltaSec * nextAgents.length) {
-            server.onFire = true
-            server.fireDuration = 20 + Math.random() * 15
-            nextEvents = pushEvent(nextEvents, 'fire', `SERVER FIRE on ${server.name}! Agents offline.`)
-          }
-        }
-
-        const netWorth = computeNetWorth({ cash, servers: nextServers })
-        if (netWorth >= WIN_NET_WORTH) {
-          phase = 'won'
-          nextEvents = pushEvent(nextEvents, 'milestone', '$10M net worth. Sell the racks. Retire. You win.')
-        } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
-          phase = 'lost'
-          nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.')
-        }
-
-        const ram = syncRam({ loadedModels: nextLoadedModels, agents: nextAgents, servers: nextServers })
-
-        const latest = get()
-        if (latest !== stateAtStart) {
-          set({
-            ...latest,
-            gameDay: latest.gameDay + dayProgress,
-            rentDueInDays: latest.rentDueInDays - dayProgress,
-            apartmentLeaseRemaining: latest.apartmentLeaseRemaining - dayProgress,
-            leadSpawnCooldown: latest.leadSpawnCooldown - dayProgress,
-            sanity: Math.min(100, latest.sanity + SANITY_VIBE_RESTORE * dayProgress),
-            ...syncRam({
-              loadedModels: latest.loadedModels,
-              agents: latest.agents,
-              servers: latest.servers,
-            }),
-          })
-          return
-        }
-
-        set({
-          cash,
-          tokens,
-          sanity,
-          reputation,
-          gameDay,
-          rentDueInDays,
-          apartmentLeaseRemaining,
-          agents: nextAgents,
-          servers: nextServers,
-          loadedModels: nextLoadedModels,
-          projects: nextProjects,
-          leads: nextLeads,
-          events: nextEvents,
-          stats: nextStats,
-          playerAction: nextPlayerAction,
-          leadSpawnCooldown,
-          selectedTaskId,
-          phase,
-          ...ram,
-          tutorialDone: stateAtStart.tutorialDone || !nextProjects.some((p) => p.isTutorial),
-        })
-      },
-
-      selectTask(taskId) {
-        set({ selectedTaskId: taskId })
-      },
-
-      startVibe() {
-        // Always vibing — no toggle needed.
-      },
-
-      mergePr(taskId) {
-        const state = get()
-        const result = mergeTaskOnProject(state.projects, taskId, state.agents, true)
-        if (!result) return
-
-        set({
-          projects: result.projects,
-          stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-          events: pushEvent(state.events, 'project', result.eventMessage),
-        })
-      },
-
-      justMergePr(taskId) {
-        const state = get()
-        const result = mergeTaskOnProject(state.projects, taskId, state.agents, false)
-        if (!result) return
-
-        set({
-          projects: result.projects,
-          stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-          events: pushEvent(state.events, 'project', result.eventMessage),
-        })
-      },
-
-      cancelPlayerAction() {
-        set({ playerAction: null })
-      },
-
-      acceptLead(leadId) {
-        const state = get()
-        const lead = state.leads.find((l) => l.id === leadId)
-        if (!lead || lead.status !== 'available') return
-        if (state.reputation < lead.repRequired) return
-        if (state.projects.length >= MAX_ACTIVE_PROJECTS) return
-
-        const project = createProjectFromLead(lead)
-        set({
-          projects: [...state.projects, project],
-          leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
-          events: pushEvent(state.events, 'lead', `Accepted ${lead.clientName}. Regret incoming.`),
-        })
-      },
-
-      rejectLead(leadId) {
-        const state = get()
-        set({
-          leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'rejected' as const } : l)),
-          events: pushEvent(state.events, 'lead', 'Lead rejected. Professional boundaries (for now).'),
-        })
-      },
-
-      deliverProject(projectId) {
-        set((state) => {
-          const project = state.projects.find((p) => p.id === projectId)
-          if (!project || project.status !== 'active') return state
-          if (!isReadyToDeliver(project)) return state
-
-          const payment = project.payment
-          const onTime = project.lateCount === 0
-          const reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS : 1)
-
-          const nextStats = { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 }
-          const nextProjects = state.projects.filter((p) => p.id !== projectId)
-          const nextAgents = state.agents.map((a) =>
-            a.projectId === projectId ? clearAgentJob(a) : a,
-          )
-
-          let nextEvents = state.events
-          const finalCash = state.cash + payment
-          if (project.isTutorial && !state.tutorialDone) {
-            nextEvents = pushEvent(
-              nextEvents,
-              'milestone',
-              `Tutorial complete! +$${payment}. Buy a Mark Mini. You've been deluded into hope.`,
-            )
-          } else {
-            nextEvents = pushEvent(
-              nextEvents,
-              'milestone',
-              `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ' (late, but done)'}.`,
-            )
-          }
-
-          let nextPlayerAction = state.playerAction
-          if (nextPlayerAction?.taskId && project.tasks.some((t) => t.id === nextPlayerAction!.taskId)) {
-            nextPlayerAction = null
-          }
-
-          let selectedTaskId = state.selectedTaskId
-          if (selectedTaskId && project.tasks.some((t) => t.id === selectedTaskId)) {
-            selectedTaskId = nextProjects[0]?.tasks[0]?.id ?? null
-          }
-
-          let phase = state.phase
-          const netWorth = computeNetWorth({ cash: finalCash, servers: state.servers })
-          if (netWorth >= WIN_NET_WORTH) {
-            phase = 'won'
-            nextEvents = pushEvent(nextEvents, 'milestone', '$10M net worth. Sell the racks. Retire. You win.')
-          } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
-            phase = 'lost'
-            nextEvents = pushEvent(
-              nextEvents,
-              'system',
-              'No reputation. No clients. Cardboard box acquired. Game over.',
-            )
-          }
-
-          return {
-            ...state,
-            cash: finalCash,
-            reputation,
-            projects: nextProjects,
-            agents: nextAgents,
-            stats: nextStats,
-            events: nextEvents,
-            playerAction: nextPlayerAction,
-            selectedTaskId,
-            phase,
-            tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
-            ...syncRam({
-              loadedModels: state.loadedModels,
-              agents: nextAgents,
-              servers: state.servers,
-            }),
-          }
-        })
-      },
-
-      assignAgentToProject(agentId, projectId, job) {
-        const state = get()
-        const agent = state.agents.find((a) => a.id === agentId)
-        const project = state.projects.find((p) => p.id === projectId)
-        if (!agent || !project || agent.job) return
-        if (project.status !== 'active') return
-
-        if (job === 'code') {
-          const model = getModel(agent.modelId)
-          if (!model) return
-          if (agent.serverId && agent.loadedModelId) {
-            if (
-              !canFitTaskOnHost(
-                agent.serverId,
-                agent.loadedModelId,
-                agent.modelId,
-                state.loadedModels,
-                state.agents,
-                state.servers,
-              )
-            ) {
-              return
-            }
-          }
-        }
-
-        const codingTask = job === 'code' ? pickCodingTask(project, agentId, state.agents) : null
-        const testTask = job === 'test' ? pickTestTask(project, agentId, state.agents) : null
-        const roleHasWork = projectRoleHasWork(project, job, agentId, state.agents)
-
-        const nextAgents = state.agents.map((a) =>
-          a.id === agentId
-            ? {
-                ...a,
-                job,
-                projectId,
-                taskId: codingTask?.id ?? testTask?.id ?? null,
-                jobProgress: 0,
-                jobDuration: 0,
-                status: roleHasWork ? jobStatusFor(job) : ('idle' as const),
-                contextUsed: 0,
-                compactingRemainingSec: 0,
-              }
-            : a,
-        )
-
-        let nextProjects = state.projects
-        if (codingTask) {
-          nextProjects = updateTask(nextProjects, codingTask.id, (t) => ({
-            ...t,
-            assignedAgentId: agentId,
-            status: t.status === 'open' ? 'in_progress' : t.status,
-          }))
-        }
-
-        const jobLabel =
-          job === 'code'
-            ? 'coding'
-            : job === 'review'
-              ? 'reviewing PRs'
-              : job === 'refine'
-                ? 'refining scope'
-                : job === 'test'
-                  ? 'testing delivery'
-                  : 'improving codebase quality'
-
-        set({
-          agents: nextAgents,
-          projects: nextProjects,
-          ...syncRam({ loadedModels: state.loadedModels, agents: nextAgents, servers: state.servers }),
-          events: pushEvent(
-            state.events,
-            'project',
-            `${agent.name} ${jobLabel} on ${project.clientName}.`,
-          ),
-        })
-      },
-
-      unassignAgent(agentId) {
-        const state = get()
-        const agent = state.agents.find((a) => a.id === agentId)
-        if (!agent?.job) return
-
-        let nextProjects = state.projects
-        if (agent.job === 'code' && agent.taskId) {
-          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
-            ...t,
-            assignedAgentId: null,
-            status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
-          }))
-        }
-
-        const nextAgents = state.agents.map((a) => (a.id === agentId ? clearAgentJob(a) : a))
-
-        set({
-          agents: nextAgents,
-          projects: nextProjects,
-          ...syncRam({ loadedModels: state.loadedModels, agents: nextAgents, servers: state.servers }),
-          events: pushEvent(state.events, 'system', `${agent.name} pulled off duty. Context wiped.`),
-        })
-      },
-
-      restartAgent(agentId) {
-        const state = get()
-        const agent = state.agents.find((a) => a.id === agentId)
-        if (!agent || (agent.status !== 'compacting' && agent.status !== 'compacted')) return
-
-        const finished = finishCompaction({ ...agent, compactingRemainingSec: 0 })
-
-        set({
-          agents: state.agents.map((a) => (a.id === agentId ? finished : a)),
-          events: pushEvent(
-            state.events,
-            'system',
-            `${agent.name} context cleared — back to work.`,
-          ),
-        })
-      },
-
-      offloadAgent(agentId) {
-        const state = get()
-        const agent = state.agents.find((a) => a.id === agentId)
-        if (!agent) return
-
-        let nextProjects = state.projects
-        if (agent.job === 'code' && agent.taskId) {
-          nextProjects = updateTask(nextProjects, agent.taskId, (t) => ({
-            ...t,
-            assignedAgentId: null,
-            status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
-          }))
-        }
-
-        const nextAgents = state.agents.filter((a) => a.id !== agentId)
-        const model = getModel(agent.modelId)
-        set({
-          agents: nextAgents,
-          projects: nextProjects,
-          ...syncRam({ loadedModels: state.loadedModels, agents: nextAgents, servers: state.servers }),
-          events: pushEvent(
-            state.events,
-            'system',
-            `Offloaded ${agent.name} (${model?.name ?? 'model'}).`,
-          ),
-        })
-      },
-
-      deployCloudAgent(modelId) {
-        const state = get()
-        const model = getModel(modelId)
-        if (!model || model.kind !== 'cloud') return false
-        if (state.cash < model.deployCost) return false
-
-        const agent: Agent = {
-          id: uid('agt'),
-          name: generateAgentName(),
-          modelId,
-          loadedModelId: null,
-          serverId: null,
-          ...emptyAgentJob(),
-          personality: generatePersonality(),
-          contextUsed: 0,
-          compactingRemainingSec: 0,
-          totalTokensBurned: 0,
-          uptime: 0,
-        }
-
-        set({
-          cash: state.cash - model.deployCost,
-          agents: [...state.agents, agent],
-          stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-          events: pushEvent(state.events, 'system', `Deployed ${agent.name} (${model.name}) to the cloud.`),
-        })
-        return true
-      },
-
-      loadLocalModel(modelId, hostId, forceNewInstance = false) {
-        const state = get()
-        const model = getModel(modelId)
-        if (!model || model.kind !== 'local') return false
-        if (!state.ownedLocalModels.includes(modelId)) return false
-        if (hostId === LAPTOP_HOST_ID && modelId !== 'local-1b') return false
-
-        if (!forceNewInstance) {
-          const existing = state.loadedModels.find((lm) => lm.hostId === hostId && lm.modelId === modelId)
-          if (existing) {
-            return get().spawnLocalAgent(existing.id)
-          }
-        }
-
-        if (!canFitLoadOnHost(hostId, modelId, state.loadedModels, state.agents, state.servers)) {
-          return false
-        }
-
-        const loaded: LoadedModel = {
-          id: uid('load'),
-          modelId,
-          hostId,
-        }
-
-        const nextLoaded = [...state.loadedModels, loaded]
-        const agent: Agent = {
-          id: uid('agt'),
-          name: generateAgentName(),
-          modelId,
-          loadedModelId: loaded.id,
-          serverId: hostId,
-          ...emptyAgentJob(),
-          personality: generatePersonality(),
-          contextUsed: 0,
-          compactingRemainingSec: 0,
-          totalTokensBurned: 0,
-          uptime: 0,
-        }
-
-        const nextAgents = [...state.agents, agent]
-        set({
-          loadedModels: nextLoaded,
-          agents: nextAgents,
-          ...syncRam({ loadedModels: nextLoaded, agents: nextAgents, servers: state.servers }),
-          stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-          events: pushEvent(
-            state.events,
-            'system',
-            `Loaded ${model.name} on ${hostId === LAPTOP_HOST_ID ? 'laptop' : 'rack'}.`,
-          ),
-        })
-        return true
-      },
-
-      spawnLocalAgent(loadedModelId) {
-        const state = get()
-        const loaded = state.loadedModels.find((lm) => lm.id === loadedModelId)
-        if (!loaded) return false
-        const model = getModel(loaded.modelId)
-        if (!model) return false
-
-        const agent: Agent = {
-          id: uid('agt'),
-          name: generateAgentName(),
-          modelId: loaded.modelId,
-          loadedModelId: loaded.id,
-          serverId: loaded.hostId,
-          ...emptyAgentJob(),
-          personality: generatePersonality(),
-          contextUsed: 0,
-          compactingRemainingSec: 0,
-          totalTokensBurned: 0,
-          uptime: 0,
-        }
-
-        const nextAgents = [...state.agents, agent]
-        set({
-          agents: nextAgents,
-          stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-          events: pushEvent(state.events, 'system', `Spawned worker on ${model.name}.`),
-        })
-        return true
-      },
-
-      unloadModel(loadedModelId) {
-        const state = get()
-        const loaded = state.loadedModels.find((lm) => lm.id === loadedModelId)
-        if (!loaded) return false
-        if (state.agents.some((a) => a.loadedModelId === loadedModelId)) return false
-
-        const nextLoaded = state.loadedModels.filter((lm) => lm.id !== loadedModelId)
-        set({
-          loadedModels: nextLoaded,
-          ...syncRam({ loadedModels: nextLoaded, agents: state.agents, servers: state.servers }),
-          events: pushEvent(state.events, 'system', 'Unloaded model. RAM exhaled.'),
-        })
-        return true
-      },
-
-      buyServer(tier) {
-        const state = get()
-        const config = RACK_CONFIG[tier]
-        const apt = APARTMENT_CONFIG[state.apartment]
-        if (!config || state.servers.length >= apt.rackSlots) return false
-        if (state.cash < config.cost) return false
-
-        const server: Server = {
-          id: uid('srv'),
-          name: config.label,
-          tier,
-          onFire: false,
-          fireDuration: 0,
-        }
-
-        const nextServers = [...state.servers, server]
-        set({
-          cash: state.cash - config.cost,
-          servers: nextServers,
-          ...syncRam({ loadedModels: state.loadedModels, agents: state.agents, servers: nextServers }),
-          events: pushEvent(state.events, 'milestone', `Procured ${server.name}. Landlord concerned.`),
-        })
-        return true
-      },
-
-      sellServer(serverId) {
-        const state = get()
-        const server = state.servers.find((s) => s.id === serverId)
-        if (!server || server.onFire) return false
-        if (state.agents.some((a) => a.serverId === serverId)) return false
-        if (state.loadedModels.some((lm) => lm.hostId === serverId)) return false
-
-        const payout = RACK_REFURBISH_VALUE[server.tier] ?? 0
-        const nextServers = state.servers.filter((s) => s.id !== serverId)
-        set({
-          cash: state.cash + payout,
-          servers: nextServers,
-          ...syncRam({ loadedModels: state.loadedModels, agents: state.agents, servers: nextServers }),
-          events: pushEvent(
-            state.events,
-            'milestone',
-            `Sold ${server.name} for $${payout} (50% loss). Buyer suspiciously cheerful.`,
-          ),
-        })
-        return true
-      },
-
-      buyTokens() {
-        const state = get()
-        if (state.cash < TOKEN_PACK_COST) return false
-        set({
-          cash: state.cash - TOKEN_PACK_COST,
-          tokens: Math.min(state.maxTokens, state.tokens + TOKEN_PACK_AMOUNT),
-          events: pushEvent(state.events, 'token', `Bought ${TOKEN_PACK_AMOUNT} tokens.`),
-        })
-        return true
-      },
-
-      upgradeApartment() {
-        const state = get()
-        const tiers = ['cardboard', 'studio', 'loft', 'penthouse'] as const
-        const idx = tiers.indexOf(state.apartment)
-        if (idx < 0 || idx >= tiers.length - 1) return false
-        const next = tiers[idx + 1]
-        const cost = APARTMENT_CONFIG[next].upgradeCost
-        if (state.cash < cost + state.apartmentLeaseRemaining * APARTMENT_CONFIG[state.apartment].rent * 0.5)
-          return false
-
-        const payout = Math.round(state.apartmentLeaseRemaining * APARTMENT_CONFIG[state.apartment].rent * 0.5)
-        set({
-          cash: state.cash - cost - payout,
-          apartment: next,
-          apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
-          rentDueInDays: RENT_INTERVAL_DAYS,
-          events: pushEvent(
-            state.events,
-            'milestone',
-            `Moved to ${APARTMENT_CONFIG[next].label}. Rent up. Rack slots up. Dignity unchanged.`,
-          ),
-        })
-        return true
-      },
-
-      extinguishFire(serverId) {
-        const state = get()
-        const server = state.servers.find((s) => s.id === serverId)
-        if (!server?.onFire || state.cash < EXTINGUISH_COST) return false
-        set({
-          cash: state.cash - EXTINGUISH_COST,
-          servers: state.servers.map((s) =>
-            s.id === serverId ? { ...s, onFire: false, fireDuration: 0 } : s,
-          ),
-          events: pushEvent(state.events, 'fire', `Extinguished ${server.name}. Smells like burnt ambition.`),
-        })
-        return true
-      },
-
-      retire() {
-        const state = get()
-        if (state.phase !== 'playing') return
-        const netWorth = computeNetWorth({ cash: state.cash, servers: state.servers })
-        if (netWorth < WIN_NET_WORTH) return
-        set({
-          phase: 'won',
-          events: pushEvent(state.events, 'milestone', '$10M net worth. Sell the racks. Retire. You win.'),
-        })
-      },
-
-      resetGame() {
-        set(createInitialState())
-      },
-    }),
-    {
-      name: SAVE_KEY,
-      version: 12,
-      migrate: (persisted, version) => {
-        const s = persisted as Partial<GameStore> & { reviewRevealedHit?: number | null }
-        if (version < 6) {
-          return createInitialState() as unknown as GameStore
-        }
-        if (s.agents) {
-          s.agents = s.agents.map((a) => {
-            const base = {
-              ...a,
-              modelId: migrateModelId(a.modelId),
-              loadedModelId: a.loadedModelId ?? null,
-              projectId: a.projectId ?? null,
-              jobProgress: a.jobProgress ?? 0,
-              jobDuration: a.jobDuration ?? 0,
-              compactingRemainingSec: a.compactingRemainingSec ?? 0,
-            }
-            if (version < 7) {
-              if (base.taskId && base.status === 'working') {
-                return { ...base, job: 'code' as const, status: 'working' as const }
-              }
-              return { ...base, ...emptyAgentJob() }
-            }
-            if (version < 8 && base.job && base.taskId && !base.projectId) {
-              const project = s.projects?.find((p) => p.tasks.some((t) => t.id === base.taskId))
-              if (project) {
-                return { ...base, projectId: project.id }
-              }
-            }
-            if (version < 12 && base.status === 'compacted') {
-              return {
-                ...base,
-                status: 'compacting' as const,
-                compactingRemainingSec: COMPACT_DURATION_SEC,
-              }
-            }
-            return base
-          })
-        }
-        if (s.projects) {
-          s.projects = s.projects.map((p) => {
-            const requirements =
-              p.requirements ??
-              (p.tasks.length > 0
-                ? []
-                : [
-                    {
-                      id: uid('req'),
-                      projectId: p.id,
-                      title: 'Legacy scope',
-                      storyPoints: p.totalStoryPoints,
-                      status: 'open' as const,
-                    },
-                  ])
-            const tasks = p.tasks.map((t) => {
-              let status = t.status
-              if (version < 8 && status === 'pr_ready' && (t.storyPointsEarned ?? 0) < t.storyPointsRequired) {
-                status = 'in_progress'
-              }
-              if (version < 8 && (t as Task & { status: string }).status === 'pr_ready') {
-                // keep pr_ready
-              }
-              return {
-                ...t,
-                completedByAgentId: t.completedByAgentId ?? null,
-                revealedQualityHit: t.revealedQualityHit ?? null,
-                hasUndiscoveredBug: t.hasUndiscoveredBug ?? false,
-                bugDiscovered: t.bugDiscovered ?? false,
-                isBugFix: t.isBugFix ?? false,
-                sourceTaskId: t.sourceTaskId ?? null,
-                isReviewComment: t.isReviewComment ?? false,
-                reviewed: t.reviewed ?? false,
-                testStoryPointsEarned: t.testStoryPointsEarned ?? 0,
-                status,
-              }
-            })
-            return {
-              ...p,
-              requirements,
-              tasks,
-              testPercent: p.testPercent ?? 0,
-              testStoryPointsRequired: p.testStoryPointsRequired ?? 0,
-              testStoryPointsCompleted: p.testStoryPointsCompleted ?? 0,
-            }
-          })
-        }
-        if (version < 11 && s.projects) {
-          s.projects = s.projects.map((p) => {
-            let poolRemaining = p.testStoryPointsCompleted ?? 0
-            const mergedOrdered = [...p.tasks]
-              .filter((t) => t.status === 'merged' && !t.isReviewComment)
-              .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
-
-            const grants = new Map<string, number>()
-            for (const task of mergedOrdered) {
-              if (poolRemaining <= 0) {
-                grants.set(task.id, 0)
+              const task = pickReviewTask(project, agent.id, nextAgents)
+              if (!task) {
+                agent.status = 'idle'
+                nextAgents[agentIdx] = agent
                 continue
               }
-              const grant = Math.min(task.storyPointsRequired, poolRemaining)
-              grants.set(task.id, grant)
-              poolRemaining -= grant
+
+              agent.status = 'reviewing'
+              if (agent.taskId !== task.id) {
+                agent.taskId = task.id
+                agent.jobProgress = 0
+                agent.jobDuration = reviewJobDurationDays(task.storyPointsRequired, params)
+                nextAgents[agentIdx] = agent
+              }
+
+              fillAgentContext(agent, model.contextSize, baseSpeed, deltaSec, ctxMult)
+              if (agent.contextUsed >= model.contextSize * 1000) {
+                overflow()
+                continue
+              }
+
+              agent.jobProgress += dayProgress * baseSpeed
+              if (agent.jobProgress >= agent.jobDuration) {
+                const comments = createReviewCommentTasks(task)
+                nextProjects = nextProjects.map((p) =>
+                  p.id === project.id
+                    ? {
+                        ...p,
+                        tasks: [
+                          ...p.tasks.map((t) =>
+                            t.id === task.id ? { ...t, reviewed: true } : t,
+                          ),
+                          ...comments,
+                        ],
+                      }
+                    : p,
+                )
+                agent.jobProgress = 0
+                agent.taskId = null
+                const commentNote =
+                  comments.length > 0
+                    ? ` Left ${comments.length} review comment${comments.length > 1 ? 's' : ''}.`
+                    : ''
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `${agent.name} reviewed "${task.title}". PR quality base: ${Math.round(task.prQualityStaging)}%.${commentNote}`,
+                )
+
+                const autoMerge = tryAutoMergeReviewedPr(nextProjects, task.id, stateAtStart)
+                nextProjects = autoMerge.projects
+                if (autoMerge.eventMessage) {
+                  nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
+                  nextStats.tasksMerged += 1
+                }
+              }
+            } else if (agent.job === 'refine' && agent.projectId) {
+              const project = nextProjects.find((p) => p.id === agent.projectId)
+              if (!project || project.status !== 'active') {
+                Object.assign(agent, clearAgentJob(agent))
+                continue
+              }
+
+              const target = pickRefineTarget(project, nextAgents, agent.id)
+              if (!target) {
+                agent.status = 'idle'
+                agent.taskId = null
+                agent.jobProgress = 0
+                nextAgents[agentIdx] = agent
+                continue
+              }
+
+              agent.status = 'refining'
+              const splitMode = hasPromptEngineering(vibingCourses) && target.storyPoints >= 2
+
+              if (agent.taskId !== target.id) {
+                agent.taskId = target.id
+                agent.jobProgress = 0
+                agent.jobDuration = refineJobDurationDays(target.storyPoints, params, splitMode)
+                nextAgents[agentIdx] = agent
+              }
+
+              fillAgentContext(agent, model.contextSize, baseSpeed, deltaSec, ctxMult)
+              if (agent.contextUsed >= model.contextSize * 1000) {
+                overflow()
+                continue
+              }
+
+              agent.jobProgress += dayProgress * baseSpeed
+              if (agent.jobProgress >= agent.jobDuration) {
+                if (splitMode && target.storyPoints >= 2) {
+                  const [a, b] = splitRequirementToTasks(target)
+                  nextProjects = nextProjects.map((p) =>
+                    p.id === project.id
+                      ? {
+                          ...p,
+                          requirements: p.requirements.map((r) =>
+                            r.id === target.id ? { ...r, status: 'split' as const } : r,
+                          ),
+                          tasks: [...p.tasks, a, b],
+                        }
+                      : p,
+                  )
+                  if (!selectedTaskId) selectedTaskId = a.id
+                  nextEvents = pushEvent(
+                    nextEvents,
+                    'project',
+                    `${agent.name} split "${target.title}" into two ${formatStoryPoints(target.storyPoints / 2)} SP tasks.`,
+                  )
+                } else {
+                  const task = requirementToTask(target)
+                  nextProjects = nextProjects.map((p) =>
+                    p.id === project.id
+                      ? {
+                          ...p,
+                          requirements: p.requirements.map((r) =>
+                            r.id === target.id ? { ...r, status: 'refined' as const } : r,
+                          ),
+                          tasks: [...p.tasks, task],
+                        }
+                      : p,
+                  )
+                  if (!selectedTaskId) selectedTaskId = task.id
+                  nextEvents = pushEvent(
+                    nextEvents,
+                    'project',
+                    `${agent.name} refined "${target.title}" into a ${formatStoryPoints(task.storyPointsRequired)} SP task.`,
+                  )
+                }
+                agent.jobProgress = 0
+                agent.taskId = null
+              }
+            } else if (agent.job === 'test' && agent.projectId) {
+              const project = nextProjects.find((p) => p.id === agent.projectId)
+              if (!project || project.status !== 'active') {
+                Object.assign(agent, clearAgentJob(agent))
+                continue
+              }
+
+              if (!projectHasTestWork(project)) {
+                agent.status = 'idle'
+                agent.taskId = null
+                nextAgents[agentIdx] = agent
+                continue
+              }
+
+              let testTask = agent.taskId
+                ? project.tasks.find((t) => t.id === agent.taskId && taskNeedsTesting(t)) ?? null
+                : null
+              if (!testTask) {
+                testTask = pickTestTask(project, agent.id, nextAgents)
+                if (!testTask) {
+                  agent.status = 'idle'
+                  agent.taskId = null
+                  nextAgents[agentIdx] = agent
+                  continue
+                }
+                agent.status = 'testing'
+                agent.taskId = testTask.id
+              }
+
+              fillAgentContext(agent, model.contextSize, baseSpeed, deltaSec, ctxMult)
+              if (agent.contextUsed >= model.contextSize * 1000) {
+                overflow()
+                continue
+              }
+
+              const fillPct = (agent.contextUsed / (model.contextSize * 1000)) * 100
+              const success = testSuccessRate(params, fillPct)
+              if (Math.random() < success * baseSpeed) {
+                const increment = testStoryPointIncrement(
+                  testTask.storyPointsRequired,
+                  testTask.testStoryPointsEarned,
+                )
+                const testEarned = Math.min(
+                  testTask.storyPointsRequired,
+                  testTask.testStoryPointsEarned + increment,
+                )
+                const taskFullyTested = testEarned >= testTask.storyPointsRequired
+
+                let introducedBug = false
+                if (taskFullyTested && testTask.prQuality !== null) {
+                  introducedBug = rollBugAtQa(testTask.prQuality)
+                }
+
+                nextProjects = updateTask(nextProjects, testTask.id, (t) => ({
+                  ...t,
+                  testStoryPointsEarned: testEarned,
+                  hasUndiscoveredBug: introducedBug,
+                  bugDiscovered: introducedBug ? true : t.bugDiscovered,
+                }))
+
+                const projectAfterTask = nextProjects.find((p) => p.id === project.id)
+                if (projectAfterTask) {
+                  let updatedProject: Project = syncTestScope(projectAfterTask)
+
+                  if (taskFullyTested && introducedBug) {
+                    const fixTask = createBugFixTask(testTask)
+                    updatedProject = {
+                      ...updatedProject,
+                      tasks: updatedProject.tasks.concat(fixTask),
+                      totalStoryPoints: updatedProject.totalStoryPoints + fixTask.storyPointsRequired,
+                    }
+                    nextEvents = pushEvent(
+                      nextEvents,
+                      'project',
+                      `${agent.name} found a bug in "${testTask.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened. PR was ${Math.round(testTask.prQuality ?? 0)}% clean.`,
+                    )
+                  } else if (taskFullyTested) {
+                    nextEvents = pushEvent(
+                      nextEvents,
+                      'project',
+                      `${agent.name} finished QA on "${testTask.title}". Clean at ${Math.round(testTask.prQuality ?? 0)}%.`,
+                    )
+                    agent.taskId = null
+                  }
+
+                  nextProjects = nextProjects.map((p) => (p.id === project.id ? updatedProject : p))
+                }
+              }
             }
 
-            const tasks = p.tasks.map((t) => ({
-              ...t,
-              testStoryPointsEarned: grants.get(t.id) ?? t.testStoryPointsEarned ?? 0,
-            }))
-            return syncTestScope({ ...p, tasks })
-          })
-        }
-        if (version < 10 && s.projects) {
-          s.projects = s.projects.map((p) => {
-            const tasks = p.tasks.map((t) => {
-              let status = t.status
-              if (!t.isReviewComment && !t.isBugFix && status === 'done') {
-                status = 'pr_ready'
-              }
-              return {
-                ...t,
-                isReviewComment: t.isReviewComment ?? false,
-                reviewed: t.reviewed ?? (t.revealedQualityHit !== null && t.revealedQualityHit !== undefined),
-                status,
-              }
-            })
-            return syncTestScope({
-              ...p,
-              tasks,
-              testPercent: p.testPercent ?? 0,
-              testStoryPointsRequired: p.testStoryPointsRequired ?? 0,
-              testStoryPointsCompleted: p.testStoryPointsCompleted ?? 0,
-            })
-          })
-        }
-        if (version < 9 && s.projects) {
-          s.projects = s.projects.map((p) => syncTestScope({
-            ...p,
-            testPercent: p.testPercent ?? 0,
-            testStoryPointsRequired: p.testStoryPointsRequired ?? 0,
-            testStoryPointsCompleted: p.testStoryPointsCompleted ?? 0,
-          }))
-        }
-        if (version < 7) {
-          if (s.playerAction && s.playerAction.type !== 'vibe') {
-            s.playerAction = null
+            nextAgents[agentIdx] = agent
           }
-          delete s.reviewRevealedHit
-        }
-        if (!s.loadedModels) s.loadedModels = []
-        if (s.ownedLocalModels) {
-          s.ownedLocalModels = ['local-1b', 'local-2b', 'local-4b']
-        }
-        return s as GameStore
-      },
+
+          if (cash >= WIN_CASH) {
+            phase = 'won'
+            nextEvents = pushEvent(nextEvents, 'milestone', '$10M cash. Retire. You win.')
+          } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
+            phase = 'lost'
+            nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.')
+          }
+
+          set({
+            cash,
+            reputation,
+            gameDay,
+            rentDueInDays,
+            apartmentLeaseRemaining,
+            agents: nextAgents,
+            projects: nextProjects,
+            leads: nextLeads,
+            events: nextEvents,
+            stats: nextStats,
+            leadSpawnCooldown,
+            selectedTaskId,
+            phase,
+            totalRam,
+            totalGpus,
+            tutorialDone: stateAtStart.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+          })
+        },
+
+        selectTask(taskId) {
+          set({ selectedTaskId: taskId })
+        },
+
+        mergePr(taskId) {
+          const state = get()
+          const result = mergeTaskOnProject(state.projects, taskId, state, true)
+          if (!result) return
+          set({
+            projects: result.projects,
+            stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
+            events: pushEvent(state.events, 'project', result.eventMessage),
+          })
+        },
+
+        justMergePr(taskId) {
+          const state = get()
+          const result = mergeTaskOnProject(state.projects, taskId, state, false)
+          if (!result) return
+          set({
+            projects: result.projects,
+            stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
+            events: pushEvent(state.events, 'project', result.eventMessage),
+          })
+        },
+
+        acceptLead(leadId) {
+          const state = get()
+          const lead = state.leads.find((l) => l.id === leadId)
+          if (!lead || lead.status !== 'available') return
+          if (state.reputation < lead.repRequired) return
+          if (state.projects.length >= MAX_ACTIVE_PROJECTS) return
+
+          const project = createProjectFromLead(lead)
+          set({
+            projects: [...state.projects, project],
+            leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
+            events: pushEvent(state.events, 'lead', `Accepted ${lead.clientName}. Regret incoming.`),
+          })
+        },
+
+        rejectLead(leadId) {
+          const state = get()
+          set({
+            leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'rejected' as const } : l)),
+            events: pushEvent(state.events, 'lead', 'Lead rejected. Professional boundaries (for now).'),
+          })
+        },
+
+        deliverProject(projectId) {
+          set((state) => {
+            const project = state.projects.find((p) => p.id === projectId)
+            if (!project || project.status !== 'active') return state
+            if (!isReadyToDeliver(project)) return state
+
+            const synced = syncTestScope(project)
+            const payment = project.payment
+            const onTime = project.lateCount === 0
+            const qualityBonus = Math.round(synced.deliveryQuality / 25)
+            const reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS + qualityBonus : 1)
+
+            const nextProjects = state.projects.filter((p) => p.id !== projectId)
+            const nextAgents = state.agents.filter((a) => a.projectId !== projectId)
+
+            let nextEvents = state.events
+            const finalCash = state.cash + payment
+            if (project.isTutorial && !state.tutorialDone) {
+              nextEvents = pushEvent(
+                nextEvents,
+                'milestone',
+                `Tutorial complete! +$${payment}. Upgrade housing — unlock real hardware.`,
+              )
+            } else {
+              nextEvents = pushEvent(
+                nextEvents,
+                'milestone',
+                `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ''}. Avg PR quality ${Math.round(synced.deliveryQuality)}%.`,
+              )
+            }
+
+            let phase = state.phase
+            if (finalCash >= WIN_CASH) {
+              phase = 'won'
+              nextEvents = pushEvent(nextEvents, 'milestone', '$10M cash. Retire. You win.')
+            } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
+              phase = 'lost'
+              nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Game over.')
+            }
+
+            return {
+              ...state,
+              cash: finalCash,
+              reputation,
+              projects: nextProjects,
+              agents: nextAgents,
+              stats: { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 },
+              events: nextEvents,
+              phase,
+              tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+            }
+          })
+        },
+
+        adjustRoleCount(projectId, job, delta) {
+          const state = get()
+          const project = state.projects.find((p) => p.id === projectId)
+          if (!project) return
+
+          if (delta > 0 && !canSpawnAgent(state)) return
+
+          if (delta < 0) {
+            const result = despawnAgentFromRole(state.agents, projectId, job, state.projects)
+            if (!result) return
+            set({
+              agents: result.agents,
+              projects: state.projects.map((p) =>
+                p.id === projectId
+                  ? { ...p, roleCounts: { ...p.roleCounts, [job]: Math.max(0, p.roleCounts[job] + delta) } }
+                  : p,
+              ),
+              events: pushEvent(state.events, 'project', `Pulled one ${job} agent off ${project.clientName}.`),
+            })
+            return
+          }
+
+          const nextProjects = state.projects.map((p) =>
+            p.id === projectId
+              ? { ...p, roleCounts: { ...p.roleCounts, [job]: p.roleCounts[job] + delta } }
+              : p,
+          )
+          const updatedProject = nextProjects.find((p) => p.id === projectId)!
+          let nextAgents = reconcileProjectStaffing(state, updatedProject, state.agents)
+
+          set({
+            agents: nextAgents,
+            projects: nextProjects,
+            stats: {
+              ...state.stats,
+              agentsDeployed: Math.max(state.stats.agentsDeployed, nextAgents.length),
+            },
+            events: pushEvent(state.events, 'project', `Staffed +1 ${job} on ${project.clientName}.`),
+          })
+        },
+
+        adjustCrewCap(projectId, delta) {
+          const state = get()
+          set({
+            projects: state.projects.map((p) =>
+              p.id === projectId
+                ? { ...p, crewCap: Math.max(1, Math.min(12, p.crewCap + delta)) }
+                : p,
+            ),
+          })
+        },
+
+        toggleConductor(projectId, enabled) {
+          const state = get()
+          if (enabled && !hasConductorCourse(state.vibingCourses)) return
+          set({
+            projects: state.projects.map((p) =>
+              p.id === projectId
+                ? {
+                    ...p,
+                    useConductor: enabled,
+                    roleCounts: enabled
+                      ? { ...p.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 }
+                      : { ...p.roleCounts, conductor: 0 },
+                  }
+                : p,
+            ),
+          })
+        },
+
+        buyRamUpgrade(upgradeId) {
+          const state = get()
+          const upgrade = RAM_UPGRADES.find((u) => u.id === upgradeId)
+          if (!upgrade || state.purchasedRamUpgrades.includes(upgradeId)) return false
+          if (!housingMeetsRequirement(state.apartment, upgrade.housingRequired)) return false
+          if (state.cash < upgrade.cost) return false
+
+          const purchasedRamUpgrades = [...state.purchasedRamUpgrades, upgradeId]
+          set({
+            cash: state.cash - upgrade.cost,
+            purchasedRamUpgrades,
+            totalRam: getTotalRam({ purchasedRamUpgrades }),
+            events: pushEvent(state.events, 'milestone', `Installed ${upgrade.label}. ${upgrade.tagline}`),
+          })
+          return true
+        },
+
+        buyGpuUpgrade(upgradeId) {
+          const state = get()
+          const upgrade = GPU_UPGRADES.find((u) => u.id === upgradeId)
+          if (!upgrade || state.purchasedGpuUpgrades.includes(upgradeId)) return false
+          if (!housingMeetsRequirement(state.apartment, upgrade.housingRequired)) return false
+          if (state.cash < upgrade.cost) return false
+
+          const purchasedGpuUpgrades = [...state.purchasedGpuUpgrades, upgradeId]
+          set({
+            cash: state.cash - upgrade.cost,
+            purchasedGpuUpgrades,
+            totalGpus: getTotalGpus({ purchasedGpuUpgrades }),
+            events: pushEvent(state.events, 'milestone', `Installed ${upgrade.label}. ${upgrade.tagline}`),
+          })
+          return true
+        },
+
+        upgradeModelTier() {
+          const state = get()
+          const nextTier = state.modelTierIndex + 1
+          const next = getModelTier(nextTier)
+          if (!next) return false
+          if (state.cash < next.upgradeCost) return false
+          if (!canUpgradeModelTier(getTotalRam(state), state.modelTierIndex, state.agents.length)) {
+            return false
+          }
+
+          set({
+            cash: state.cash - next.upgradeCost,
+            modelTierIndex: nextTier,
+            events: pushEvent(
+              state.events,
+              'milestone',
+              `Upgraded to ${next.displayName}. ${next.tagline}`,
+            ),
+          })
+          return true
+        },
+
+        buyFineTune(fineTuneId) {
+          const state = get()
+          if (state.purchasedFineTunes.includes(fineTuneId)) return false
+          if (state.cash < 90) return false
+          const tierMatch = fineTuneId.match(/^tune-(\d+)-/)
+          if (!tierMatch) return false
+          const tier = Number(tierMatch[1])
+          if (tier > state.modelTierIndex) return false
+
+          set({
+            cash: state.cash - 90,
+            purchasedFineTunes: [...state.purchasedFineTunes, fineTuneId],
+            events: pushEvent(state.events, 'milestone', `Fine-tune purchased: ${fineTuneId}.`),
+          })
+          return true
+        },
+
+        buyVibingCourse(courseId) {
+          const state = get()
+          const course = VIBING_COURSES.find((c) => c.id === courseId)
+          if (!course || state.vibingCourses.includes(courseId)) return false
+          if (state.cash < course.cost) return false
+
+          set({
+            cash: state.cash - course.cost,
+            vibingCourses: [...state.vibingCourses, courseId],
+            events: pushEvent(
+              state.events,
+              'milestone',
+              `Enrolled in ${course.label}: "${course.tagline}"`,
+            ),
+          })
+          return true
+        },
+
+        upgradeApartment() {
+          const state = get()
+          const tiers = ['cardboard', 'shared_1br', 'studio', 'loft', 'penthouse'] as const
+          const idx = tiers.indexOf(state.apartment)
+          if (idx < 0 || idx >= tiers.length - 1) return false
+          const next = tiers[idx + 1]
+          const cost = APARTMENT_CONFIG[next].upgradeCost
+          if (state.cash < cost + state.apartmentLeaseRemaining * APARTMENT_CONFIG[state.apartment].rent * 0.5) {
+            return false
+          }
+
+          const payout = Math.round(state.apartmentLeaseRemaining * APARTMENT_CONFIG[state.apartment].rent * 0.5)
+          set({
+            cash: state.cash - cost - payout,
+            apartment: next,
+            apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
+            rentDueInDays: RENT_INTERVAL_DAYS,
+            events: pushEvent(
+              state.events,
+              'milestone',
+              `Moved to ${APARTMENT_CONFIG[next].label}. New hardware tiers unlocked.`,
+            ),
+          })
+          return true
+        },
+
+        retire() {
+          const state = get()
+          if (state.phase !== 'playing' || state.cash < WIN_CASH) return
+          set({
+            phase: 'won',
+            events: pushEvent(state.events, 'milestone', '$10M cash. Retire. You win.'),
+          })
+        },
+
+        resetGame() {
+          set({ ...createInitialState() })
+        },
+      }
+    },
+    {
+      name: SAVE_KEY,
+      version: 1,
+      migrate: () => createInitialState() as unknown as GameStore,
       partialize: (state) => ({
         phase: state.phase,
         cash: state.cash,
-        tokens: state.tokens,
-        maxTokens: state.maxTokens,
-        sanity: state.sanity,
         reputation: state.reputation,
         gameDay: state.gameDay,
         rentDueInDays: state.rentDueInDays,
         apartment: state.apartment,
         apartmentLeaseRemaining: state.apartmentLeaseRemaining,
-        usedRam: state.usedRam,
         totalRam: state.totalRam,
-        ownedLocalModels: state.ownedLocalModels,
-        loadedModels: state.loadedModels,
-        servers: state.servers,
+        totalGpus: state.totalGpus,
+        modelTierIndex: state.modelTierIndex,
+        purchasedRamUpgrades: state.purchasedRamUpgrades,
+        purchasedGpuUpgrades: state.purchasedGpuUpgrades,
+        purchasedFineTunes: state.purchasedFineTunes,
+        vibingCourses: state.vibingCourses,
         agents: state.agents,
         projects: state.projects,
         leads: state.leads,
         selectedTaskId: state.selectedTaskId,
-        playerAction: state.playerAction,
         tutorialDone: state.tutorialDone,
         leadSpawnCooldown: state.leadSpawnCooldown,
         events: state.events,
@@ -1691,18 +1309,20 @@ export const useGameStore = create<GameStore>()(
   ),
 )
 
-export function getNetWorth(state: Pick<GameStore, 'cash' | 'servers'>): number {
-  return computeNetWorth(state)
+export function getNetWorth(state: Pick<GameStore, 'cash'>): number {
+  return state.cash
 }
 
 export function getNextApartment(state: Pick<GameStore, 'apartment'>): string | null {
-  const tiers = ['cardboard', 'studio', 'loft', 'penthouse'] as const
+  const tiers = ['cardboard', 'shared_1br', 'studio', 'loft', 'penthouse'] as const
   const idx = tiers.indexOf(state.apartment)
   return idx < tiers.length - 1 ? tiers[idx + 1] : null
 }
 
 export function projectProgressPct(project: Project): number {
-  const merged = project.tasks.filter((t) => t.status === 'merged').reduce((s, t) => s + t.storyPointsRequired, 0)
+  const merged = project.tasks
+    .filter((t) => t.status === 'merged')
+    .reduce((s, t) => s + t.storyPointsRequired, 0)
   return (merged / project.totalStoryPoints) * 100
 }
 
@@ -1712,7 +1332,7 @@ export function isReadyToDeliver(project: Project): boolean {
   const mergedImpl = shippableTasks.filter((t) => t.status === 'merged')
   return (
     project.status === 'active' &&
-    project.requirements.every((r) => r.status === 'refined') &&
+    project.requirements.every((r) => r.status !== 'open') &&
     shippableTasks.length > 0 &&
     shippableTasks.every((t) => t.status === 'merged') &&
     synced.testStoryPointsRequired > 0 &&
@@ -1720,24 +1340,23 @@ export function isReadyToDeliver(project: Project): boolean {
   )
 }
 
-export function modelSuccessForTask(modelId: string, taskSp = 1, contextFillPctValue = 0): number {
-  const model = getModel(modelId)
-  if (!model) return 0
-  return effectiveSuccessRate(model.parameters, taskSp, contextFillPctValue)
+export function modelSuccessForTask(
+  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>,
+  taskSp = 1,
+): number {
+  const params = agentParamsFor(state, 'code')
+  return effectiveSuccessRate(params, taskSp)
 }
 
-export function projectedQualityHit(task: Task, agents: Agent[], project?: Project): number {
-  const params = getTaskQualityParameters(task, agents)
-  const taskCount = project ? countActiveTasks(project) : 1
-  return computeQualityHit(task.storyPointsRequired, params, taskCount)
+export function agentCapacity(state: GameStore): { used: number; max: number; totalRam: number; totalGpus: number } {
+  const totalRam = getTotalRam(state)
+  const totalGpus = getTotalGpus(state)
+  return {
+    used: state.agents.length,
+    max: maxAgents(totalRam, state.modelTierIndex),
+    totalRam,
+    totalGpus,
+  }
 }
 
-export {
-  effectiveSuccessRate,
-  computeQualityHit,
-  getAgentParameters,
-  reviewAccuracy,
-  refactorRatePerDay,
-  agentJobDurationDays,
-  LAPTOP_HOST_ID,
-}
+export { fineTuneId, getModelTier, MODEL_TIERS }

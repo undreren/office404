@@ -1,23 +1,20 @@
 import {
   AGENT_SKILL_REFERENCE_PARAMS,
-  BUG_CHANCE_BASE,
+  BASE_GPU,
+  BASE_RAM_GB,
   PLAYER_ACTION_BASE_DAYS,
-  QUALITY_REFACTOR_PER_DAY,
-  REFACTOR_SPEED_MULTIPLIER,
+  PR_QUALITY_PER_COMMENT,
   REFINE_SPEED_MULTIPLIER,
   REVIEW_CODE_TIME_FRACTION,
-  REVIEW_COMMENT_REDUCTION_CAP,
-  REVIEW_COMMENT_REDUCTION_FRACTION,
   SECONDS_PER_GAME_DAY,
   TEST_DIFFICULTY_SP,
   TEST_SPEED_MULTIPLIER,
 } from './constants'
-import type { Agent, AgentJob, LoadedModel, Server } from './types'
-import { getModel } from './models'
+import { getModelTier, MODEL_TIERS } from './models'
+import { GPU_UPGRADES, RAM_UPGRADES } from './upgrades'
+import type { Agent, AgentJob, FineTuneRole, GameState } from './types'
 
 export const FIBONACCI = [0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
-
-export const LAPTOP_HOST_ID = 'laptop'
 
 export function fibIndex(sp: number): number {
   const idx = FIBONACCI.indexOf(sp as (typeof FIBONACCI)[number])
@@ -32,7 +29,6 @@ export function formatStoryPoints(sp: number): string {
   return sp % 1 === 0 ? String(sp) : sp.toFixed(1)
 }
 
-/** One agent tick worth of progress toward a ticket. */
 export function storyPointIncrement(required: number, earned: number): number {
   const remaining = required - earned
   return remaining <= 0.1 ? remaining : 0.1
@@ -46,12 +42,7 @@ export function pickLeadFibonacci(reputation: number): number {
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
-/** params / (params + taskSP) */
-export function effectiveSuccessRate(
-  parameters: number,
-  taskSp: number,
-  _contextFillPct: number,
-): number {
+export function effectiveSuccessRate(parameters: number, taskSp: number): number {
   return parameters / (parameters + taskSp)
 }
 
@@ -59,58 +50,26 @@ export function formatSuccessPct(rate: number): string {
   return `${Math.round(rate * 100)}%`
 }
 
-export function computeQualityHit(
-  taskSp: number,
-  modelParameters: number,
-  activeTaskCount = 1,
-): number {
-  const ratio = taskSp / Math.max(1, modelParameters)
-  const base = Math.max(0.5, ratio * 8)
-  const fragmentation = 1 + Math.log2(Math.max(1, activeTaskCount)) * 0.2
-  return base * fragmentation
+/** Base PR quality when coding completes (0–100). */
+export function computePrBaseQuality(parameters: number, taskSp: number): number {
+  const success = effectiveSuccessRate(parameters, taskSp)
+  return Math.min(100, Math.max(5, Math.round(success * 70)))
 }
 
-/** 0–1 PR quality from how close the review estimate was to the true merge hit. */
-export function computePrQualityFromReview(trueHit: number, revealedHit: number | null): number {
-  if (revealedHit === null) return 0.15
-  const accuracy = 1 - Math.min(1, Math.abs(revealedHit - trueHit) / Math.max(trueHit, 0.5))
-  return 0.25 + accuracy * 0.75
+export function prQualityAfterComments(base: number, resolvedCount: number): number {
+  return Math.min(100, base + resolvedCount * PR_QUALITY_PER_COMMENT)
 }
 
-/** 0–1 score for author/code quality at merge time. */
-export function computeCodeQualityFactor(
-  projectQuality: number,
-  authorParams: number,
-  taskSp: number,
-): number {
-  const projectFactor = Math.max(0.05, projectQuality / 100)
-  const authorFactor = authorParams / (authorParams + taskSp)
-  return Math.min(1, projectFactor * 0.55 + authorFactor * 0.45)
+/** Bug-free chance at QA = prQuality%. */
+export function rollBugAtQa(prQuality: number): boolean {
+  return Math.random() >= prQuality / 100
 }
 
-/** Probability a merge introduces a hidden bug (0–1). */
-export function computeBugChance(
-  projectQuality: number,
-  authorParams: number,
-  taskSp: number,
-  prQualityFactor: number,
-): number {
-  const codeQuality = computeCodeQualityFactor(projectQuality, authorParams, taskSp)
-  const combined = codeQuality * 0.55 + prQualityFactor * 0.45
-  return Math.max(0.02, Math.min(0.85, BUG_CHANCE_BASE * (1.35 - combined)))
-}
-
-export function agentJobDurationDays(
-  taskSp: number,
-  projectQuality: number,
-  agentParams: number,
-): number {
-  const qualityFactor = Math.max(0.01, projectQuality / 100)
+export function agentJobDurationDays(taskSp: number, agentParams: number): number {
   const skillFactor = Math.max(0.25, agentParams / AGENT_SKILL_REFERENCE_PARAMS)
-  return (PLAYER_ACTION_BASE_DAYS * fibIndex(taskSp)) / qualityFactor / skillFactor
+  return (PLAYER_ACTION_BASE_DAYS * fibIndex(taskSp)) / skillFactor
 }
 
-/** Expected in-game days for a coding agent to finish a ticket (success-rate model). */
 export function estimatedCodeDurationDays(taskSp: number, agentParams: number): number {
   const success = agentParams / (agentParams + taskSp)
   const increments = taskSp * 10
@@ -118,65 +77,32 @@ export function estimatedCodeDurationDays(taskSp: number, agentParams: number): 
   return expectedTicks / SECONDS_PER_GAME_DAY
 }
 
-export function reviewJobDurationDays(
-  taskSp: number,
-  projectQuality: number,
-  agentParams: number,
-): number {
-  const qualityFactor = Math.max(0.01, projectQuality / 100)
+export function reviewJobDurationDays(taskSp: number, agentParams: number): number {
   const days =
-    (estimatedCodeDurationDays(taskSp, agentParams) * REVIEW_CODE_TIME_FRACTION) / qualityFactor
+    estimatedCodeDurationDays(taskSp, agentParams) * REVIEW_CODE_TIME_FRACTION
   return Math.max(PLAYER_ACTION_BASE_DAYS / 10, days)
 }
 
-export function refineJobDurationDays(
-  taskSp: number,
-  projectQuality: number,
-  agentParams: number,
-): number {
-  return agentJobDurationDays(taskSp, projectQuality, agentParams) / REFINE_SPEED_MULTIPLIER
+export function refineJobDurationDays(taskSp: number, agentParams: number, splitMode = false): number {
+  const base = agentJobDurationDays(taskSp, agentParams) / REFINE_SPEED_MULTIPLIER
+  return splitMode ? base * 3 : base
 }
 
 export function reviewAccuracy(agentParams: number, taskSp: number): number {
   return agentParams / (agentParams + taskSp)
 }
 
-export function computeRevealedQualityHit(trueHit: number, agentParams: number, taskSp: number): number {
-  const accuracy = reviewAccuracy(agentParams, taskSp)
-  const underestimate = 0.2 + accuracy * 0.8
-  const noise = (1 - accuracy) * trueHit * 0.35 * (Math.random() - 0.2)
-  return Math.max(0.5, trueHit * underestimate + noise)
-}
-
-/** How many review comments to spawn (1–3, up to 4 for cloud reviewers on big PRs). */
-export function reviewCommentSpawnCount(_agentParams: number, taskSp: number, isCloud: boolean): number {
+export function reviewCommentSpawnCount(taskSp: number): number {
   let count = 1 + Math.floor(Math.random() * 3)
   if (taskSp >= 13) count = Math.max(count, 3)
-  if (isCloud && taskSp >= 8) count = Math.max(count, 3)
-  if (isCloud && taskSp >= 13) count = 4
+  if (taskSp >= 8) count = Math.max(count, 3)
   return Math.min(4, Math.max(1, count))
 }
 
-/** Total quality-hit reduction from resolved review comments on one PR. */
-export function computeReviewCommentReduction(baseHit: number, resolvedCount: number): number {
-  if (resolvedCount <= 0) return 0
-  const perComment = baseHit * REVIEW_COMMENT_REDUCTION_FRACTION
-  return Math.min(baseHit * REVIEW_COMMENT_REDUCTION_CAP, perComment * resolvedCount)
-}
-
-export function testJobDurationDays(
-  taskSp: number,
-  projectQuality: number,
-  agentParams: number,
-): number {
-  return agentJobDurationDays(taskSp, projectQuality, agentParams) / TEST_SPEED_MULTIPLIER
-}
-
 export function testSuccessRate(agentParams: number, contextFillPct: number): number {
-  return effectiveSuccessRate(agentParams, TEST_DIFFICULTY_SP, contextFillPct)
+  return effectiveSuccessRate(agentParams, TEST_DIFFICULTY_SP) * (1 - contextFillPct * 0.002)
 }
 
-/** One test tick worth of QA progress — TEST_SPEED_MULTIPLIER faster than coding increments. */
 export function testStoryPointIncrement(required: number, earned: number): number {
   const remaining = required - earned
   if (remaining <= 0) return 0
@@ -184,37 +110,42 @@ export function testStoryPointIncrement(required: number, earned: number): numbe
   return Math.min(remaining, base * TEST_SPEED_MULTIPLIER)
 }
 
-export function refactorRatePerDay(agentParams: number): number {
-  return (
-    QUALITY_REFACTOR_PER_DAY *
-    (agentParams / AGENT_SKILL_REFERENCE_PARAMS) *
-    REFACTOR_SPEED_MULTIPLIER
-  )
-}
-
 export function fillAgentContext(
   agent: Agent,
-  model: { contextSize: number },
+  contextSizeK: number,
   baseSpeed: number,
   deltaSec: number,
+  contextMultiplier = 1,
 ): number {
-  const tok = tokensPerTick(model.contextSize) * baseSpeed * deltaSec
+  const contextTokens = contextSizeK * 1000
+  const tok = (contextTokens / 60) * baseSpeed * deltaSec * contextMultiplier
   agent.contextUsed += tok
-  return contextFillPct(agent.contextUsed, model.contextSize)
+  return contextFillPct(agent.contextUsed, contextSizeK)
+}
+
+export function contextFillPct(contextUsed: number, contextSizeK: number): number {
+  const contextTokens = contextSizeK * 1000
+  if (contextTokens <= 0) return 0
+  return (contextUsed / contextTokens) * 100
 }
 
 export function agentIsBusy(agent: Agent): boolean {
   return (
     agent.job !== null &&
+    agent.job !== 'conductor' &&
     agent.status !== 'compacting' &&
     agent.status !== 'compacted' &&
-    agent.status !== 'crashed'
+    agent.status !== 'crashed' &&
+    agent.status !== 'idle'
   )
 }
 
-/** Local agents actively using GPU share on a host (idle-assigned agents excluded). */
+export function agentIsWorking(agent: Agent): boolean {
+  return agentIsBusy(agent) || agent.status === 'conducting'
+}
+
 export function agentUsesGpu(agent: Agent): boolean {
-  return agentIsBusy(agent) && agent.status !== 'idle'
+  return agentIsWorking(agent) && agent.job !== 'conductor'
 }
 
 export function jobStatusFor(job: Agent['job']): Agent['status'] {
@@ -223,12 +154,12 @@ export function jobStatusFor(job: Agent['job']): Agent['status'] {
       return 'working'
     case 'review':
       return 'reviewing'
-    case 'refactor':
-      return 'refactoring'
     case 'refine':
       return 'refining'
     case 'test':
       return 'testing'
+    case 'conductor':
+      return 'conducting'
     default:
       return 'idle'
   }
@@ -240,12 +171,12 @@ export function agentRoleLabel(job: AgentJob): string {
       return 'Coder'
     case 'review':
       return 'Reviewer'
-    case 'refactor':
-      return 'Refactorer'
     case 'refine':
       return 'Refiner'
     case 'test':
       return 'Tester'
+    case 'conductor':
+      return 'Conductor'
   }
 }
 
@@ -256,14 +187,10 @@ export function formatAgentDutyLabel(
 ): string {
   if (!agent.job) return 'Idle'
   const client = projectClientName ?? 'project'
-  if (agent.status === 'idle') {
-    return `Idle (${agentRoleLabel(agent.job)}): ${client}`
-  }
-  if (agent.status === 'compacting') {
-    return `Compacting context: ${client}`
-  }
-  if (agent.job === 'refactor') return `Refactoring: ${client}`
-  if (agent.job === 'refine') return `Refining scope: ${client}`
+  if (agent.status === 'idle') return `Idle (${agentRoleLabel(agent.job)}): ${client}`
+  if (agent.status === 'compacting') return `Compacting: ${client}`
+  if (agent.job === 'conductor') return `Conducting: ${client}`
+  if (agent.job === 'refine') return `Refining: ${client}`
   if (agent.job === 'review') return `Reviewing PRs: ${client}`
   if (agent.job === 'test') {
     return taskTitle ? `Testing: ${taskTitle}` : `Testing: ${client}`
@@ -271,83 +198,87 @@ export function formatAgentDutyLabel(
   return `Coding: ${taskTitle ?? client}`
 }
 
-export function tokensPerTick(contextSizeK: number): number {
-  const contextTokens = contextSizeK * 1000
-  return contextTokens / 60
-}
-
-export function contextFillPct(contextUsed: number, contextSizeK: number): number {
-  const contextTokens = contextSizeK * 1000
-  if (contextTokens <= 0) return 0
-  return (contextUsed / contextTokens) * 100
-}
-
-export function getHostGpus(hostId: string, servers: Server[], rackGpus: Record<string, number>): number {
-  if (hostId === LAPTOP_HOST_ID) return 1
-  const server = servers.find((s) => s.id === hostId)
-  return server ? (rackGpus[server.tier] ?? 1) : 0
-}
-
-export function getHostRam(hostId: string, servers: Server[], rackRam: Record<string, number>): number {
-  if (hostId === LAPTOP_HOST_ID) return 4
-  const server = servers.find((s) => s.id === hostId)
-  return server ? (rackRam[server.tier] ?? 0) : 0
-}
-
-export function activeAgentsOnHost(agents: Agent[], hostId: string): Agent[] {
-  return agents.filter(
-    (a) => a.serverId === hostId && agentUsesGpu(a) && getModel(a.modelId)?.kind === 'local',
+export function getTotalRam(state: Pick<GameState, 'purchasedRamUpgrades'>): number {
+  const bonus = RAM_UPGRADES.filter((u) => state.purchasedRamUpgrades.includes(u.id)).reduce(
+    (sum, u) => sum + u.ramGb,
+    0,
   )
+  return BASE_RAM_GB + bonus
 }
 
-export function agentTickSpeed(agent: Agent, agents: Agent[], servers: Server[], rackGpus: Record<string, number>): number {
-  const model = getModel(agent.modelId)
-  if (!model) return 0
-  if (model.kind === 'cloud') return 1
-  if (!agent.serverId) return 0
-
-  const hostAgents = activeAgentsOnHost(agents, agent.serverId)
-  const gpus = getHostGpus(agent.serverId, servers, rackGpus)
-  const share = hostAgents.length > 0 ? gpus / hostAgents.length : gpus
-  return Math.min(1, share)
+export function getTotalGpus(state: Pick<GameState, 'purchasedGpuUpgrades'>): number {
+  const bonus = GPU_UPGRADES.filter((u) => state.purchasedGpuUpgrades.includes(u.id)).reduce(
+    (sum, u) => sum + u.gpus,
+    0,
+  )
+  return BASE_GPU + bonus
 }
 
-export function ramForLoadedModel(
-  modelId: string,
-  agents: Agent[],
-  loadedModelId: string,
+export function ramPerAgent(modelTierIndex: number): number {
+  return getModelTier(modelTierIndex)?.ramPerAgent ?? MODEL_TIERS[0].ramPerAgent
+}
+
+export function usedRam(agentCount: number, modelTierIndex: number): number {
+  return agentCount * ramPerAgent(modelTierIndex)
+}
+
+export function maxAgents(totalRam: number, modelTierIndex: number): number {
+  const per = ramPerAgent(modelTierIndex)
+  return per > 0 ? Math.floor(totalRam / per) : 0
+}
+
+export function canUpgradeModelTier(
+  totalRam: number,
+  currentTierIndex: number,
+  agentCount: number,
+): boolean {
+  const next = getModelTier(currentTierIndex + 1)
+  if (!next) return false
+  return totalRam >= next.ramPerAgent * Math.max(1, agentCount)
+}
+
+export function agentTickSpeed(agents: Agent[], totalGpus: number): number {
+  const active = agents.filter(agentUsesGpu)
+  if (active.length === 0) return 1
+  return Math.min(1, totalGpus / active.length)
+}
+
+export function getAgentParameters(
+  modelTierIndex: number,
+  fineTunes: string[],
+  job: AgentJob | null,
 ): number {
-  const model = getModel(modelId)
-  if (!model) return 0
-  const activeTasks = agents.filter((a) => a.loadedModelId === loadedModelId && a.job === 'code').length
-  return model.loadRam + activeTasks * (model.loadRam / 2)
+  const base = getModelTier(modelTierIndex)?.parameters ?? 1
+  if (!job || job === 'conductor') return base
+  const tuneId = `tune-${modelTierIndex}-${job}`
+  if (fineTunes.includes(tuneId)) {
+    return base * (1 + 0.12)
+  }
+  return base
 }
 
-export function computeHostUsedRam(
-  hostId: string,
-  loadedModels: LoadedModel[],
-  agents: Agent[],
-): number {
-  return loadedModels
-    .filter((lm) => lm.hostId === hostId)
-    .reduce((sum, lm) => sum + ramForLoadedModel(lm.modelId, agents, lm.id), 0)
+export function hasFineTune(
+  fineTunes: string[],
+  tierIndex: number,
+  role: FineTuneRole,
+): boolean {
+  return fineTunes.includes(`tune-${tierIndex}-${role}`)
 }
 
-export function computeTotalUsedRam(loadedModels: LoadedModel[], agents: Agent[], servers: Server[]): number {
-  const hosts = [LAPTOP_HOST_ID, ...servers.map((s) => s.id)]
-  return hosts.reduce((sum, hostId) => sum + computeHostUsedRam(hostId, loadedModels, agents), 0)
+export function averageDeliveryQuality(tasks: { prQuality: number | null; status: string; isReviewComment: boolean }[]): number {
+  const merged = tasks.filter((t) => !t.isReviewComment && t.status === 'merged' && t.prQuality !== null)
+  if (merged.length === 0) return 0
+  return merged.reduce((sum, t) => sum + (t.prQuality ?? 0), 0) / merged.length
 }
 
-export function computeTotalAvailableRam(servers: Server[], rackRam: Record<string, number>): number {
-  return 4 + servers.reduce((sum, s) => sum + (rackRam[s.tier] ?? 0), 0)
+export function contextFillMultiplier(vibingCourses: string[]): number {
+  return vibingCourses.includes('context_optimization') ? 0.65 : 1
 }
 
-export function getAgentParameters(agent: Agent): number {
-  return getModel(agent.modelId)?.parameters ?? 1
+export function hasPromptEngineering(vibingCourses: string[]): boolean {
+  return vibingCourses.includes('prompt_engineering')
 }
 
-export function getTaskQualityParameters(task: { completedByAgentId: string | null }, agents: Agent[]): number {
-  if (!task.completedByAgentId) return 1
-  const agent = agents.find((a) => a.id === task.completedByAgentId)
-  return agent ? getAgentParameters(agent) : 1
+export function hasConductorCourse(vibingCourses: string[]): boolean {
+  return vibingCourses.includes('conductor')
 }
