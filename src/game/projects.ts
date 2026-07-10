@@ -453,6 +453,10 @@ export function mergedImplementationTasks(project: Project): Task[] {
   return implementationTasks(project).filter((t) => t.status === 'merged')
 }
 
+export function mergedShippableTasks(project: Project): Task[] {
+  return project.tasks.filter((t) => !t.isReviewComment && t.status === 'merged')
+}
+
 export function taskNeedsTesting(task: Task): boolean {
   return (
     task.status === 'merged' &&
@@ -470,18 +474,18 @@ export function taskIsTested(task: Task): boolean {
 }
 
 export function deliveredStoryPoints(project: Project): number {
-  return mergedImplementationTasks(project).reduce((sum, t) => sum + t.storyPointsRequired, 0)
+  return mergedShippableTasks(project).reduce((sum, t) => sum + t.storyPointsRequired, 0)
 }
 
 export function completedTestStoryPoints(project: Project): number {
-  return mergedImplementationTasks(project).reduce(
+  return mergedShippableTasks(project).reduce(
     (sum, t) => sum + Math.min(t.testStoryPointsEarned, t.storyPointsRequired),
     0,
   )
 }
 
 export function untestedMergedTasks(project: Project): Task[] {
-  return mergedImplementationTasks(project).filter(taskNeedsTesting)
+  return mergedShippableTasks(project).filter(taskNeedsTesting)
 }
 
 export function allImplementationMerged(project: Project): boolean {
