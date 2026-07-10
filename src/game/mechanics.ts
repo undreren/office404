@@ -12,7 +12,7 @@ import {
   TEST_DIFFICULTY_SP,
   TEST_SPEED_MULTIPLIER,
 } from './constants'
-import type { Agent, LoadedModel, Server } from './types'
+import type { Agent, AgentJob, LoadedModel, Server } from './types'
 import { getModel } from './models'
 
 export const FIBONACCI = [0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
@@ -210,7 +210,12 @@ export function fillAgentContext(
 }
 
 export function agentIsBusy(agent: Agent): boolean {
-  return agent.job !== null && agent.status !== 'compacted' && agent.status !== 'crashed'
+  return (
+    agent.job !== null &&
+    agent.status !== 'compacting' &&
+    agent.status !== 'compacted' &&
+    agent.status !== 'crashed'
+  )
 }
 
 export function jobStatusFor(job: Agent['job']): Agent['status'] {
@@ -228,6 +233,48 @@ export function jobStatusFor(job: Agent['job']): Agent['status'] {
     default:
       return 'idle'
   }
+}
+
+/** Random fraction of current task progress lost on compaction (0–50%). */
+export function amnesiaLossFraction(): number {
+  return Math.random() * 0.5
+}
+
+export function agentRoleLabel(job: AgentJob): string {
+  switch (job) {
+    case 'code':
+      return 'Coder'
+    case 'review':
+      return 'Reviewer'
+    case 'refactor':
+      return 'Refactorer'
+    case 'refine':
+      return 'Refiner'
+    case 'test':
+      return 'Tester'
+  }
+}
+
+export function formatAgentDutyLabel(
+  agent: Pick<Agent, 'job' | 'status' | 'taskId' | 'projectId'>,
+  projectClientName: string | undefined,
+  taskTitle: string | undefined,
+): string {
+  if (!agent.job) return 'Idle'
+  const client = projectClientName ?? 'project'
+  if (agent.status === 'idle') {
+    return `Idle (${agentRoleLabel(agent.job)}): ${client}`
+  }
+  if (agent.status === 'compacting') {
+    return `Compacting context: ${client}`
+  }
+  if (agent.job === 'refactor') return `Refactoring: ${client}`
+  if (agent.job === 'refine') return `Refining scope: ${client}`
+  if (agent.job === 'review') return `Reviewing PRs: ${client}`
+  if (agent.job === 'test') {
+    return taskTitle ? `Testing: ${taskTitle}` : `Testing: ${client}`
+  }
+  return `Coding: ${taskTitle ?? client}`
 }
 
 export function tokensPerTick(contextSizeK: number): number {

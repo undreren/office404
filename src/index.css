@@ -987,9 +987,15 @@ body {
 }
 
 /* Agent statuses */
-.agent-card--compacted {
+.agent-card--compacted,
+.agent-card--compacting {
   border-color: var(--danger);
   animation: pulse-danger 1s ease infinite;
+}
+
+.agent-card--idle {
+  border-color: var(--text-dim);
+  opacity: 0.85;
 }
 
 .agent-card--working {

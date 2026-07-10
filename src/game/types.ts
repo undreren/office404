@@ -9,6 +9,7 @@ export type AgentStatus =
   | 'refactoring'
   | 'refining'
   | 'testing'
+  | 'compacting'
   | 'compacted'
   | 'crashed'
 
@@ -64,6 +65,8 @@ export interface Agent {
   status: AgentStatus
   personality: string
   contextUsed: number
+  /** Seconds remaining while auto-compacting after context overflow. */
+  compactingRemainingSec: number
   totalTokensBurned: number
   uptime: number
 }

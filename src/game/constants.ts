@@ -75,6 +75,9 @@ export const TOKEN_PACK_AMOUNT = 500
 export const EXTINGUISH_COST = 30
 export const LOCAL_TICK_HARD_CAP = 1
 
+/** Real seconds to auto-compact and reset context after overflow. */
+export const COMPACT_DURATION_SEC = 10
+
 export const LEAD_SPAWN_INTERVAL_DAYS = 4
 export const MAX_ACTIVE_PROJECTS = 4
 export const MAX_LEADS = 3
