@@ -9,7 +9,6 @@ import {
   createReviewCommentTasks,
   createTutorialProject,
   generateLead,
-  hiddenBugsOnProject,
   pickRefineTarget,
   pickCodingTask as pickCodingTaskFromProject,
   pickReviewTask,
@@ -27,9 +26,6 @@ import {
 import { generateAgentName, generatePersonality } from './personalities'
 import {
   APARTMENT_CONFIG,
-  BUG_SHIPPED_PAYMENT_PENALTY,
-  BUG_SHIPPED_REP_PENALTY,
-  BUG_SHIPPED_SANITY_PENALTY,
   EXPIRED_LEAD_REP_PENALTY,
   EXTINGUISH_COST,
   INITIAL_CASH,
@@ -60,7 +56,6 @@ import {
   LAPTOP_HOST_ID,
   agentJobDurationDays,
   agentTickSpeed,
-  bugDiscoveryChance,
   computeBugChance,
   computePrQualityFromReview,
   computeQualityHit,
@@ -821,18 +816,10 @@ export const useGameStore = create<GameStore>()(
                 testTask.testStoryPointsEarned + increment,
               )
               const taskFullyTested = testEarned >= testTask.storyPointsRequired
-
-              let discoveredSource: Task | null = null
-              if (
-                testTask.hasUndiscoveredBug &&
-                !testTask.bugDiscovered
-              ) {
-                const chance =
-                  bugDiscoveryChance(model.parameters, testTask.storyPointsRequired) * increment
-                if (Math.random() < chance) {
-                  discoveredSource = testTask
-                }
-              }
+              const discoveredSource =
+                taskFullyTested && testTask.hasUndiscoveredBug && !testTask.bugDiscovered
+                  ? testTask
+                  : null
 
               nextProjects = updateTask(nextProjects, testTask.id, (t) => ({
                 ...t,
@@ -1021,11 +1008,9 @@ export const useGameStore = create<GameStore>()(
           if (!project || project.status !== 'active') return state
           if (!isReadyToDeliver(project)) return state
 
-          const bugsShipped = hiddenBugsOnProject(project)
-          let payment = project.payment
+          const payment = project.payment
           const onTime = project.lateCount === 0
-          let reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS : 1)
-          let sanity = state.sanity
+          const reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS : 1)
 
           const nextStats = { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 }
           const nextProjects = state.projects.filter((p) => p.id !== projectId)
@@ -1034,18 +1019,6 @@ export const useGameStore = create<GameStore>()(
           )
 
           let nextEvents = state.events
-          if (bugsShipped.length > 0) {
-            const paymentPenalty = Math.round(payment * BUG_SHIPPED_PAYMENT_PENALTY * bugsShipped.length)
-            payment -= paymentPenalty
-            reputation = Math.max(0, reputation - BUG_SHIPPED_REP_PENALTY * bugsShipped.length)
-            sanity = Math.max(0, sanity - BUG_SHIPPED_SANITY_PENALTY * bugsShipped.length)
-            nextEvents = pushEvent(
-              nextEvents,
-              'client',
-              `${project.clientName} found ${bugsShipped.length} bug${bugsShipped.length > 1 ? 's' : ''} in production. -$${paymentPenalty}, -${BUG_SHIPPED_REP_PENALTY * bugsShipped.length} rep. They're livid.`,
-            )
-          }
-
           const finalCash = state.cash + payment
           if (project.isTutorial && !state.tutorialDone) {
             nextEvents = pushEvent(
@@ -1057,7 +1030,7 @@ export const useGameStore = create<GameStore>()(
             nextEvents = pushEvent(
               nextEvents,
               'milestone',
-              `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ' (late, but done)'}${bugsShipped.length > 0 ? ' (bugs included — free of charge)' : ''}.`,
+              `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ' (late, but done)'}.`,
             )
           }
 
@@ -1089,7 +1062,6 @@ export const useGameStore = create<GameStore>()(
             ...state,
             cash: finalCash,
             reputation,
-            sanity,
             projects: nextProjects,
             agents: nextAgents,
             stats: nextStats,

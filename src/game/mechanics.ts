@@ -1,7 +1,6 @@
 import {
   AGENT_SKILL_REFERENCE_PARAMS,
   BUG_CHANCE_BASE,
-  BUG_DISCOVERY_RATE,
   PLAYER_ACTION_BASE_DAYS,
   QUALITY_REFACTOR_PER_DAY,
   REFACTOR_SPEED_MULTIPLIER,
@@ -103,12 +102,6 @@ export function computeBugChance(
   const codeQuality = computeCodeQualityFactor(projectQuality, authorParams, taskSp)
   const combined = codeQuality * 0.55 + prQualityFactor * 0.45
   return Math.max(0.02, Math.min(0.85, BUG_CHANCE_BASE * (1.35 - combined)))
-}
-
-/** Chance QA work discovers a hidden bug on one SP of testing. */
-export function bugDiscoveryChance(testerParams: number, taskSp: number): number {
-  const skill = testerParams / (testerParams + taskSp)
-  return BUG_DISCOVERY_RATE * (0.35 + skill * 0.65)
 }
 
 export function agentJobDurationDays(

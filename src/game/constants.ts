@@ -63,14 +63,6 @@ export const ON_TIME_REP_BONUS = 4
 
 /** Base probability a merge introduces a hidden bug before QA. */
 export const BUG_CHANCE_BASE = 0.35
-/** Reputation hit per undiscovered bug shipped to the client. */
-export const BUG_SHIPPED_REP_PENALTY = 5
-/** Sanity hit per undiscovered bug the client finds. */
-export const BUG_SHIPPED_SANITY_PENALTY = 8
-/** Payment clawback fraction per undiscovered bug shipped. */
-export const BUG_SHIPPED_PAYMENT_PENALTY = 0.12
-/** Chance per SP of QA work that a hidden bug is found. */
-export const BUG_DISCOVERY_RATE = 0.22
 
 export const TOKEN_PACK_COST = 60
 export const TOKEN_PACK_AMOUNT = 500

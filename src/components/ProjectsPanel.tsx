@@ -271,9 +271,6 @@ export function ProjectsPanel() {
                           {task.refined && ' · refined'}
                           {task.isBugFix && ' · bug fix'}
                           {task.bugDiscovered && ' · bug found'}
-                          {task.hasUndiscoveredBug && task.status === 'merged' && !task.bugDiscovered && (
-                            <> · untested</>
-                          )}
                           {task.status === 'merged' && testPct < 100 && (
                             <> · QA {Math.floor(testPct)}%</>
                           )}
@@ -370,7 +367,7 @@ export function ProjectsPanel() {
             {readyToDeliver && (
               <div className="deliver-row">
                 <p className="hint">
-                  All tasks merged and QA complete. Ship it — any bugs QA missed will enrage the client.
+                  All tasks merged and QA complete. Ship it.
                 </p>
                 <button type="button" className="btn btn--deploy" onClick={() => deliverProject(project.id)}>
                   Deliver to {project.clientName}
