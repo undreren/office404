@@ -1212,6 +1212,15 @@ body {
   font-size: 0.65rem;
 }
 
+.agent-mini-card--compacting {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+}
+
+.agent-mini-card__ctx--draining {
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
+}
+
 .vendor-card--compact {
   padding: 0.5rem;
 }
