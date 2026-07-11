@@ -51,7 +51,7 @@ export const APARTMENT_CONFIG: Record<
   { rent: number; hardwareUnlockTier: number; upgradeCost: number; label: string }
 > = {
   cardboard: { rent: 40, hardwareUnlockTier: 1, upgradeCost: 0, label: 'Cardboard Box' },
-  shared_1br: { rent: 80, hardwareUnlockTier: 2, upgradeCost: 150, label: 'Shared 1BR' },
+  shared_1br: { rent: 80, hardwareUnlockTier: 2, upgradeCost: 100, label: 'Shared 1BR' },
   studio: { rent: 120, hardwareUnlockTier: 3, upgradeCost: 200, label: 'Studio Apartment' },
   loft: { rent: 280, hardwareUnlockTier: 4, upgradeCost: 600, label: 'Loft (STFU.io eligible)' },
   penthouse: { rent: 650, hardwareUnlockTier: 5, upgradeCost: 0, label: 'Penthouse CUDA Palace' },
