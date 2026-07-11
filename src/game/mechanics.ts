@@ -8,7 +8,7 @@ import {
   REFINE_SPEED_MULTIPLIER,
   REVIEW_CODE_TIME_FRACTION,
   SECONDS_PER_GAME_DAY,
-  TEST_DIFFICULTY_SP,
+  SP_PROGRESS_PER_B_PARAM,
   TEST_SPEED_MULTIPLIER,
 } from './constants'
 import { getModelTier, MODEL_TIERS } from './models'
@@ -30,9 +30,19 @@ export function formatStoryPoints(sp: number): string {
   return sp % 1 === 0 ? String(sp) : sp.toFixed(1)
 }
 
-export function storyPointIncrement(required: number, earned: number): number {
+export function storyPointProgressPerTick(parameters: number): number {
+  return parameters * SP_PROGRESS_PER_B_PARAM
+}
+
+export function storyPointIncrement(
+  required: number,
+  earned: number,
+  parameters: number,
+): number {
   const remaining = required - earned
-  return remaining <= 0.1 ? remaining : 0.1
+  if (remaining <= 0) return 0
+  const step = storyPointProgressPerTick(parameters)
+  return Math.min(remaining, step)
 }
 
 export function pickLeadFibonacci(reputation: number): number {
@@ -43,12 +53,8 @@ export function pickLeadFibonacci(reputation: number): number {
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
-export function effectiveSuccessRate(parameters: number, taskSp: number): number {
-  return parameters / (parameters + taskSp)
-}
-
-export function formatSuccessPct(rate: number): string {
-  return `${Math.round(rate * 100)}%`
+export function formatSpPerTick(parameters: number): string {
+  return `${storyPointProgressPerTick(parameters).toFixed(1)} SP/tick`
 }
 
 /** Base PR quality when coding completes (0–100). */
@@ -57,8 +63,8 @@ export function computePrBaseQuality(
   taskSp: number,
   promptEngineering = false,
 ): number {
-  const success = effectiveSuccessRate(parameters, taskSp)
-  const base = Math.min(100, Math.max(5, Math.round(success * 70)))
+  const capability = parameters / (parameters + taskSp)
+  const base = Math.min(100, Math.max(5, Math.round(capability * 70)))
   if (!promptEngineering) return base
   return Math.min(100, base + PROMPT_ENGINEERING_PR_BOOST)
 }
@@ -78,9 +84,8 @@ export function agentJobDurationDays(taskSp: number, agentParams: number): numbe
 }
 
 export function estimatedCodeDurationDays(taskSp: number, agentParams: number): number {
-  const success = agentParams / (agentParams + taskSp)
-  const increments = taskSp * 10
-  const expectedTicks = increments / Math.max(0.01, success)
+  const progressPerTick = storyPointProgressPerTick(agentParams)
+  const expectedTicks = taskSp / Math.max(0.01, progressPerTick)
   return expectedTicks / SECONDS_PER_GAME_DAY
 }
 
@@ -95,10 +100,6 @@ export function refineJobDurationDays(taskSp: number, agentParams: number, split
   return splitMode ? base * 3 : base
 }
 
-export function reviewAccuracy(agentParams: number, taskSp: number): number {
-  return agentParams / (agentParams + taskSp)
-}
-
 export function reviewCommentSpawnCount(taskSp: number): number {
   let count = 1 + Math.floor(Math.random() * 3)
   if (taskSp >= 13) count = Math.max(count, 3)
@@ -106,15 +107,15 @@ export function reviewCommentSpawnCount(taskSp: number): number {
   return Math.min(4, Math.max(1, count))
 }
 
-export function testSuccessRate(agentParams: number, contextFillPct: number): number {
-  return effectiveSuccessRate(agentParams, TEST_DIFFICULTY_SP) * (1 - contextFillPct * 0.002)
-}
-
-export function testStoryPointIncrement(required: number, earned: number): number {
+export function testStoryPointIncrement(
+  required: number,
+  earned: number,
+  parameters: number,
+): number {
   const remaining = required - earned
   if (remaining <= 0) return 0
-  const base = remaining <= 0.1 ? remaining : 0.1
-  return Math.min(remaining, base * TEST_SPEED_MULTIPLIER)
+  const step = storyPointProgressPerTick(parameters) * TEST_SPEED_MULTIPLIER
+  return Math.min(remaining, step)
 }
 
 export function fillAgentContext(

@@ -20,8 +20,6 @@ export const AGENT_SKILL_REFERENCE_PARAMS = 4
 export const REVIEW_CODE_TIME_FRACTION = 0.5
 export const REFINE_SPEED_MULTIPLIER = 10
 export const TEST_SPEED_MULTIPLIER = 5
-export const TEST_DIFFICULTY_SP = 5
-
 export const REVIEW_COMMENT_SP = 0.5
 export const PR_QUALITY_PER_COMMENT = 10
 export const JUST_MERGE_PR_QUALITY = 20
@@ -33,7 +31,10 @@ export const EXPIRED_LEAD_REP_PENALTY = 2
 export const ON_TIME_REP_BONUS = 4
 
 /** Real seconds to auto-compact and reset context after overflow. */
-export const COMPACT_DURATION_SEC = 5
+export const COMPACT_DURATION_SEC = 30
+
+/** Story points earned per tick per billion model parameters. */
+export const SP_PROGRESS_PER_B_PARAM = 0.1
 
 export const LEAD_SPAWN_INTERVAL_DAYS = 4
 export const MAX_ACTIVE_PROJECTS = 4

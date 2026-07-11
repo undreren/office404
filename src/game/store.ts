@@ -58,7 +58,6 @@ import {
   canUpgradeModelTier,
   computePrBaseQuality,
   contextFillMultiplier,
-  effectiveSuccessRate,
   fillAgentContext,
   formatStoryPoints,
   getAgentParameters,
@@ -73,8 +72,8 @@ import {
   reviewJobDurationDays,
   rollBugAtQa,
   storyPointIncrement,
+  storyPointProgressPerTick,
   testStoryPointIncrement,
-  testSuccessRate,
   usedRam,
 } from './mechanics'
 import {
@@ -344,13 +343,18 @@ function tryProgressTask(
   completedByAgentId: string | null,
   authorParams: number,
   promptEngineering = false,
+  progressScale = 1,
 ): { projects: Project[]; becameDone: boolean; becamePrReady: boolean } {
   let becameDone = false
   let becamePrReady = false
   const next = updateTask(projects, taskId, (t) => {
     if (t.status === 'merged' || t.status === 'pr_ready') return t
     if (t.isReviewComment && t.status === 'done') return t
-    const increment = storyPointIncrement(t.storyPointsRequired, t.storyPointsEarned)
+    const increment = storyPointIncrement(
+      t.storyPointsRequired,
+      t.storyPointsEarned,
+      authorParams * progressScale,
+    )
     const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + increment)
     const complete = earned >= t.storyPointsRequired
     const status: TaskStatus = complete
@@ -671,50 +675,48 @@ export const useGameStore = create<GameStore>()(
                 continue
               }
 
-              const success = effectiveSuccessRate(params, taskRef.task.storyPointsRequired)
-              if (Math.random() < success * baseSpeed) {
-                const result = tryProgressTask(
-                  nextProjects,
-                  agent.taskId!,
-                  agent.id,
-                  params,
-                  hasPromptEngineering(vibingCourses),
+              const result = tryProgressTask(
+                nextProjects,
+                agent.taskId!,
+                agent.id,
+                params,
+                hasPromptEngineering(vibingCourses),
+                baseSpeed,
+              )
+              nextProjects = result.projects
+              if (result.becamePrReady) {
+                agent.taskId = null
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `${agent.name} finished "${taskRef.task.title}". PR opened — ready for review.`,
                 )
-                nextProjects = result.projects
-                if (result.becamePrReady) {
-                  agent.taskId = null
-                  nextEvents = pushEvent(
-                    nextEvents,
-                    'project',
-                    `${agent.name} finished "${taskRef.task.title}". PR opened — ready for review.`,
-                  )
-                } else if (result.becameDone) {
-                  agent.taskId = null
-                  const parentId = taskRef.task.parentTaskId
-                  nextEvents = pushEvent(
-                    nextEvents,
-                    'project',
-                    `${agent.name} addressed review comment: "${taskRef.task.title}".`,
-                  )
-                  if (parentId) {
-                    const parent = findTask(nextProjects, parentId)
-                    if (parent) {
-                      const resolved = resolvedReviewComments(parent.project, parentId).length
-                      const staging = prQualityAfterComments(
-                        parent.task.prQualityStaging,
-                        resolved,
-                      )
-                      nextProjects = updateTask(nextProjects, parentId, (t) => ({
-                        ...t,
-                        prQualityStaging: staging,
-                      }))
-                    }
-                    const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, stateAtStart)
-                    nextProjects = autoMerge.projects
-                    if (autoMerge.eventMessage) {
-                      nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
-                      nextStats.tasksMerged += 1
-                    }
+              } else if (result.becameDone) {
+                agent.taskId = null
+                const parentId = taskRef.task.parentTaskId
+                nextEvents = pushEvent(
+                  nextEvents,
+                  'project',
+                  `${agent.name} addressed review comment: "${taskRef.task.title}".`,
+                )
+                if (parentId) {
+                  const parent = findTask(nextProjects, parentId)
+                  if (parent) {
+                    const resolved = resolvedReviewComments(parent.project, parentId).length
+                    const staging = prQualityAfterComments(
+                      parent.task.prQualityStaging,
+                      resolved,
+                    )
+                    nextProjects = updateTask(nextProjects, parentId, (t) => ({
+                      ...t,
+                      prQualityStaging: staging,
+                    }))
+                  }
+                  const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, stateAtStart)
+                  nextProjects = autoMerge.projects
+                  if (autoMerge.eventMessage) {
+                    nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
+                    nextStats.tasksMerged += 1
                   }
                 }
               }
@@ -878,58 +880,55 @@ export const useGameStore = create<GameStore>()(
                 continue
               }
 
-              const fillPct = (agent.contextUsed / (model.contextSize * 1000)) * 100
-              const success = testSuccessRate(params, fillPct)
-              if (Math.random() < success * baseSpeed) {
-                const increment = testStoryPointIncrement(
-                  testTask.storyPointsRequired,
-                  testTask.testStoryPointsEarned,
-                )
-                const testEarned = Math.min(
-                  testTask.storyPointsRequired,
-                  testTask.testStoryPointsEarned + increment,
-                )
-                const taskFullyTested = testEarned >= testTask.storyPointsRequired
+              const increment = testStoryPointIncrement(
+                testTask.storyPointsRequired,
+                testTask.testStoryPointsEarned,
+                params * baseSpeed,
+              )
+              const testEarned = Math.min(
+                testTask.storyPointsRequired,
+                testTask.testStoryPointsEarned + increment,
+              )
+              const taskFullyTested = testEarned >= testTask.storyPointsRequired
 
-                let introducedBug = false
-                if (taskFullyTested && testTask.prQuality !== null) {
-                  introducedBug = rollBugAtQa(testTask.prQuality)
-                }
+              let introducedBug = false
+              if (taskFullyTested && testTask.prQuality !== null) {
+                introducedBug = rollBugAtQa(testTask.prQuality)
+              }
 
-                nextProjects = updateTask(nextProjects, testTask.id, (t) => ({
-                  ...t,
-                  testStoryPointsEarned: testEarned,
-                  hasUndiscoveredBug: introducedBug,
-                  bugDiscovered: introducedBug ? true : t.bugDiscovered,
-                }))
+              nextProjects = updateTask(nextProjects, testTask.id, (t) => ({
+                ...t,
+                testStoryPointsEarned: testEarned,
+                hasUndiscoveredBug: introducedBug,
+                bugDiscovered: introducedBug ? true : t.bugDiscovered,
+              }))
 
-                const projectAfterTask = nextProjects.find((p) => p.id === project.id)
-                if (projectAfterTask) {
-                  let updatedProject: Project = syncTestScope(projectAfterTask)
+              const projectAfterTask = nextProjects.find((p) => p.id === project.id)
+              if (projectAfterTask) {
+                let updatedProject: Project = syncTestScope(projectAfterTask)
 
-                  if (taskFullyTested && introducedBug) {
-                    const fixTask = createBugFixTask(testTask)
-                    updatedProject = {
-                      ...updatedProject,
-                      tasks: updatedProject.tasks.concat(fixTask),
-                      totalStoryPoints: updatedProject.totalStoryPoints + fixTask.storyPointsRequired,
-                    }
-                    nextEvents = pushEvent(
-                      nextEvents,
-                      'project',
-                      `${agent.name} found a bug in "${testTask.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened. PR was ${Math.round(testTask.prQuality ?? 0)}% clean.`,
-                    )
-                  } else if (taskFullyTested) {
-                    nextEvents = pushEvent(
-                      nextEvents,
-                      'project',
-                      `${agent.name} finished QA on "${testTask.title}". Clean at ${Math.round(testTask.prQuality ?? 0)}%.`,
-                    )
-                    agent.taskId = null
+                if (taskFullyTested && introducedBug) {
+                  const fixTask = createBugFixTask(testTask)
+                  updatedProject = {
+                    ...updatedProject,
+                    tasks: updatedProject.tasks.concat(fixTask),
+                    totalStoryPoints: updatedProject.totalStoryPoints + fixTask.storyPointsRequired,
                   }
-
-                  nextProjects = nextProjects.map((p) => (p.id === project.id ? updatedProject : p))
+                  nextEvents = pushEvent(
+                    nextEvents,
+                    'project',
+                    `${agent.name} found a bug in "${testTask.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened. PR was ${Math.round(testTask.prQuality ?? 0)}% clean.`,
+                  )
+                } else if (taskFullyTested) {
+                  nextEvents = pushEvent(
+                    nextEvents,
+                    'project',
+                    `${agent.name} finished QA on "${testTask.title}". Clean at ${Math.round(testTask.prQuality ?? 0)}%.`,
+                  )
+                  agent.taskId = null
                 }
+
+                nextProjects = nextProjects.map((p) => (p.id === project.id ? updatedProject : p))
               }
             }
 
@@ -1328,12 +1327,11 @@ export function isReadyToDeliver(project: Project): boolean {
   )
 }
 
-export function modelSuccessForTask(
+export function modelSpPerTick(
   state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>,
-  taskSp = 1,
 ): number {
   const params = agentParamsFor(state, 'code')
-  return effectiveSuccessRate(params, taskSp)
+  return storyPointProgressPerTick(params)
 }
 
 export function agentCapacity(state: GameStore): { used: number; max: number; totalRam: number; totalGpus: number } {
