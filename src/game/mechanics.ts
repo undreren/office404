@@ -138,8 +138,11 @@ export function contextFillPct(contextUsed: number, contextSizeK: number): numbe
   return (contextUsed / contextTokens) * 100
 }
 
-/** Context fill for UI — drains to 0% while auto-compacting. */
-export function displayContextFillPct(agent: Agent, contextSizeK: number): number {
+/** Context fill for UI — drains from 100% to 0% while compacting. */
+export function agentContextDisplayPct(
+  agent: Pick<Agent, 'status' | 'contextUsed' | 'compactingRemainingSec'>,
+  contextSizeK: number,
+): number {
   if (agent.status === 'compacting' && COMPACT_DURATION_SEC > 0) {
     return (agent.compactingRemainingSec / COMPACT_DURATION_SEC) * 100
   }

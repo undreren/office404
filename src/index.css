@@ -1213,12 +1213,12 @@ body {
 }
 
 .agent-mini-card--compacting {
-  border-color: var(--danger);
-  animation: pulse-danger 1s ease infinite;
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
 }
 
-.agent-mini-card--compacting .agent-mini-card__ctx {
-  color: var(--danger);
+.agent-mini-card__ctx--draining {
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
 }
 
 .vendor-card--compact {

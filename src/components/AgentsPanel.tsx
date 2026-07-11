@@ -1,4 +1,4 @@
-import { displayContextFillPct, formatAgentDutyLabel } from '../game/mechanics'
+import { agentContextDisplayPct, formatAgentDutyLabel } from '../game/mechanics'
 import { MODEL_TIERS } from '../game/models'
 import { useGameStore } from '../game/store'
 import type { Task } from '../game/types'
@@ -31,24 +31,28 @@ export function AgentsPanel() {
     <section className="panel agents-panel">
       <h2>Agents ({agents.length})</h2>
       <p className="hint">
-        All running {model.displayName} · spawn on assign, despawn on unassign
+        All running {model.displayName} · spawn on assign, bench on unassign (context preserved)
       </p>
       <ul className="agent-mini-list">
         {agents.map((agent) => {
           const project = projects.find((p) => p.id === agent.projectId)
           const task = findTask(agent.taskId)
-          const fill = displayContextFillPct(agent, model.contextSize)
+          const fill = agentContextDisplayPct(agent, model.contextSize)
           const duty = formatAgentDutyLabel(agent, project?.clientName, task?.title)
-          const compacting = agent.status === 'compacting'
+          const isCompacting = agent.status === 'compacting'
 
           return (
             <li
               key={agent.id}
-              className={`agent-mini-card${compacting ? ' agent-mini-card--compacting' : ''}`}
+              className={`agent-mini-card${isCompacting ? ' agent-mini-card--compacting' : ''}`}
             >
               <span className="agent-mini-card__name">{agent.name}</span>
               <span className="agent-mini-card__duty">{duty}</span>
-              <span className="agent-mini-card__ctx">{Math.floor(fill)}% ctx</span>
+              <span
+                className={`agent-mini-card__ctx${isCompacting ? ' agent-mini-card__ctx--draining' : ''}`}
+              >
+                {Math.floor(fill)}% ctx
+              </span>
             </li>
           )
         })}
