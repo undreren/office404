@@ -4,6 +4,7 @@ import {
   BASE_RAM_GB,
   PLAYER_ACTION_BASE_DAYS,
   PR_QUALITY_PER_COMMENT,
+  PROMPT_ENGINEERING_PR_BOOST,
   REFINE_SPEED_MULTIPLIER,
   REVIEW_CODE_TIME_FRACTION,
   SECONDS_PER_GAME_DAY,
@@ -51,9 +52,15 @@ export function formatSuccessPct(rate: number): string {
 }
 
 /** Base PR quality when coding completes (0–100). */
-export function computePrBaseQuality(parameters: number, taskSp: number): number {
+export function computePrBaseQuality(
+  parameters: number,
+  taskSp: number,
+  promptEngineering = false,
+): number {
   const success = effectiveSuccessRate(parameters, taskSp)
-  return Math.min(100, Math.max(5, Math.round(success * 70)))
+  const base = Math.min(100, Math.max(5, Math.round(success * 70)))
+  if (!promptEngineering) return base
+  return Math.min(100, base + PROMPT_ENGINEERING_PR_BOOST)
 }
 
 export function prQualityAfterComments(base: number, resolvedCount: number): number {

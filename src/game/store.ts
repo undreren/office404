@@ -262,7 +262,7 @@ function spawnAgentForRole(
 function mergeTaskOnProject(
   projects: Project[],
   taskId: string,
-  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>,
+  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes' | 'vibingCourses'>,
   reviewed: boolean,
 ): { projects: Project[]; eventMessage: string } | null {
   const found = findTask(projects, taskId)
@@ -277,7 +277,11 @@ function mergeTaskOnProject(
   const base =
     reviewed && found.task.prQualityStaging > 0
       ? found.task.prQualityStaging
-      : computePrBaseQuality(authorParams, found.task.storyPointsRequired)
+      : computePrBaseQuality(
+          authorParams,
+          found.task.storyPointsRequired,
+          hasPromptEngineering(state.vibingCourses),
+        )
   const prQuality = reviewed
     ? prQualityAfterComments(base, resolvedCount)
     : JUST_MERGE_PR_QUALITY
@@ -320,7 +324,7 @@ function mergeTaskOnProject(
 function tryAutoMergeReviewedPr(
   projects: Project[],
   parentTaskId: string,
-  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>,
+  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes' | 'vibingCourses'>,
 ): { projects: Project[]; eventMessage: string | null } {
   const found = findTask(projects, parentTaskId)
   if (!found || found.task.status !== 'pr_ready' || !found.task.reviewed) {
@@ -339,6 +343,7 @@ function tryProgressTask(
   taskId: string,
   completedByAgentId: string | null,
   authorParams: number,
+  promptEngineering = false,
 ): { projects: Project[]; becameDone: boolean; becamePrReady: boolean } {
   let becameDone = false
   let becamePrReady = false
@@ -359,7 +364,7 @@ function tryProgressTask(
     }
     const prQualityStaging =
       complete && !t.isReviewComment
-        ? computePrBaseQuality(authorParams, t.storyPointsRequired)
+        ? computePrBaseQuality(authorParams, t.storyPointsRequired, promptEngineering)
         : t.prQualityStaging
     return {
       ...t,
@@ -668,7 +673,13 @@ export const useGameStore = create<GameStore>()(
 
               const success = effectiveSuccessRate(params, taskRef.task.storyPointsRequired)
               if (Math.random() < success * baseSpeed) {
-                const result = tryProgressTask(nextProjects, agent.taskId!, agent.id, params)
+                const result = tryProgressTask(
+                  nextProjects,
+                  agent.taskId!,
+                  agent.id,
+                  params,
+                  hasPromptEngineering(vibingCourses),
+                )
                 nextProjects = result.projects
                 if (result.becamePrReady) {
                   agent.taskId = null
@@ -794,12 +805,11 @@ export const useGameStore = create<GameStore>()(
               }
 
               agent.status = 'refining'
-              const splitMode = hasPromptEngineering(vibingCourses) && target.storyPoints >= 2
 
               if (agent.taskId !== target.id) {
                 agent.taskId = target.id
                 agent.jobProgress = 0
-                agent.jobDuration = refineJobDurationDays(target.storyPoints, params, splitMode)
+                agent.jobDuration = refineJobDurationDays(target.storyPoints, params)
                 nextAgents[agentIdx] = agent
               }
 
@@ -811,8 +821,7 @@ export const useGameStore = create<GameStore>()(
 
               agent.jobProgress += dayProgress * baseSpeed
               if (agent.jobProgress >= agent.jobDuration) {
-                const preferSplit = hasPromptEngineering(vibingCourses)
-                const newTasks = refineRequirementToTasks(target, { preferSplit })
+                const newTasks = refineRequirementToTasks(target)
                 const refinedStatus = newTasks.length > 1 ? ('split' as const) : ('refined' as const)
                 nextProjects = nextProjects.map((p) =>
                   p.id === project.id
@@ -1226,13 +1235,10 @@ export const useGameStore = create<GameStore>()(
           if (idx < 0 || idx >= tiers.length - 1) return false
           const next = tiers[idx + 1]
           const cost = APARTMENT_CONFIG[next].upgradeCost
-          if (state.cash < cost + state.apartmentLeaseRemaining * APARTMENT_CONFIG[state.apartment].rent * 0.5) {
-            return false
-          }
+          if (state.cash < cost) return false
 
-          const payout = Math.round(state.apartmentLeaseRemaining * APARTMENT_CONFIG[state.apartment].rent * 0.5)
           set({
-            cash: state.cash - cost - payout,
+            cash: state.cash - cost,
             apartment: next,
             apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
             rentDueInDays: RENT_INTERVAL_DAYS,

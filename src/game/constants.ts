@@ -25,6 +25,7 @@ export const TEST_DIFFICULTY_SP = 5
 export const REVIEW_COMMENT_SP = 0.5
 export const PR_QUALITY_PER_COMMENT = 10
 export const JUST_MERGE_PR_QUALITY = 20
+export const PROMPT_ENGINEERING_PR_BOOST = 15
 
 export const LATE_FEE_PERCENT = 0.15
 export const LATE_REP_PENALTY_BASE = 3

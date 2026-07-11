@@ -112,7 +112,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     label: 'Prompt Engineering',
     tagline: 'Make no mistakes.',
     cost: 150,
-    description: 'Refine often splits requirements into two thematic tasks (85% chance when SP ≥ 2).',
+    description: 'Agents write cleaner first drafts — baseline PR quality +15%.',
   },
   {
     id: 'context_optimization',
@@ -143,4 +143,22 @@ export function housingMeetsRequirement(
   required: ApartmentTier,
 ): boolean {
   return HOUSING_ORDER.indexOf(current) >= HOUSING_ORDER.indexOf(required)
+}
+
+/** Show owned upgrades plus the next locked one; hide deeper locked tiers. */
+export function getVisibleTrackUpgrades<T extends { id: string; tier: number }>(
+  upgrades: T[],
+  purchased: string[],
+): T[] {
+  const sorted = [...upgrades].sort((a, b) => a.tier - b.tier)
+  const visible: T[] = []
+  for (const upgrade of sorted) {
+    if (purchased.includes(upgrade.id)) {
+      visible.push(upgrade)
+      continue
+    }
+    visible.push(upgrade)
+    break
+  }
+  return visible
 }
