@@ -112,7 +112,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     label: 'Prompt Engineering',
     tagline: 'Make no mistakes.',
     cost: 150,
-    description: 'Unlock slow 1→2 requirement splits during refine.',
+    description: 'Refine often splits requirements into two thematic tasks (85% chance when SP ≥ 2).',
   },
   {
     id: 'context_optimization',
