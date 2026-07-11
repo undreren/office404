@@ -266,14 +266,10 @@ export function maxAgents(totalRam: number, modelTierIndex: number): number {
   return per > 0 ? Math.floor(totalRam / per) : 0
 }
 
-export function canUpgradeModelTier(
-  totalRam: number,
-  currentTierIndex: number,
-  agentCount: number,
-): boolean {
+export function canUpgradeModelTier(totalRam: number, currentTierIndex: number): boolean {
   const next = getModelTier(currentTierIndex + 1)
   if (!next) return false
-  return totalRam >= next.ramPerAgent * Math.max(1, agentCount)
+  return totalRam >= next.ramPerAgent
 }
 
 export function agentTickSpeed(agents: Agent[], totalGpus: number): number {

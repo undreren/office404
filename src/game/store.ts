@@ -235,6 +235,20 @@ function assignAgentToRole(agent: Agent, projectId: string, job: AgentJob): Agen
   }
 }
 
+function clearAgentAssignmentsOnProjects(projects: Project[]): Project[] {
+  return projects.map((p) => ({
+    ...p,
+    tasks: p.tasks.map((t) => {
+      if (!t.assignedAgentId) return t
+      return {
+        ...t,
+        assignedAgentId: null,
+        status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
+      }
+    }),
+  }))
+}
+
 function unassignAgentFromRole(
   agents: Agent[],
   projectId: string,
@@ -1227,18 +1241,22 @@ export const useGameStore = create<GameStore>()(
           const next = getModelTier(nextTier)
           if (!next) return false
           if (state.cash < next.upgradeCost) return false
-          if (!canUpgradeModelTier(getTotalRam(state), state.modelTierIndex, state.agents.length)) {
+          if (!canUpgradeModelTier(getTotalRam(state), state.modelTierIndex)) {
             return false
           }
+
+          const despawned = state.agents.length
+          const upgradeMessage =
+            despawned > 0
+              ? `Upgraded to ${next.displayName}. ${next.tagline} ${despawned} agent${despawned === 1 ? '' : 's'} despawned — redeploy on the new tier.`
+              : `Upgraded to ${next.displayName}. ${next.tagline}`
 
           set({
             cash: state.cash - next.upgradeCost,
             modelTierIndex: nextTier,
-            events: pushEvent(
-              state.events,
-              'milestone',
-              `Upgraded to ${next.displayName}. ${next.tagline}`,
-            ),
+            agents: [],
+            projects: clearAgentAssignmentsOnProjects(state.projects),
+            events: pushEvent(state.events, 'milestone', upgradeMessage),
           })
           return true
         },
