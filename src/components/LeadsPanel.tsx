@@ -26,6 +26,7 @@ export function LeadsPanel() {
                 {Math.ceil(lead.daysToExpire)}d to respond
               </span>
             </header>
+            {lead.clientTagline && <p className="client-tagline">"{lead.clientTagline}"</p>}
             <p>{lead.blurb}</p>
             <ul className="lead-stats">
               <li>{lead.totalStoryPoints} SP total</li>

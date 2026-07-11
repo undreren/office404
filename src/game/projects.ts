@@ -1,5 +1,6 @@
 import type { Agent, AgentJob, Lead, Project, Requirement, StaffJob, Task } from './types'
 import { TUTORIAL_PAYMENT } from './constants'
+import { pickJokeClient } from './clients'
 import {
   agentIsBusy,
   FIBONACCI,
@@ -8,17 +9,6 @@ import {
   reviewCommentSpawnCount,
 } from './mechanics'
 import { pickBugDescription, pickSubtaskTitles } from './refinementContent'
-
-const CLIENTS = [
-  'Nexus Dynamics',
-  'PivotPal',
-  'StealthStartup.io',
-  'MegaCorp Subsidiary',
-  "Dave's Enterprise Solutions",
-  'Blockchain For Dogs',
-  'The Other Uber',
-  'CloudSync (not that one)',
-]
 
 const BLURBS = [
   'Rebuild the dashboard but make it "pop".',
@@ -373,6 +363,7 @@ export function createTutorialProject(): Project {
   return {
     id: projectId,
     clientName: 'Friendly Neighbor App',
+    clientTagline: 'Hyperlocal. Hypothetical.',
     blurb: 'Tutorial gig. Refine each requirement into a task, then ship.',
     payment: TUTORIAL_PAYMENT,
     durationDays: 20,
@@ -401,9 +392,12 @@ export function generateLead(reputation: number): Lead {
     storyPoints * (4 + reputation * 0.3) * (isUnreasonable ? 0.75 : 1),
   )
 
+  const client = pickJokeClient()
+
   return {
     id: uid('lead'),
-    clientName: pick(CLIENTS),
+    clientName: client.name,
+    clientTagline: client.tagline,
     blurb: pick(BLURBS),
     payment,
     durationDays,
@@ -421,6 +415,7 @@ export function createProjectFromLead(lead: Lead): Project {
   return {
     id: projectId,
     clientName: lead.clientName,
+    clientTagline: lead.clientTagline,
     blurb: lead.blurb,
     payment: lead.payment,
     durationDays: lead.durationDays,

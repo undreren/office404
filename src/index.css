@@ -1029,6 +1029,13 @@ body {
   font-size: 0.85rem;
 }
 
+.client-tagline {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-style: italic;
+  margin: 0.15rem 0 0.35rem;
+}
+
 .lead-card p {
   font-size: 0.75rem;
   color: var(--text-dim);
