@@ -243,7 +243,8 @@ function unassignAgentFromRole(
   options?: { force?: boolean },
 ): { agents: Agent[]; projects: Project[] } | null {
   const inRole = projectAgents(projectId, job, agents)
-  const candidates = options?.force ? inRole : inRole.filter((a) => !isAgentBusy(a))
+  const idleInRole = inRole.filter((a) => !isAgentBusy(a))
+  const candidates = idleInRole.length > 0 ? idleInRole : options?.force ? inRole : []
   const victim = candidates[candidates.length - 1]
   if (!victim) return null
 
@@ -1382,6 +1383,10 @@ export function modelSpPerTick(
 ): number {
   const params = agentParamsFor(state, 'code')
   return storyPointProgressPerTick(params)
+}
+
+export function canStaffAdditionalAgent(state: GameStore): boolean {
+  return hasUnassignedAgent(state.agents) || canSpawnAgent(state)
 }
 
 export function agentCapacity(state: GameStore): { used: number; max: number; totalRam: number; totalGpus: number } {
