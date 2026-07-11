@@ -342,6 +342,46 @@ export function ProjectsPanel() {
                         </span>
                       </button>
 
+                      {comments.length > 0 && (
+                        <ul className="review-comment-list">
+                          {comments.map((comment) => {
+                            const commentPct =
+                              (comment.storyPointsEarned / comment.storyPointsRequired) * 100
+                            const commentCoder = agents.find(
+                              (a) => a.job === 'code' && a.taskId === comment.id,
+                            )
+                            const addressed =
+                              comment.storyPointsEarned >= comment.storyPointsRequired
+
+                            return (
+                              <li
+                                key={comment.id}
+                                className={`review-comment ${addressed ? 'review-comment--resolved' : ''}`}
+                              >
+                                <div className="review-comment__header">
+                                  <span className="review-comment__label">Review comment</span>
+                                  {addressed && (
+                                    <span className="review-comment__status">addressed</span>
+                                  )}
+                                </div>
+                                <p className="review-comment__text">"{comment.title}"</p>
+                                <div className="meter meter--sm">
+                                  <div
+                                    className="meter__fill meter__fill--code"
+                                    style={{ width: `${commentPct}%` }}
+                                  />
+                                </div>
+                                <span className="task-sp">
+                                  {formatStoryPoints(comment.storyPointsEarned)} /{' '}
+                                  {formatStoryPoints(comment.storyPointsRequired)} SP
+                                  {commentCoder && ` · ${commentCoder.name} fixing`}
+                                </span>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+
                       {task.status === 'pr_ready' && (
                         <div className="assign-row">
                           <button
