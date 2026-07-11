@@ -19,7 +19,12 @@ import {
   visibleRequirements,
 } from '../game/projects'
 import type { Agent, AgentJob, Project, Requirement, Task } from '../game/types'
-import { agentCapacity, isReadyToDeliver, projectProgressPct, useGameStore } from '../game/store'
+import {
+  canStaffAdditionalAgent,
+  isReadyToDeliver,
+  projectProgressPct,
+  useGameStore,
+} from '../game/store'
 
 const STAFF_JOBS: { job: AgentJob; label: string }[] = [
   { job: 'refine', label: 'Refine' },
@@ -302,8 +307,7 @@ export function ProjectsPanel() {
   const adjustCrewCap = useGameStore((s) => s.adjustCrewCap)
   const toggleConductor = useGameStore((s) => s.toggleConductor)
 
-  const { max } = agentCapacity(state)
-  const canSpawn = agents.length < max
+  const canStaff = canStaffAdditionalAgent(state)
   const conductorUnlocked = hasConductorCourse(vibingCourses)
 
   function projectAgents(projectId: string, job: AgentJob) {
@@ -432,7 +436,7 @@ export function ProjectsPanel() {
                     job="conductor"
                     label="Conductor"
                     count={project.roleCounts.conductor}
-                    canAdd={canSpawn && project.roleCounts.conductor < 1}
+                    canAdd={canStaff && project.roleCounts.conductor < 1}
                     agents={projectAgents(project.id, 'conductor')}
                     project={project}
                   />
@@ -464,7 +468,7 @@ export function ProjectsPanel() {
                     job={job}
                     label={label}
                     count={project.roleCounts[job]}
-                    canAdd={canSpawn}
+                    canAdd={canStaff}
                     agents={projectAgents(project.id, job)}
                     project={project}
                   />
