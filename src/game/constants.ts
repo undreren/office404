@@ -20,8 +20,6 @@ export const AGENT_SKILL_REFERENCE_PARAMS = 4
 export const REVIEW_CODE_TIME_FRACTION = 0.5
 export const REFINE_SPEED_MULTIPLIER = 10
 export const TEST_SPEED_MULTIPLIER = 5
-export const TEST_DIFFICULTY_SP = 5
-
 export const REVIEW_COMMENT_SP = 0.5
 export const PR_QUALITY_PER_COMMENT = 10
 export const JUST_MERGE_PR_QUALITY = 20
