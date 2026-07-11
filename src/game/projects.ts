@@ -1,5 +1,5 @@
 import type { Agent, AgentJob, Lead, Project, Requirement, StaffJob, Task } from './types'
-import { TUTORIAL_PAYMENT } from './constants'
+import { MIN_PROJECT_DAYS, TUTORIAL_PAYMENT } from './constants'
 import { pickJokeClient } from './clients'
 import {
   agentIsBusy,
@@ -379,14 +379,15 @@ export function createTutorialProject(): Project {
   }
 }
 
-export function generateLead(reputation: number): Lead {
+export function generateLead(reputation: number, gameDay: number): Lead {
   const repFactor = Math.max(1, reputation / 10)
+  const dayFactor = 1 + Math.pow(gameDay / 100, 1.2) * 0.5
   const isUnreasonable = reputation > 25
 
-  const storyPoints = pickLeadFibonacci(reputation)
+  const storyPoints = pickLeadFibonacci(reputation, gameDay)
   const durationDays = Math.max(
-    8,
-    Math.round((isUnreasonable ? randInt(10, 18) : randInt(15, 35)) / repFactor),
+    MIN_PROJECT_DAYS,
+    Math.round((isUnreasonable ? randInt(10, 18) : randInt(15, 35)) / (repFactor * dayFactor)),
   )
   const payment = Math.round(
     storyPoints * (4 + reputation * 0.3) * (isUnreasonable ? 0.75 : 1),
@@ -403,14 +404,26 @@ export function generateLead(reputation: number): Lead {
     durationDays,
     totalStoryPoints: storyPoints,
     daysToExpire: randInt(3, 8),
+    spawnedGameDay: gameDay,
     status: 'available',
     repRequired: Math.max(0, randInt(0, Math.floor(reputation * 0.6))),
   }
 }
 
-export function createProjectFromLead(lead: Lead): Project {
+/** Days waited on a lead before accepting — each day shaves one day off the project deadline. */
+export function leadDaysWaited(lead: Lead, acceptGameDay: number): number {
+  const spawned = lead.spawnedGameDay ?? acceptGameDay
+  return Math.max(0, Math.floor(acceptGameDay - spawned))
+}
+
+export function effectiveLeadDuration(lead: Lead, acceptGameDay: number): number {
+  return Math.max(MIN_PROJECT_DAYS, lead.durationDays - leadDaysWaited(lead, acceptGameDay))
+}
+
+export function createProjectFromLead(lead: Lead, acceptGameDay: number): Project {
   const projectId = uid('proj')
   const sp = lead.totalStoryPoints
+  const effectiveDuration = effectiveLeadDuration(lead, acceptGameDay)
 
   return {
     id: projectId,
@@ -418,10 +431,10 @@ export function createProjectFromLead(lead: Lead): Project {
     clientTagline: lead.clientTagline,
     blurb: lead.blurb,
     payment: lead.payment,
-    durationDays: lead.durationDays,
-    daysRemaining: lead.durationDays,
+    durationDays: effectiveDuration,
+    daysRemaining: effectiveDuration,
     isTutorial: false,
-    repPenaltyMultiplier: 1 + lead.durationDays / 40,
+    repPenaltyMultiplier: 1 + effectiveDuration / 40,
     ...defaultProjectFields(projectId, sp),
   }
 }

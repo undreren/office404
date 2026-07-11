@@ -1,8 +1,10 @@
 import { useGameStore } from '../game/store'
+import { effectiveLeadDuration } from '../game/projects'
 
 export function LeadsPanel() {
   const leads = useGameStore((s) => s.leads)
   const reputation = useGameStore((s) => s.reputation)
+  const gameDay = useGameStore((s) => s.gameDay)
   const projects = useGameStore((s) => s.projects)
   const acceptLead = useGameStore((s) => s.acceptLead)
   const rejectLead = useGameStore((s) => s.rejectLead)
@@ -18,6 +20,8 @@ export function LeadsPanel() {
 
       {available.map((lead) => {
         const canAccept = reputation >= lead.repRequired && projects.length < 4
+        const effectiveDays = effectiveLeadDuration(lead, gameDay)
+        const waitPenalty = lead.durationDays - effectiveDays
         return (
           <article key={lead.id} className="lead-card">
             <header>
@@ -30,7 +34,10 @@ export function LeadsPanel() {
             <p>{lead.blurb}</p>
             <ul className="lead-stats">
               <li>{lead.totalStoryPoints} SP total</li>
-              <li>{lead.durationDays} day deadline</li>
+              <li>
+                {effectiveDays} day deadline
+                {waitPenalty > 0 && ` (−${waitPenalty}d for waiting)`}
+              </li>
               <li>${lead.payment} on completion</li>
               {lead.repRequired > 0 && <li>{lead.repRequired} rep required</li>}
             </ul>

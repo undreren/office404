@@ -9,6 +9,9 @@ import {
   REFINE_SPEED_MULTIPLIER,
   REVIEW_CODE_TIME_FRACTION,
   SECONDS_PER_GAME_DAY,
+  LEAD_SPAWN_INTERVAL_DAYS,
+  LEAD_SPAWN_INTERVAL_MIN_DAYS,
+  SP_PROGRESS_DAY_DIVISOR,
   SP_PROGRESS_PER_B_PARAM,
   TEST_SPEED_MULTIPLIER,
 } from './constants'
@@ -31,31 +34,56 @@ export function formatStoryPoints(sp: number): string {
   return sp % 1 === 0 ? String(sp) : sp.toFixed(1)
 }
 
-export function storyPointProgressPerTick(parameters: number): number {
-  return parameters * SP_PROGRESS_PER_B_PARAM
+/** Polynomial SP/day growth — productivity rises as the calendar advances. */
+export function spProgressTimeMultiplier(gameDay: number): number {
+  const t = gameDay / SP_PROGRESS_DAY_DIVISOR
+  return 1 + t * t
+}
+
+export function storyPointProgressPerTick(parameters: number, gameDay = 0): number {
+  return parameters * SP_PROGRESS_PER_B_PARAM * spProgressTimeMultiplier(gameDay)
 }
 
 export function storyPointIncrement(
   required: number,
   earned: number,
   parameters: number,
+  gameDay = 0,
 ): number {
   const remaining = required - earned
   if (remaining <= 0) return 0
-  const step = storyPointProgressPerTick(parameters)
+  const step = storyPointProgressPerTick(parameters, gameDay)
   return Math.min(remaining, step)
 }
 
-export function pickLeadFibonacci(reputation: number): number {
-  let pool: number[]
-  if (reputation < 10) pool = [3, 4, 5]
-  else if (reputation < 25) pool = [8, 13]
-  else pool = [13, 21, 34]
+/** Reputation and calendar push lead sizes upward over time. */
+export function pickLeadFibonacci(reputation: number, gameDay = 0): number {
+  let minIdx: number
+  if (reputation < 10) minIdx = 3
+  else if (reputation < 25) minIdx = 5
+  else minIdx = 6
+
+  const repBoost = Math.floor(reputation / 15)
+  const dayBoost = Math.floor(Math.pow(gameDay / 50, 1.3))
+  const maxIdx = Math.min(FIBONACCI.length - 1, minIdx + 2 + repBoost + dayBoost)
+
+  const pool: number[] = []
+  for (let i = minIdx; i <= maxIdx; i++) {
+    pool.push(FIBONACCI[i])
+  }
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
-export function formatSpPerTick(parameters: number): string {
-  return `${storyPointProgressPerTick(parameters).toFixed(1)} SP/tick`
+/** Higher reputation and later calendar → leads arrive more often. */
+export function leadSpawnIntervalDays(reputation: number, gameDay: number): number {
+  const repFactor = 1 + reputation / 20
+  const dayFactor = 1 + Math.pow(gameDay / 90, 1.5) * 0.75
+  const interval = LEAD_SPAWN_INTERVAL_DAYS / (repFactor * dayFactor)
+  return Math.max(LEAD_SPAWN_INTERVAL_MIN_DAYS, interval)
+}
+
+export function formatSpPerTick(parameters: number, gameDay = 0): string {
+  return `${storyPointProgressPerTick(parameters, gameDay).toFixed(1)} SP/tick`
 }
 
 /** Base PR quality when coding completes (0–100). */
@@ -112,10 +140,11 @@ export function testStoryPointIncrement(
   required: number,
   earned: number,
   parameters: number,
+  gameDay = 0,
 ): number {
   const remaining = required - earned
   if (remaining <= 0) return 0
-  const step = storyPointProgressPerTick(parameters) * TEST_SPEED_MULTIPLIER
+  const step = storyPointProgressPerTick(parameters, gameDay) * TEST_SPEED_MULTIPLIER
   return Math.min(remaining, step)
 }
 

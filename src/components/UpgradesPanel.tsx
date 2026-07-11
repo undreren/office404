@@ -8,6 +8,7 @@ export function UpgradesPanel() {
   const state = useGameStore()
   const {
     cash,
+    gameDay,
     apartment,
     purchasedRamUpgrades,
     purchasedGpuUpgrades,
@@ -117,7 +118,7 @@ export function UpgradesPanel() {
           </header>
           <p className="vendor-tagline">{currentModel.tagline}</p>
           <ul className="vendor-stats">
-            <li>{formatSpPerTick(currentModel.parameters)}</li>
+            <li>{formatSpPerTick(currentModel.parameters, gameDay)}</li>
             <li>{currentModel.contextSize}k context</li>
           </ul>
           {nextModel && (
