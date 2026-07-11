@@ -33,7 +33,10 @@ export const EXPIRED_LEAD_REP_PENALTY = 2
 export const ON_TIME_REP_BONUS = 4
 
 /** Real seconds to auto-compact and reset context after overflow. */
-export const COMPACT_DURATION_SEC = 5
+export const COMPACT_DURATION_SEC = 30
+
+/** Story points earned per tick per billion model parameters. */
+export const SP_PROGRESS_PER_B_PARAM = 0.1
 
 export const LEAD_SPAWN_INTERVAL_DAYS = 4
 export const MAX_ACTIVE_PROJECTS = 4

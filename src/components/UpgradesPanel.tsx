@@ -1,6 +1,6 @@
 import { APARTMENT_CONFIG } from '../game/constants'
 import { FINE_TUNE_COST, FINE_TUNE_LABELS, FINE_TUNE_ROLES, MODEL_TIERS, fineTuneId } from '../game/models'
-import { canUpgradeModelTier, formatSuccessPct } from '../game/mechanics'
+import { canUpgradeModelTier, formatSpPerTick } from '../game/mechanics'
 import { GPU_UPGRADES, getVisibleTrackUpgrades, housingMeetsRequirement, RAM_UPGRADES, VIBING_COURSES } from '../game/upgrades'
 import { agentCapacity, getNextApartment, useGameStore } from '../game/store'
 
@@ -117,7 +117,7 @@ export function UpgradesPanel() {
           </header>
           <p className="vendor-tagline">{currentModel.tagline}</p>
           <ul className="vendor-stats">
-            <li>{formatSuccessPct(currentModel.parameters / (currentModel.parameters + 1))} on 1 SP</li>
+            <li>{formatSpPerTick(currentModel.parameters)}</li>
             <li>{currentModel.contextSize}k context</li>
           </ul>
           {nextModel && (
