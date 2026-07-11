@@ -66,6 +66,7 @@ import {
   hasConductorCourse,
   hasPromptEngineering,
   jobStatusFor,
+  leadSpawnIntervalDays,
   maxAgents,
   prQualityAfterComments,
   refineJobDurationDays,
@@ -398,6 +399,7 @@ function tryProgressTask(
   taskId: string,
   completedByAgentId: string | null,
   authorParams: number,
+  gameDay: number,
   promptEngineering = false,
   progressScale = 1,
 ): { projects: Project[]; becameDone: boolean; becamePrReady: boolean } {
@@ -410,6 +412,7 @@ function tryProgressTask(
       t.storyPointsRequired,
       t.storyPointsEarned,
       authorParams * progressScale,
+      gameDay,
     )
     const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + increment)
     const complete = earned >= t.storyPointsRequired
@@ -618,8 +621,8 @@ export const useGameStore = create<GameStore>()(
           }
 
           if (leadSpawnCooldown <= 0 && nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS) {
-            nextLeads = [generateLead(reputation), ...nextLeads]
-            leadSpawnCooldown = LEAD_SPAWN_INTERVAL_DAYS
+            nextLeads = [generateLead(reputation, gameDay), ...nextLeads]
+            leadSpawnCooldown = leadSpawnIntervalDays(reputation, gameDay)
             nextEvents = pushEvent(nextEvents, 'lead', 'New client lead appeared. They want it yesterday.')
           }
 
@@ -745,6 +748,7 @@ export const useGameStore = create<GameStore>()(
                 agent.taskId!,
                 agent.id,
                 params,
+                gameDay,
                 hasPromptEngineering(vibingCourses),
                 baseSpeed,
               )
@@ -949,6 +953,7 @@ export const useGameStore = create<GameStore>()(
                 testTask.storyPointsRequired,
                 testTask.testStoryPointsEarned,
                 params * baseSpeed,
+                gameDay,
               )
               const testEarned = Math.min(
                 testTask.storyPointsRequired,
@@ -1061,11 +1066,18 @@ export const useGameStore = create<GameStore>()(
           if (state.reputation < lead.repRequired) return
           if (state.projects.length >= MAX_ACTIVE_PROJECTS) return
 
-          const project = createProjectFromLead(lead)
+          const project = createProjectFromLead(lead, state.gameDay)
+          const daysWaited = Math.max(0, Math.floor(state.gameDay - (lead.spawnedGameDay ?? state.gameDay)))
+          const waitNote =
+            daysWaited > 0 ? ` (${daysWaited}d wait shaved ${daysWaited}d off deadline)` : ''
           set({
             projects: [...state.projects, project],
             leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
-            events: pushEvent(state.events, 'lead', `Accepted ${lead.clientName}. Regret incoming.`),
+            events: pushEvent(
+              state.events,
+              'lead',
+              `Accepted ${lead.clientName}. ${project.durationDays}d to deliver.${waitNote}`,
+            ),
           })
         },
 
@@ -1335,7 +1347,7 @@ export const useGameStore = create<GameStore>()(
     },
     {
       name: SAVE_KEY,
-      version: 2,
+      version: 3,
       migrate: () => createInitialState() as unknown as GameStore,
       partialize: (state) => ({
         phase: state.phase,
@@ -1397,10 +1409,10 @@ export function isReadyToDeliver(project: Project): boolean {
 }
 
 export function modelSpPerTick(
-  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>,
+  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes' | 'gameDay'>,
 ): number {
   const params = agentParamsFor(state, 'code')
-  return storyPointProgressPerTick(params)
+  return storyPointProgressPerTick(params, state.gameDay)
 }
 
 export function canStaffAdditionalAgent(state: GameStore): boolean {

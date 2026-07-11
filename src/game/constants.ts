@@ -1,5 +1,5 @@
 export const TICK_INTERVAL_MS = 1000
-export const SAVE_KEY = 'office404-save-v6'
+export const SAVE_KEY = 'office404-save-v7'
 export const MAX_EVENTS = 50
 
 /** 60 real seconds = 1 in-game day */
@@ -37,8 +37,14 @@ export const COMPACT_DURATION_SEC = 30
 export const SP_PROGRESS_PER_B_PARAM = 0.1
 
 export const LEAD_SPAWN_INTERVAL_DAYS = 4
+/** Floor for reputation- and time-accelerated lead cadence. */
+export const LEAD_SPAWN_INTERVAL_MIN_DAYS = 1.5
 export const MAX_ACTIVE_PROJECTS = 4
 export const MAX_LEADS = 3
+/** Minimum project deadline after wait-time penalties. */
+export const MIN_PROJECT_DAYS = 5
+/** gameDay divisor inside the polynomial SP/day growth curve. */
+export const SP_PROGRESS_DAY_DIVISOR = 60
 
 export const TUTORIAL_PAYMENT = 200
 

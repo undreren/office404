@@ -132,6 +132,8 @@ export interface Lead {
   durationDays: number
   totalStoryPoints: number
   daysToExpire: number
+  /** gameDay when this lead appeared — used to shrink deadline on late accept. */
+  spawnedGameDay: number
   status: LeadStatus
   repRequired: number
 }
