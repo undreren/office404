@@ -26,9 +26,8 @@ import {
   projectHasRefineWork,
   projectHasTestWork,
   projectRoleHasWork,
-  requirementToTask,
+  refineRequirementToTasks,
   resolvedReviewComments,
-  splitRequirementToTasks,
   syncTestScope,
   taskIsTested,
   taskNeedsTesting,
@@ -810,45 +809,26 @@ export const useGameStore = create<GameStore>()(
 
               agent.jobProgress += dayProgress * baseSpeed
               if (agent.jobProgress >= agent.jobDuration) {
-                if (splitMode && target.storyPoints >= 2) {
-                  const [a, b] = splitRequirementToTasks(target)
-                  nextProjects = nextProjects.map((p) =>
-                    p.id === project.id
-                      ? {
-                          ...p,
-                          requirements: p.requirements.map((r) =>
-                            r.id === target.id ? { ...r, status: 'split' as const } : r,
-                          ),
-                          tasks: [...p.tasks, a, b],
-                        }
-                      : p,
-                  )
-                  if (!selectedTaskId) selectedTaskId = a.id
-                  nextEvents = pushEvent(
-                    nextEvents,
-                    'project',
-                    `${agent.name} split "${target.title}" into two ${formatStoryPoints(target.storyPoints / 2)} SP tasks.`,
-                  )
-                } else {
-                  const task = requirementToTask(target)
-                  nextProjects = nextProjects.map((p) =>
-                    p.id === project.id
-                      ? {
-                          ...p,
-                          requirements: p.requirements.map((r) =>
-                            r.id === target.id ? { ...r, status: 'refined' as const } : r,
-                          ),
-                          tasks: [...p.tasks, task],
-                        }
-                      : p,
-                  )
-                  if (!selectedTaskId) selectedTaskId = task.id
-                  nextEvents = pushEvent(
-                    nextEvents,
-                    'project',
-                    `${agent.name} refined "${target.title}" into a ${formatStoryPoints(task.storyPointsRequired)} SP task.`,
-                  )
-                }
+                const preferSplit = hasPromptEngineering(vibingCourses)
+                const newTasks = refineRequirementToTasks(target, { preferSplit })
+                const refinedStatus = newTasks.length > 1 ? ('split' as const) : ('refined' as const)
+                nextProjects = nextProjects.map((p) =>
+                  p.id === project.id
+                    ? {
+                        ...p,
+                        requirements: p.requirements.map((r) =>
+                          r.id === target.id ? { ...r, status: refinedStatus } : r,
+                        ),
+                        tasks: [...p.tasks, ...newTasks],
+                      }
+                    : p,
+                )
+                if (!selectedTaskId) selectedTaskId = newTasks[0].id
+                const taskSummary =
+                  newTasks.length > 1
+                    ? `split "${target.title}" into ${newTasks.length} tasks (${newTasks.map((t) => formatStoryPoints(t.storyPointsRequired)).join(' + ')} SP)`
+                    : `refined "${target.title}" into "${newTasks[0].title}" (${formatStoryPoints(newTasks[0].storyPointsRequired)} SP)`
+                nextEvents = pushEvent(nextEvents, 'project', `${agent.name} ${taskSummary}.`)
                 agent.jobProgress = 0
                 agent.taskId = null
               }
@@ -1279,7 +1259,7 @@ export const useGameStore = create<GameStore>()(
     },
     {
       name: SAVE_KEY,
-      version: 1,
+      version: 2,
       migrate: () => createInitialState() as unknown as GameStore,
       partialize: (state) => ({
         phase: state.phase,

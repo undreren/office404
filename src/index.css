@@ -831,18 +831,64 @@ body {
 
 .requirement-item {
   display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.35rem;
   font-size: 0.75rem;
-  padding: 0.35rem 0.5rem;
+  padding: 0.45rem 0.55rem;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.45rem;
+}
+
+.requirement-item__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.requirement-item__title {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.requirement-item__meta {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.requirement-item--refined,
+.requirement-item--split {
+  border-color: color-mix(in srgb, var(--border) 80%, var(--accent) 20%);
+}
+
+.meter-row--nested {
+  margin: 0;
+  gap: 0.35rem;
+}
+
+.meter-row--nested label {
+  font-size: 0.6rem;
+  min-width: 4.5rem;
+}
+
+.task-list--nested {
+  margin-top: 0.15rem;
+  margin-left: 0.35rem;
+  padding-left: 0.45rem;
+  border-left: 2px solid var(--border);
+}
+
+.task-item--bug {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border) 65%);
 }
 
 .requirement-item--refined {
-  opacity: 0.55;
+  opacity: 1;
 }
 
 .project-crew {

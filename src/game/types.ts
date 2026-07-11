@@ -73,6 +73,8 @@ export interface Requirement {
 export interface Task {
   id: string
   projectId: string
+  /** Requirement this task was refined from (bug fixes inherit from source). */
+  requirementId: string | null
   title: string
   storyPointsRequired: number
   storyPointsEarned: number

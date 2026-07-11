@@ -7,6 +7,7 @@ import {
   pickLeadFibonacci,
   reviewCommentSpawnCount,
 } from './mechanics'
+import { pickBugDescription, pickSubtaskTitles } from './refinementContent'
 
 const CLIENTS = [
   'Nexus Dynamics',
@@ -304,10 +305,12 @@ export function createTask(
   storyPoints: number,
   complexity: number,
   parentTaskId: string | null = null,
+  requirementId: string | null = null,
 ): Task {
   return {
     id: uid('task'),
     projectId,
+    requirementId,
     title,
     storyPointsRequired: storyPoints,
     storyPointsEarned: 0,
@@ -433,17 +436,152 @@ export function canRefineRequirement(requirement: Requirement): boolean {
 }
 
 export function requirementToTask(requirement: Requirement): Task {
-  const sp = requirement.storyPoints
-  return createTask(requirement.projectId, requirement.title, sp, fibIndex(sp))
+  const [task] = refineRequirementToTasks(requirement, { preferSplit: false, forceSingle: true })
+  return task
 }
 
-/** Split one requirement into two equal-SP tasks (Prompt Engineering). */
+/** Split one requirement into two equal-SP tasks (legacy Prompt Engineering path). */
 export function splitRequirementToTasks(requirement: Requirement): Task[] {
-  const half = requirement.storyPoints / 2
-  return [
-    createTask(requirement.projectId, `${requirement.title} (1)`, half, fibIndex(half)),
-    createTask(requirement.projectId, `${requirement.title} (2)`, half, fibIndex(half)),
-  ]
+  return refineRequirementToTasks(requirement, { preferSplit: true, forceSplit: true })
+}
+
+function splitStoryPoints(total: number): [number, number] | null {
+  const idx = fibIndex(total)
+  if (idx < 2 || total < 2) return null
+  const spA = FIBONACCI[idx - 1]
+  const spB = total - spA
+  if (spB <= 0 || !FIBONACCI.includes(spB as (typeof FIBONACCI)[number])) return null
+  return [spA, spB]
+}
+
+export function refineRequirementToTasks(
+  requirement: Requirement,
+  options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean } = {},
+): Task[] {
+  const { preferSplit = false, forceSplit = false, forceSingle = false } = options
+  const sp = requirement.storyPoints
+
+  let shouldSplit = false
+  if (!forceSingle && sp >= 2) {
+    if (forceSplit) {
+      shouldSplit = splitStoryPoints(sp) !== null
+    } else {
+      const splitChance = preferSplit ? 0.85 : 0.4
+      shouldSplit = Math.random() < splitChance && splitStoryPoints(sp) !== null
+    }
+  }
+
+  if (shouldSplit) {
+    const parts = splitStoryPoints(sp)!
+    const titles = pickSubtaskTitles(requirement.title, 2)
+    return [
+      createTask(requirement.projectId, titles[0], parts[0], fibIndex(parts[0]), null, requirement.id),
+      createTask(requirement.projectId, titles[1], parts[1], fibIndex(parts[1]), null, requirement.id),
+    ]
+  }
+
+  const [title] = pickSubtaskTitles(requirement.title, 1)
+  return [createTask(requirement.projectId, title, sp, fibIndex(sp), null, requirement.id)]
+}
+
+export function tasksForRequirement(project: Project, requirementId: string): Task[] {
+  return project.tasks.filter((t) => t.requirementId === requirementId && !t.isReviewComment)
+}
+
+export function taskIsFullyComplete(task: Task): boolean {
+  return task.status === 'merged' && taskIsTested(task)
+}
+
+export function requirementHasOpenBugFix(project: Project, requirementId: string): boolean {
+  return tasksForRequirement(project, requirementId).some(
+    (t) => t.isBugFix && !taskIsFullyComplete(t),
+  )
+}
+
+export function requirementIsFullyComplete(project: Project, requirement: Requirement): boolean {
+  if (requirement.status === 'open') return false
+  const tasks = tasksForRequirement(project, requirement.id)
+  if (tasks.length === 0) return false
+  if (requirementHasOpenBugFix(project, requirement.id)) return false
+  return tasks.every(taskIsFullyComplete)
+}
+
+export function visibleRequirements(project: Project): Requirement[] {
+  return project.requirements.filter((r) => !requirementIsFullyComplete(project, r))
+}
+
+export function requirementTestPercent(project: Project, requirementId: string): number {
+  const merged = tasksForRequirement(project, requirementId).filter((t) => t.status === 'merged')
+  if (merged.length === 0) return 0
+  const required = merged.reduce((sum, t) => sum + t.storyPointsRequired, 0)
+  const completed = merged.reduce(
+    (sum, t) => sum + Math.min(t.testStoryPointsEarned, t.storyPointsRequired),
+    0,
+  )
+  return required > 0 ? (completed / required) * 100 : 0
+}
+
+export function requirementRefineProgressPct(
+  project: Project,
+  requirement: Requirement,
+  agents: Agent[],
+): number | null {
+  if (requirement.status !== 'open') return null
+  const refiner = agents.find(
+    (a) =>
+      a.job === 'refine' &&
+      a.projectId === project.id &&
+      a.taskId === requirement.id &&
+      a.jobDuration > 0,
+  )
+  if (!refiner) return null
+  return Math.min(100, (refiner.jobProgress / refiner.jobDuration) * 100)
+}
+
+export function taskLifecycleProgressPct(
+  task: Task,
+  project: Project,
+  agents: Agent[],
+): number {
+  if (task.isReviewComment) {
+    return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
+  }
+
+  if (task.status === 'open' || task.status === 'in_progress') {
+    return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
+  }
+
+  if (task.status === 'pr_ready') {
+    const reviewer = agents.find((a) => a.job === 'review' && a.taskId === task.id)
+    if (reviewer && reviewer.jobDuration > 0 && !task.reviewed) {
+      return Math.min(100, (reviewer.jobProgress / reviewer.jobDuration) * 100)
+    }
+    const comments = reviewCommentsOnTask(project, task.id)
+    if (comments.length > 0) {
+      const resolved = resolvedReviewComments(project, task.id).length
+      return Math.min(100, (resolved / comments.length) * 100)
+    }
+    return task.reviewed ? 100 : 0
+  }
+
+  if (task.status === 'merged') {
+    return Math.min(100, (task.testStoryPointsEarned / task.storyPointsRequired) * 100)
+  }
+
+  return 0
+}
+
+export function taskLifecycleLabel(task: Task, project: Project): string {
+  if (task.status === 'open' || task.status === 'in_progress') return 'coding'
+  if (task.status === 'pr_ready') {
+    const comments = reviewCommentsOnTask(project, task.id)
+    if (comments.length > 0 && !comments.every((c) => c.storyPointsEarned >= c.storyPointsRequired)) {
+      return 'addressing review'
+    }
+    return 'review'
+  }
+  if (task.status === 'merged' && taskNeedsTesting(task)) return 'testing'
+  return task.status.replace('_', ' ')
 }
 
 export function pickRefineTarget(
@@ -685,10 +823,11 @@ export function createBugFixTask(source: Task): Task {
   return {
     ...createTask(
       source.projectId,
-      `Fix: ${source.title}`,
+      pickBugDescription(),
       source.storyPointsRequired,
       source.complexity,
       source.id,
+      source.requirementId,
     ),
     isBugFix: true,
     sourceTaskId: source.id,

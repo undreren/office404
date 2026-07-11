@@ -6,12 +6,19 @@ import {
 } from '../game/mechanics'
 import {
   allImplementationMerged,
+  requirementRefineProgressPct,
+  requirementTestPercent,
   resolvedReviewComments,
   reviewCommentsOnTask,
   syncTestScope,
+  taskIsFullyComplete,
+  taskLifecycleLabel,
+  taskLifecycleProgressPct,
+  tasksForRequirement,
   untestedMergedTasks,
+  visibleRequirements,
 } from '../game/projects'
-import type { Agent, AgentJob, Project, Task } from '../game/types'
+import type { Agent, AgentJob, Project, Requirement, Task } from '../game/types'
 import { agentCapacity, isReadyToDeliver, projectProgressPct, useGameStore } from '../game/store'
 
 const STAFF_JOBS: { job: AgentJob; label: string }[] = [
@@ -21,8 +28,188 @@ const STAFF_JOBS: { job: AgentJob; label: string }[] = [
   { job: 'test', label: 'Test' },
 ]
 
-function topLevelTasks(project: Project): Task[] {
-  return project.tasks.filter((t) => !t.isReviewComment)
+function visibleTasksForRequirement(project: Project, requirementId: string): Task[] {
+  return tasksForRequirement(project, requirementId)
+    .filter((t) => !taskIsFullyComplete(t))
+    .sort((a, b) => {
+      if (a.isBugFix !== b.isBugFix) return a.isBugFix ? 1 : -1
+      return 0
+    })
+}
+
+function TaskCard({
+  task,
+  project,
+  agents,
+  selectedTaskId,
+  onSelect,
+  onJustMerge,
+}: {
+  task: Task
+  project: Project
+  agents: Agent[]
+  selectedTaskId: string | null
+  onSelect: (id: string) => void
+  onJustMerge: (id: string) => void
+}) {
+  const pct = taskLifecycleProgressPct(task, project, agents)
+  const phase = taskLifecycleLabel(task, project)
+  const isSelected = selectedTaskId === task.id
+  const comments = reviewCommentsOnTask(project, task.id)
+  const resolved = resolvedReviewComments(project, task.id).length
+
+  return (
+    <li
+      className={`task-item task-item--${task.status} ${isSelected ? 'task-item--selected' : ''} ${task.isBugFix ? 'task-item--bug' : ''}`}
+    >
+      <button type="button" className="task-select" onClick={() => onSelect(task.id)}>
+        <div className="task-item__top">
+          <strong>{task.title}</strong>
+          <span className="task-status">{phase}</span>
+        </div>
+        <div className="meter meter--sm">
+          <div className="meter__fill meter__fill--code" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="task-sp">
+          {Math.floor(pct)}% · {formatStoryPoints(task.storyPointsRequired)} SP
+          {task.isBugFix && ' · bug fix'}
+          {task.bugDiscovered && !task.isBugFix && ' · bug found'}
+          {task.status === 'merged' && task.prQuality !== null && (
+            <> · PR {Math.round(task.prQuality)}%</>
+          )}
+          {task.status === 'pr_ready' && !task.reviewed && ' · awaiting review'}
+          {task.status === 'pr_ready' && task.reviewed && (
+            <> · PR ~{Math.round(task.prQualityStaging)}%</>
+          )}
+          {task.status === 'pr_ready' && comments.length > 0 && (
+            <> · comments {resolved}/{comments.length}</>
+          )}
+        </span>
+      </button>
+
+      {comments.length > 0 && (
+        <ul className="review-comment-list">
+          {comments.map((comment) => {
+            const commentPct = taskLifecycleProgressPct(comment, project, agents)
+            const commentCoder = agents.find((a) => a.job === 'code' && a.taskId === comment.id)
+            const addressed = comment.storyPointsEarned >= comment.storyPointsRequired
+
+            return (
+              <li
+                key={comment.id}
+                className={`review-comment ${addressed ? 'review-comment--resolved' : ''}`}
+              >
+                <div className="review-comment__header">
+                  <span className="review-comment__label">Review comment</span>
+                  {addressed && <span className="review-comment__status">addressed</span>}
+                </div>
+                <p className="review-comment__text">"{comment.title}"</p>
+                <div className="meter meter--sm">
+                  <div
+                    className="meter__fill meter__fill--code"
+                    style={{ width: `${commentPct}%` }}
+                  />
+                </div>
+                <span className="task-sp">
+                  {Math.floor(commentPct)}% · {formatStoryPoints(comment.storyPointsRequired)} SP
+                  {commentCoder && ` · ${commentCoder.name} fixing`}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {task.status === 'pr_ready' && (
+        <div className="assign-row">
+          <button
+            type="button"
+            className="btn btn--small btn--danger"
+            onClick={() => onJustMerge(task.id)}
+          >
+            Just Merge
+          </button>
+        </div>
+      )}
+    </li>
+  )
+}
+
+function RequirementBlock({
+  requirement,
+  project,
+  agents,
+  selectedTaskId,
+  onSelect,
+  onJustMerge,
+}: {
+  requirement: Requirement
+  project: Project
+  agents: Agent[]
+  selectedTaskId: string | null
+  onSelect: (id: string) => void
+  onJustMerge: (id: string) => void
+}) {
+  const refinePct = requirementRefineProgressPct(project, requirement, agents)
+  const testPct = requirementTestPercent(project, requirement.id)
+  const tasks = visibleTasksForRequirement(project, requirement.id)
+  const hasRefinedTasks = requirement.status !== 'open'
+
+  return (
+    <li className={`requirement-item requirement-item--${requirement.status}`}>
+      <div className="requirement-item__header">
+        <span className="requirement-item__title">{requirement.title}</span>
+        <span className="requirement-item__meta">
+          {formatStoryPoints(requirement.storyPoints)} SP
+          {requirement.status === 'open' && ' · refining'}
+          {requirement.status === 'refined' && ' · in progress'}
+          {requirement.status === 'split' && ' · split'}
+        </span>
+      </div>
+
+      {requirement.status === 'open' && (
+        <div className="meter-row meter-row--nested">
+          <label>Refining</label>
+          <div className="meter meter--sm">
+            <div
+              className="meter__fill meter__fill--code"
+              style={{ width: `${refinePct ?? 0}%` }}
+            />
+          </div>
+          <span>{Math.floor(refinePct ?? 0)}%</span>
+        </div>
+      )}
+
+      {hasRefinedTasks && (
+        <div className="meter-row meter-row--nested">
+          <label>QA coverage</label>
+          <div className="meter meter--sm">
+            <div
+              className={`meter__fill meter__fill--sanity ${testPct < 100 ? '' : 'meter__fill--code'}`}
+              style={{ width: `${Math.min(100, testPct)}%` }}
+            />
+          </div>
+          <span>{Math.floor(testPct)}%</span>
+        </div>
+      )}
+
+      {tasks.length > 0 && (
+        <ul className="task-list task-list--nested">
+          {tasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              project={project}
+              agents={agents}
+              selectedTaskId={selectedTaskId}
+              onSelect={onSelect}
+              onJustMerge={onJustMerge}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
 }
 
 function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
@@ -139,9 +326,9 @@ export function ProjectsPanel() {
         const progress = projectProgressPct(project)
         const merged = project.tasks.filter((t) => t.status === 'merged' && !t.isReviewComment).length
         const readyToDeliver = isReadyToDeliver(project)
-        const openRequirements = project.requirements.filter((r) => r.status === 'open')
+        const requirements = visibleRequirements(project)
         const implMerged = allImplementationMerged(synced)
-        const tasks = topLevelTasks(project)
+        const totalTasks = project.tasks.filter((t) => !t.isReviewComment).length
 
         return (
           <article
@@ -173,42 +360,26 @@ export function ProjectsPanel() {
             </div>
 
             <div className="meter-row">
-              <label>Progress ({merged}/{tasks.length || '—'} merged)</label>
+              <label>Progress ({merged}/{totalTasks || '—'} merged)</label>
               <div className="meter">
                 <div className="meter__fill meter__fill--code" style={{ width: `${progress}%` }} />
               </div>
             </div>
 
-            {synced.testStoryPointsRequired > 0 && (
-              <div className="meter-row">
-                <label>
-                  Test coverage ({formatStoryPoints(synced.testStoryPointsCompleted)} /{' '}
-                  {formatStoryPoints(synced.testStoryPointsRequired)} SP)
-                </label>
-                <div className="meter">
-                  <div
-                    className={`meter__fill meter__fill--sanity ${synced.testPercent < 100 ? '' : 'meter__fill--code'}`}
-                    style={{ width: `${Math.min(100, synced.testPercent)}%` }}
-                  />
-                </div>
-                <span>{Math.floor(synced.testPercent)}%</span>
-              </div>
-            )}
-
-            {openRequirements.length > 0 && (
+            {requirements.length > 0 && (
               <div className="requirements-block">
-                <h4>Requirements ({openRequirements.length} open)</h4>
+                <h4>Requirements</h4>
                 <ul className="requirement-list">
-                  {project.requirements.map((req) => (
-                    <li
+                  {requirements.map((req) => (
+                    <RequirementBlock
                       key={req.id}
-                      className={`requirement-item requirement-item--${req.status}`}
-                    >
-                      <span>{req.title}</span>
-                      <span>
-                        {formatStoryPoints(req.storyPoints)} SP · {req.status}
-                      </span>
-                    </li>
+                      requirement={req}
+                      project={synced}
+                      agents={agents}
+                      selectedTaskId={selectedTaskId}
+                      onSelect={selectTask}
+                      onJustMerge={justMergePr}
+                    />
                   ))}
                 </ul>
               </div>
@@ -295,109 +466,6 @@ export function ProjectsPanel() {
                 ))
               )}
             </div>
-
-            {tasks.length > 0 && (
-              <ul className="task-list">
-                {tasks.map((task) => {
-                  const pct = (task.storyPointsEarned / task.storyPointsRequired) * 100
-                  const testPct =
-                    task.status === 'merged'
-                      ? (task.testStoryPointsEarned / task.storyPointsRequired) * 100
-                      : 0
-                  const isSelected = selectedTaskId === task.id
-                  const comments = reviewCommentsOnTask(project, task.id)
-                  const resolved = resolvedReviewComments(project, task.id).length
-
-                  return (
-                    <li
-                      key={task.id}
-                      className={`task-item task-item--${task.status} ${isSelected ? 'task-item--selected' : ''}`}
-                    >
-                      <button type="button" className="task-select" onClick={() => selectTask(task.id)}>
-                        <div className="task-item__top">
-                          <strong>{task.title}</strong>
-                          <span className="task-status">{task.status.replace('_', ' ')}</span>
-                        </div>
-                        <div className="meter meter--sm">
-                          <div className="meter__fill meter__fill--code" style={{ width: `${pct}%` }} />
-                        </div>
-                        <span className="task-sp">
-                          {formatStoryPoints(task.storyPointsEarned)} /{' '}
-                          {formatStoryPoints(task.storyPointsRequired)} SP
-                          {task.isBugFix && ' · bug fix'}
-                          {task.bugDiscovered && ' · bug found'}
-                          {task.status === 'merged' && task.prQuality !== null && (
-                            <> · PR {Math.round(task.prQuality)}%</>
-                          )}
-                          {task.status === 'merged' && testPct < 100 && (
-                            <> · QA {Math.floor(testPct)}%</>
-                          )}
-                          {task.status === 'pr_ready' && !task.reviewed && ' · awaiting review'}
-                          {task.status === 'pr_ready' && task.reviewed && (
-                            <> · PR ~{Math.round(task.prQualityStaging)}%</>
-                          )}
-                          {task.status === 'pr_ready' && comments.length > 0 && (
-                            <> · comments {resolved}/{comments.length}</>
-                          )}
-                        </span>
-                      </button>
-
-                      {comments.length > 0 && (
-                        <ul className="review-comment-list">
-                          {comments.map((comment) => {
-                            const commentPct =
-                              (comment.storyPointsEarned / comment.storyPointsRequired) * 100
-                            const commentCoder = agents.find(
-                              (a) => a.job === 'code' && a.taskId === comment.id,
-                            )
-                            const addressed =
-                              comment.storyPointsEarned >= comment.storyPointsRequired
-
-                            return (
-                              <li
-                                key={comment.id}
-                                className={`review-comment ${addressed ? 'review-comment--resolved' : ''}`}
-                              >
-                                <div className="review-comment__header">
-                                  <span className="review-comment__label">Review comment</span>
-                                  {addressed && (
-                                    <span className="review-comment__status">addressed</span>
-                                  )}
-                                </div>
-                                <p className="review-comment__text">"{comment.title}"</p>
-                                <div className="meter meter--sm">
-                                  <div
-                                    className="meter__fill meter__fill--code"
-                                    style={{ width: `${commentPct}%` }}
-                                  />
-                                </div>
-                                <span className="task-sp">
-                                  {formatStoryPoints(comment.storyPointsEarned)} /{' '}
-                                  {formatStoryPoints(comment.storyPointsRequired)} SP
-                                  {commentCoder && ` · ${commentCoder.name} fixing`}
-                                </span>
-                              </li>
-                            )
-                          })}
-                        </ul>
-                      )}
-
-                      {task.status === 'pr_ready' && (
-                        <div className="assign-row">
-                          <button
-                            type="button"
-                            className="btn btn--small btn--danger"
-                            onClick={() => justMergePr(task.id)}
-                          >
-                            Just Merge
-                          </button>
-                        </div>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
 
             {synced.testStoryPointsRequired > 0 && !readyToDeliver && synced.testPercent < 100 && (
               <p className="hint">
