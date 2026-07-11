@@ -252,6 +252,8 @@ function RoleCounter({
   project: Project
 }) {
   const adjustRoleCount = useGameStore((s) => s.adjustRoleCount)
+  const displayCount = Math.max(count, agents.length)
+  const canRemove = displayCount > 0
 
   return (
     <div className="crew-row">
@@ -261,12 +263,12 @@ function RoleCounter({
           <button
             type="button"
             className="btn btn--small"
-            disabled={count <= 0}
+            disabled={!canRemove}
             onClick={() => adjustRoleCount(projectId, job, -1)}
           >
             −
           </button>
-          <span className="crew-count">{count}</span>
+          <span className="crew-count">{displayCount}</span>
           <button
             type="button"
             className="btn btn--small"
