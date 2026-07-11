@@ -340,6 +340,9 @@ export function ProjectsPanel() {
             <header className="project-card__header">
               <div>
                 <h3>{project.clientName}</h3>
+                {project.clientTagline && (
+                  <p className="client-tagline">"{project.clientTagline}"</p>
+                )}
                 <p className="project-blurb">{project.blurb}</p>
               </div>
               <div className="project-meta">

@@ -101,6 +101,7 @@ export interface Task {
 export interface Project {
   id: string
   clientName: string
+  clientTagline: string
   blurb: string
   payment: number
   durationDays: number
@@ -125,6 +126,7 @@ export interface Project {
 export interface Lead {
   id: string
   clientName: string
+  clientTagline: string
   blurb: string
   payment: number
   durationDays: number
