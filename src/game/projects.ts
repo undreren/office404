@@ -351,7 +351,7 @@ function defaultProjectFields(projectId: string, sp: number) {
     tasks: [] as Task[],
     lateCount: 0,
     crewCap: 1,
-    roleCounts: { ...EMPTY_ROLE_COUNTS, refine: 1 },
+    roleCounts: { ...EMPTY_ROLE_COUNTS },
     useConductor: false,
   }
 }
