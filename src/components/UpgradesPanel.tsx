@@ -1,7 +1,7 @@
 import { APARTMENT_CONFIG } from '../game/constants'
 import { FINE_TUNE_COST, FINE_TUNE_LABELS, FINE_TUNE_ROLES, MODEL_TIERS, fineTuneId } from '../game/models'
 import { canUpgradeModelTier, formatSuccessPct } from '../game/mechanics'
-import { GPU_UPGRADES, housingMeetsRequirement, RAM_UPGRADES, VIBING_COURSES } from '../game/upgrades'
+import { GPU_UPGRADES, getVisibleTrackUpgrades, housingMeetsRequirement, RAM_UPGRADES, VIBING_COURSES } from '../game/upgrades'
 import { agentCapacity, getNextApartment, useGameStore } from '../game/store'
 
 export function UpgradesPanel() {
@@ -31,6 +31,9 @@ export function UpgradesPanel() {
     cash >= nextModel.upgradeCost &&
     canUpgradeModelTier(totalRam, modelTierIndex, state.agents.length)
 
+  const visibleRamUpgrades = getVisibleTrackUpgrades(RAM_UPGRADES, purchasedRamUpgrades)
+  const visibleGpuUpgrades = getVisibleTrackUpgrades(GPU_UPGRADES, purchasedGpuUpgrades)
+
   return (
     <section className="panel marketplace-panel">
       <h2>Upgrades</h2>
@@ -43,11 +46,7 @@ export function UpgradesPanel() {
             type="button"
             className="btn btn--deploy"
             onClick={() => upgradeApartment()}
-            disabled={
-              cash <
-              APARTMENT_CONFIG[nextApt].upgradeCost +
-                state.apartmentLeaseRemaining * APARTMENT_CONFIG[apartment].rent * 0.5
-            }
+            disabled={cash < APARTMENT_CONFIG[nextApt].upgradeCost}
           >
             Move to {APARTMENT_CONFIG[nextApt].label} ($
             {APARTMENT_CONFIG[nextApt].upgradeCost})
@@ -58,7 +57,7 @@ export function UpgradesPanel() {
       <div className="market-section">
         <h3>RAM Track</h3>
         <div className="vendor-list">
-          {RAM_UPGRADES.map((upgrade) => {
+          {visibleRamUpgrades.map((upgrade) => {
             const owned = purchasedRamUpgrades.includes(upgrade.id)
             const unlocked = housingMeetsRequirement(apartment, upgrade.housingRequired)
             return (
@@ -85,7 +84,7 @@ export function UpgradesPanel() {
       <div className="market-section">
         <h3>GPU Track</h3>
         <div className="vendor-list">
-          {GPU_UPGRADES.map((upgrade) => {
+          {visibleGpuUpgrades.map((upgrade) => {
             const owned = purchasedGpuUpgrades.includes(upgrade.id)
             const unlocked = housingMeetsRequirement(apartment, upgrade.housingRequired)
             return (
