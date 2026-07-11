@@ -224,8 +224,10 @@ function despawnAgentFromRole(
   projectId: string,
   job: AgentJob,
   projects: Project[],
+  options?: { force?: boolean },
 ): { agents: Agent[]; projects: Project[] } | null {
-  const candidates = projectAgents(projectId, job, agents).filter((a) => !isAgentBusy(a))
+  const inRole = projectAgents(projectId, job, agents)
+  const candidates = options?.force ? inRole : inRole.filter((a) => !isAgentBusy(a))
   const victim = candidates[candidates.length - 1]
   if (!victim) return null
 
@@ -1064,7 +1066,7 @@ export const useGameStore = create<GameStore>()(
           if (delta > 0 && !canSpawnAgent(state)) return
 
           if (delta < 0) {
-            const result = despawnAgentFromRole(state.agents, projectId, job, state.projects)
+            const result = despawnAgentFromRole(state.agents, projectId, job, state.projects, { force: true })
             if (!result) return
             set({
               agents: result.agents,
