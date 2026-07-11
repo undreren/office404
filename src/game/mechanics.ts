@@ -2,6 +2,7 @@ import {
   AGENT_SKILL_REFERENCE_PARAMS,
   BASE_GPU,
   BASE_RAM_GB,
+  COMPACT_DURATION_SEC,
   PLAYER_ACTION_BASE_DAYS,
   PR_QUALITY_PER_COMMENT,
   PROMPT_ENGINEERING_PR_BOOST,
@@ -135,6 +136,14 @@ export function contextFillPct(contextUsed: number, contextSizeK: number): numbe
   const contextTokens = contextSizeK * 1000
   if (contextTokens <= 0) return 0
   return (contextUsed / contextTokens) * 100
+}
+
+/** Context fill for UI — drains to 0% while auto-compacting. */
+export function displayContextFillPct(agent: Agent, contextSizeK: number): number {
+  if (agent.status === 'compacting' && COMPACT_DURATION_SEC > 0) {
+    return (agent.compactingRemainingSec / COMPACT_DURATION_SEC) * 100
+  }
+  return contextFillPct(agent.contextUsed, contextSizeK)
 }
 
 export function agentIsBusy(agent: Agent): boolean {

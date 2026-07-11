@@ -1212,6 +1212,15 @@ body {
   font-size: 0.65rem;
 }
 
+.agent-mini-card--compacting {
+  border-color: var(--danger);
+  animation: pulse-danger 1s ease infinite;
+}
+
+.agent-mini-card--compacting .agent-mini-card__ctx {
+  color: var(--danger);
+}
+
 .vendor-card--compact {
   padding: 0.5rem;
 }
