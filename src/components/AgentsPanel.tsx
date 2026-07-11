@@ -1,4 +1,4 @@
-import { contextFillPct, formatAgentDutyLabel } from '../game/mechanics'
+import { agentContextDisplayPct, formatAgentDutyLabel } from '../game/mechanics'
 import { MODEL_TIERS } from '../game/models'
 import { useGameStore } from '../game/store'
 import type { Task } from '../game/types'
@@ -37,14 +37,22 @@ export function AgentsPanel() {
         {agents.map((agent) => {
           const project = projects.find((p) => p.id === agent.projectId)
           const task = findTask(agent.taskId)
-          const fill = contextFillPct(agent.contextUsed, model.contextSize)
+          const fill = agentContextDisplayPct(agent, model.contextSize)
           const duty = formatAgentDutyLabel(agent, project?.clientName, task?.title)
+          const isCompacting = agent.status === 'compacting'
 
           return (
-            <li key={agent.id} className="agent-mini-card">
+            <li
+              key={agent.id}
+              className={`agent-mini-card${isCompacting ? ' agent-mini-card--compacting' : ''}`}
+            >
               <span className="agent-mini-card__name">{agent.name}</span>
               <span className="agent-mini-card__duty">{duty}</span>
-              <span className="agent-mini-card__ctx">{Math.floor(fill)}% ctx</span>
+              <span
+                className={`agent-mini-card__ctx${isCompacting ? ' agent-mini-card__ctx--draining' : ''}`}
+              >
+                {Math.floor(fill)}% ctx
+              </span>
             </li>
           )
         })}
