@@ -29,7 +29,7 @@ export function UpgradesPanel() {
   const canModelUpgrade =
     nextModel &&
     cash >= nextModel.upgradeCost &&
-    canUpgradeModelTier(totalRam, modelTierIndex, state.agents.length)
+    canUpgradeModelTier(totalRam, modelTierIndex)
 
   const visibleRamUpgrades = getVisibleTrackUpgrades(RAM_UPGRADES, purchasedRamUpgrades)
   const visibleGpuUpgrades = getVisibleTrackUpgrades(GPU_UPGRADES, purchasedGpuUpgrades)
