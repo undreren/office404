@@ -31,7 +31,7 @@ export function AgentsPanel() {
     <section className="panel agents-panel">
       <h2>Agents ({agents.length})</h2>
       <p className="hint">
-        All running {model.displayName} · spawn on assign, despawn on unassign
+        All running {model.displayName} · spawn on assign, bench on unassign (context preserved)
       </p>
       <ul className="agent-mini-list">
         {agents.map((agent) => {

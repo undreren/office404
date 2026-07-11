@@ -218,7 +218,24 @@ function projectAgents(projectId: string, job: AgentJob, agents: Agent[]): Agent
   return agents.filter((a) => a.projectId === projectId && a.job === job)
 }
 
-function despawnAgentFromRole(
+function assignAgentToRole(agent: Agent, projectId: string, job: AgentJob): Agent {
+  return {
+    ...agent,
+    job,
+    projectId,
+    taskId: null,
+    jobProgress: 0,
+    jobDuration: 0,
+    status:
+      agent.status === 'compacting'
+        ? 'compacting'
+        : job === 'conductor'
+          ? 'conducting'
+          : 'idle',
+  }
+}
+
+function unassignAgentFromRole(
   agents: Agent[],
   projectId: string,
   job: AgentJob,
@@ -240,22 +257,46 @@ function despawnAgentFromRole(
   }
 
   return {
-    agents: agents.filter((a) => a.id !== victim.id),
+    agents: agents.map((a) =>
+      a.id === victim.id
+        ? {
+            ...a,
+            job: null,
+            projectId: null,
+            taskId: null,
+            jobProgress: 0,
+            jobDuration: 0,
+            status: a.status === 'compacting' ? 'compacting' : 'idle',
+          }
+        : a,
+    ),
     projects: nextProjects,
   }
 }
 
-function spawnAgentForRole(
+function staffAgentForRole(
   state: GameStore,
+  agents: Agent[],
   projectId: string,
   job: AgentJob,
-): Agent | null {
-  if (!canSpawnAgent(state)) return null
+): { agents: Agent[]; agentId: string } | null {
+  const unassignedIdx = agents.findIndex((a) => a.job === null)
+  if (unassignedIdx >= 0) {
+    const next = [...agents]
+    const assigned = assignAgentToRole(next[unassignedIdx], projectId, job)
+    next[unassignedIdx] = assigned
+    return { agents: next, agentId: assigned.id }
+  }
+  if (!canSpawnAgent({ ...state, agents })) return null
   const agent = createAgent()
   agent.job = job
   agent.projectId = projectId
   agent.status = job === 'conductor' ? 'conducting' : 'idle'
-  return agent
+  return { agents: [...agents, agent], agentId: agent.id }
+}
+
+function hasUnassignedAgent(agents: Agent[]): boolean {
+  return agents.some((a) => a.job === null)
 }
 
 function mergeTaskOnProject(
@@ -394,12 +435,12 @@ function reconcileProjectStaffing(
     const hasConductor = conductors.length > 0
     const desiredConductor = project.roleCounts.conductor > 0 ? 1 : 0
 
-    if (desiredConductor > 0 && !hasConductor && canSpawnAgent({ ...state, agents: nextAgents })) {
-      const c = spawnAgentForRole({ ...state, agents: nextAgents }, project.id, 'conductor')
-      if (c) nextAgents.push(c)
+    if (desiredConductor > 0 && !hasConductor) {
+      const staffed = staffAgentForRole({ ...state, agents: nextAgents }, nextAgents, project.id, 'conductor')
+      if (staffed) nextAgents = staffed.agents
     }
     if (desiredConductor === 0 && hasConductor) {
-      const result = despawnAgentFromRole(nextAgents, project.id, 'conductor', state.projects)
+      const result = unassignAgentFromRole(nextAgents, project.id, 'conductor', state.projects)
       if (result) nextAgents = result.agents
     }
 
@@ -415,7 +456,7 @@ function reconcileProjectStaffing(
         w.status === 'idle' &&
         !projectRoleHasWork(project, w.job, w.id, nextAgents)
       ) {
-        const result = despawnAgentFromRole(nextAgents, project.id, w.job, state.projects)
+        const result = unassignAgentFromRole(nextAgents, project.id, w.job, state.projects)
         if (result) nextAgents = result.agents
       }
     }
@@ -428,7 +469,7 @@ function reconcileProjectStaffing(
       for (let i = 0; i < workersAfter.length - workerCap && idle.length > 0; i++) {
         const victim = idle.pop()!
         if (victim.job) {
-          const result = despawnAgentFromRole(nextAgents, project.id, victim.job, state.projects)
+          const result = unassignAgentFromRole(nextAgents, project.id, victim.job, state.projects)
           if (result) nextAgents = result.agents
         }
       }
@@ -442,14 +483,20 @@ function reconcileProjectStaffing(
       if (
         workersNow.length < workerCap &&
         projectRoleHasWork(project, role, 'conductor', nextAgents) &&
-        canSpawnAgent({ ...state, agents: nextAgents })
+        (hasUnassignedAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
       ) {
-        const spawned = spawnAgentForRole({ ...state, agents: nextAgents }, project.id, role)
-        if (spawned) {
-          spawned.status = projectRoleHasWork(project, role, spawned.id, nextAgents)
-            ? jobStatusFor(role)
-            : 'idle'
-          nextAgents.push(spawned)
+        const staffed = staffAgentForRole({ ...state, agents: nextAgents }, nextAgents, project.id, role)
+        if (staffed) {
+          nextAgents = staffed.agents.map((a) =>
+            a.id === staffed.agentId
+              ? {
+                  ...a,
+                  status: projectRoleHasWork(project, role, a.id, staffed.agents)
+                    ? jobStatusFor(role)
+                    : 'idle',
+                }
+              : a,
+          )
         }
       }
       void current
@@ -464,7 +511,7 @@ function reconcileProjectStaffing(
     if (current > desired) {
       let toRemove = current - desired
       while (toRemove > 0) {
-        const result = despawnAgentFromRole(nextAgents, project.id, role, state.projects)
+        const result = unassignAgentFromRole(nextAgents, project.id, role, state.projects)
         if (!result) break
         nextAgents = result.agents
         toRemove -= 1
@@ -473,19 +520,22 @@ function reconcileProjectStaffing(
 
     if (current < desired) {
       let toAdd = desired - projectAgents(project.id, role, nextAgents).length
-      while (toAdd > 0 && canSpawnAgent({ ...state, agents: nextAgents })) {
-        const spawned = spawnAgentForRole({ ...state, agents: nextAgents }, project.id, role)
-        if (!spawned) break
+      while (toAdd > 0) {
+        if (!hasUnassignedAgent(nextAgents) && !canSpawnAgent({ ...state, agents: nextAgents })) break
+        const staffed = staffAgentForRole({ ...state, agents: nextAgents }, nextAgents, project.id, role)
+        if (!staffed) break
+        nextAgents = staffed.agents
         if (role !== 'conductor') {
           const hasWork =
             role === 'refine'
               ? projectHasRefineWork(project)
               : role === 'test'
                 ? projectHasTestWork(project)
-                : projectRoleHasWork(project, role as StaffJob, spawned.id, nextAgents)
-          spawned.status = hasWork ? jobStatusFor(role) : 'idle'
+                : projectRoleHasWork(project, role as StaffJob, staffed.agentId, nextAgents)
+          nextAgents = nextAgents.map((a) =>
+            a.id === staffed.agentId ? { ...a, status: hasWork ? jobStatusFor(role) : 'idle' } : a,
+          )
         }
-        nextAgents.push(spawned)
         toAdd -= 1
       }
     }
@@ -1071,10 +1121,10 @@ export const useGameStore = create<GameStore>()(
           const project = state.projects.find((p) => p.id === projectId)
           if (!project) return
 
-          if (delta > 0 && !canSpawnAgent(state)) return
+          if (delta > 0 && !hasUnassignedAgent(state.agents) && !canSpawnAgent(state)) return
 
           if (delta < 0) {
-            const result = despawnAgentFromRole(state.agents, projectId, job, state.projects, { force: true })
+            const result = unassignAgentFromRole(state.agents, projectId, job, state.projects, { force: true })
             if (!result) return
             set({
               agents: result.agents,
