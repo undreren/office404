@@ -218,8 +218,6 @@ const SECTION_CONTENT: Record<ShopSectionId, () => ReactElement> = {
 
 export function UpgradesPanel() {
   const { shopIndex, setShopIndex } = useTabNav()
-  const section = SHOP_SECTIONS[shopIndex] ?? SHOP_SECTIONS[0]
-  const SectionContent = SECTION_CONTENT[section.id]
 
   return (
     <SwipeCarousel
@@ -227,8 +225,10 @@ export function UpgradesPanel() {
       onIndexChange={setShopIndex}
       headers={SHOP_SECTIONS.map((s) => ({ title: s.title, subtitle: s.subtitle }))}
       panelClassName="marketplace-panel"
-    >
-      <SectionContent />
-    </SwipeCarousel>
+      slides={SHOP_SECTIONS.map((section) => {
+        const SectionContent = SECTION_CONTENT[section.id]
+        return <SectionContent key={section.id} />
+      })}
+    />
   )
 }

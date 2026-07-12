@@ -501,16 +501,15 @@ export function ProjectsPanel() {
     subtitle: project.clientTagline ? `"${project.clientTagline}"` : undefined,
   }))
 
-  const activeProject = projects[projectIndex] ?? projects[0]
-
   return (
     <SwipeCarousel
       index={projectIndex}
       onIndexChange={setProjectIndex}
       headers={headers}
       panelClassName="projects-panel"
-    >
-      {activeProject && <ProjectCard key={activeProject.id} project={activeProject} />}
-    </SwipeCarousel>
+      slides={projects.map((project) => (
+        <ProjectCard key={project.id} project={project} />
+      ))}
+    />
   )
 }
