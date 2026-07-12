@@ -41,8 +41,8 @@ export const LEAD_SPAWN_INTERVAL_DAYS = 4
 export const LEAD_SPAWN_INTERVAL_MIN_DAYS = 1.5
 export const MAX_ACTIVE_PROJECTS = 4
 export const MAX_LEADS = 3
-/** Minimum project deadline after wait-time penalties. */
-export const MIN_PROJECT_DAYS = 5
+/** Minimum project deadline after wait-time penalties (two in-game weeks). */
+export const MIN_PROJECT_DAYS = 14
 /** gameDay divisor inside the polynomial SP/day growth curve. */
 export const SP_PROGRESS_DAY_DIVISOR = 60
 
