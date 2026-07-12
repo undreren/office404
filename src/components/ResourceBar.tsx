@@ -40,10 +40,10 @@ export function ResourceBar({ variant = 'full' }: ResourceBarProps) {
           </div>
           <div className="resource">
             <label>Retire Goal</label>
-            <div className="meter meter--sm">
+            <div className="meter">
               <div className="meter__fill meter__fill--code" style={{ width: `${winPct}%` }} />
             </div>
-            <span className="value value--sm">{Math.floor(winPct)}%</span>
+            <span>${Math.floor(netWorth).toLocaleString()} / $10M</span>
           </div>
         </div>
       </header>
