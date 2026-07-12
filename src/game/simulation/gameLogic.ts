@@ -205,6 +205,12 @@ function isAgentBusy(agent: Agent): boolean {
   return agentIsWorking(agent)
 }
 
+function isAgentStaffable(agent: Agent): boolean {
+  if (agent.job === null) return true
+  if (agent.job === 'conductor' || agent.status === 'compacting') return false
+  return !isAgentBusy(agent)
+}
+
 function agentIsWorking(agent: Agent): boolean {
   return (
     agent.status === 'working' ||
@@ -267,7 +273,6 @@ function unassignAgentFromRole(
     nextProjects = updateTask(nextProjects, victim.taskId, (t) => ({
       ...t,
       assignedAgentId: null,
-      status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
     }))
   }
 
@@ -295,24 +300,51 @@ function staffAgentForRole(
   agents: Agent[],
   projectId: string,
   job: AgentJob,
-): { agents: Agent[]; agentId: string } | null {
+  projects: Project[],
+): { agents: Agent[]; agentId: string; projects: Project[] } | null {
   const unassignedIdx = agents.findIndex((a) => a.job === null)
   if (unassignedIdx >= 0) {
     const next = [...agents]
     const assigned = assignAgentToRole(next[unassignedIdx], projectId, job)
     next[unassignedIdx] = assigned
-    return { agents: next, agentId: assigned.id }
+    return { agents: next, agentId: assigned.id, projects }
   }
+
+  const idleIdx = agents.findIndex(
+    (a) => a.job !== null && a.job !== job && a.job !== 'conductor' && !isAgentBusy(a),
+  )
+  if (idleIdx >= 0) {
+    const next = [...agents]
+    const donor = next[idleIdx]!
+    const oldJob = donor.job!
+    const oldProjectId = donor.projectId!
+    let nextProjects =
+      oldJob === 'code' && donor.taskId
+        ? updateTask(projects, donor.taskId, (t) => ({
+            ...t,
+            assignedAgentId: null,
+          }))
+        : projects
+    const assigned = assignAgentToRole(donor, projectId, job)
+    next[idleIdx] = assigned
+    nextProjects = nextProjects.map((p) =>
+      p.id === oldProjectId
+        ? { ...p, roleCounts: { ...p.roleCounts, [oldJob]: Math.max(0, p.roleCounts[oldJob] - 1) } }
+        : p,
+    )
+    return { agents: next, agentId: assigned.id, projects: nextProjects }
+  }
+
   if (!canSpawnAgent({ ...state, agents })) return null
   const agent = createAgent(ctx)
   agent.job = job
   agent.projectId = projectId
   agent.status = job === 'conductor' ? 'conducting' : 'idle'
-  return { agents: [...agents, agent], agentId: agent.id }
+  return { agents: [...agents, agent], agentId: agent.id, projects }
 }
 
-function hasUnassignedAgent(agents: Agent[]): boolean {
-  return agents.some((a) => a.job === null)
+function hasStaffableAgent(agents: Agent[]): boolean {
+  return agents.some(isAgentStaffable)
 }
 
 function mergeTaskOnProject(
@@ -446,8 +478,12 @@ function reconcileProjectStaffing(
   state: GameState,
   project: Project,
   agents: Agent[],
-): Agent[] {
+  projects: Project[],
+): { agents: Agent[]; projects: Project[] } {
   let nextAgents = [...agents]
+  let nextProjects = projects
+
+  const syncedProject = () => nextProjects.find((p) => p.id === project.id) ?? project
 
   if (project.useConductor && hasConductorCourse(state.vibingCourses)) {
     const conductors = projectAgents(project.id, 'conductor', nextAgents)
@@ -455,12 +491,25 @@ function reconcileProjectStaffing(
     const desiredConductor = project.roleCounts.conductor > 0 ? 1 : 0
 
     if (desiredConductor > 0 && !hasConductor) {
-      const staffed = staffAgentForRole(ctx, { ...state, agents: nextAgents }, nextAgents, project.id, 'conductor')
-      if (staffed) nextAgents = staffed.agents
+      const staffed = staffAgentForRole(
+        ctx,
+        { ...state, agents: nextAgents },
+        nextAgents,
+        project.id,
+        'conductor',
+        nextProjects,
+      )
+      if (staffed) {
+        nextAgents = staffed.agents
+        nextProjects = staffed.projects
+      }
     }
     if (desiredConductor === 0 && hasConductor) {
-      const result = unassignAgentFromRole(nextAgents, project.id, 'conductor', state.projects)
-      if (result) nextAgents = result.agents
+      const result = unassignAgentFromRole(nextAgents, project.id, 'conductor', nextProjects)
+      if (result) {
+        nextAgents = result.agents
+        nextProjects = result.projects
+      }
     }
 
     const workerCap = Math.max(0, project.crewCap - projectAgents(project.id, 'conductor', nextAgents).length)
@@ -473,10 +522,13 @@ function reconcileProjectStaffing(
         w.job &&
         w.job !== 'conductor' &&
         w.status === 'idle' &&
-        !projectRoleHasWork(project, w.job, w.id, nextAgents)
+        !projectRoleHasWork(syncedProject(), w.job, w.id, nextAgents)
       ) {
-        const result = unassignAgentFromRole(nextAgents, project.id, w.job, state.projects)
-        if (result) nextAgents = result.agents
+        const result = unassignAgentFromRole(nextAgents, project.id, w.job, nextProjects)
+        if (result) {
+          nextAgents = result.agents
+          nextProjects = result.projects
+        }
       }
     }
 
@@ -488,8 +540,11 @@ function reconcileProjectStaffing(
       for (let i = 0; i < workersAfter.length - workerCap && idle.length > 0; i++) {
         const victim = idle.pop()!
         if (victim.job) {
-          const result = unassignAgentFromRole(nextAgents, project.id, victim.job, state.projects)
-          if (result) nextAgents = result.agents
+          const result = unassignAgentFromRole(nextAgents, project.id, victim.job, nextProjects)
+          if (result) {
+            nextAgents = result.agents
+            nextProjects = result.projects
+          }
         }
       }
     }
@@ -501,16 +556,25 @@ function reconcileProjectStaffing(
       )
       if (
         workersNow.length < workerCap &&
-        projectRoleHasWork(project, role, 'conductor', nextAgents) &&
-        (hasUnassignedAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
+        projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents) &&
+        (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
       ) {
-        const staffed = staffAgentForRole(ctx, { ...state, agents: nextAgents }, nextAgents, project.id, role)
+        const staffed = staffAgentForRole(
+          ctx,
+          { ...state, agents: nextAgents },
+          nextAgents,
+          project.id,
+          role,
+          nextProjects,
+        )
         if (staffed) {
-          nextAgents = staffed.agents.map((a) =>
+          nextAgents = staffed.agents
+          nextProjects = staffed.projects
+          nextAgents = nextAgents.map((a) =>
             a.id === staffed.agentId
               ? {
                   ...a,
-                  status: projectRoleHasWork(project, role, a.id, staffed.agents)
+                  status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents)
                     ? jobStatusFor(role)
                     : 'idle',
                 }
@@ -520,19 +584,20 @@ function reconcileProjectStaffing(
       }
       void current
     }
-    return nextAgents
+    return { agents: nextAgents, projects: nextProjects }
   }
 
   for (const role of ['refine', 'code', 'review', 'test', 'conductor'] as AgentJob[]) {
-    const desired = project.roleCounts[role]
+    const desired = syncedProject().roleCounts[role]
     const current = projectAgents(project.id, role, nextAgents).length
 
     if (current > desired) {
       let toRemove = current - desired
       while (toRemove > 0) {
-        const result = unassignAgentFromRole(nextAgents, project.id, role, state.projects)
+        const result = unassignAgentFromRole(nextAgents, project.id, role, nextProjects)
         if (!result) break
         nextAgents = result.agents
+        nextProjects = result.projects
         toRemove -= 1
       }
     }
@@ -540,17 +605,25 @@ function reconcileProjectStaffing(
     if (current < desired) {
       let toAdd = desired - projectAgents(project.id, role, nextAgents).length
       while (toAdd > 0) {
-        if (!hasUnassignedAgent(nextAgents) && !canSpawnAgent({ ...state, agents: nextAgents })) break
-        const staffed = staffAgentForRole(ctx, { ...state, agents: nextAgents }, nextAgents, project.id, role)
+        if (!hasStaffableAgent(nextAgents) && !canSpawnAgent({ ...state, agents: nextAgents })) break
+        const staffed = staffAgentForRole(
+          ctx,
+          { ...state, agents: nextAgents },
+          nextAgents,
+          project.id,
+          role,
+          nextProjects,
+        )
         if (!staffed) break
         nextAgents = staffed.agents
+        nextProjects = staffed.projects
         if (role !== 'conductor') {
           const hasWork =
             role === 'refine'
-              ? projectHasRefineWork(project)
+              ? projectHasRefineWork(syncedProject())
               : role === 'test'
-                ? projectHasTestWork(project)
-                : projectRoleHasWork(project, role as StaffJob, staffed.agentId, nextAgents)
+                ? projectHasTestWork(syncedProject())
+                : projectRoleHasWork(syncedProject(), role as StaffJob, staffed.agentId, nextAgents)
           nextAgents = nextAgents.map((a) =>
             a.id === staffed.agentId ? { ...a, status: hasWork ? jobStatusFor(role) : 'idle' } : a,
           )
@@ -560,7 +633,7 @@ function reconcileProjectStaffing(
     }
   }
 
-  return nextAgents
+  return { agents: nextAgents, projects: nextProjects }
 }
 
 
@@ -664,7 +737,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
           }
 
           for (const project of nextProjects.filter((p) => p.status === 'active')) {
-            nextAgents = reconcileProjectStaffing(ctx, state, project, nextAgents)
+            const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects)
+            nextAgents = reconciled.agents
+            nextProjects = reconciled.projects
           }
 
           const baseSpeedGlobal = agentTickSpeed(nextAgents, totalGpus)
@@ -1185,7 +1260,7 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
   const project = state.projects.find((p) => p.id === projectId)
   if (!project) return state
 
-  if (delta > 0 && !hasUnassignedAgent(state.agents) && !canSpawnAgent(state)) return state
+  if (delta > 0 && !hasStaffableAgent(state.agents) && !canSpawnAgent(state)) return state
 
   if (delta < 0) {
     const result = unassignAgentFromRole(state.agents, projectId, job, state.projects, { force: true })
@@ -1193,7 +1268,7 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
     return withCtx({
       ...state,
       agents: result.agents,
-      projects: state.projects.map((p) =>
+      projects: result.projects.map((p) =>
         p.id === projectId
           ? { ...p, roleCounts: { ...p.roleCounts, [job]: Math.max(0, p.roleCounts[job] + delta) } }
           : p,
@@ -1208,12 +1283,13 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
       : p,
   )
   const updatedProject = nextProjects.find((p) => p.id === projectId)!
-  const nextAgents = reconcileProjectStaffing(ctx, state, updatedProject, state.agents)
+  const reconciled = reconcileProjectStaffing(ctx, state, updatedProject, state.agents, nextProjects)
+  const nextAgents = reconciled.agents
 
   return withCtx({
     ...state,
     agents: nextAgents,
-    projects: nextProjects,
+    projects: reconciled.projects,
     stats: {
       ...state.stats,
       agentsDeployed: Math.max(state.stats.agentsDeployed, nextAgents.length),
@@ -1441,7 +1517,7 @@ export function modelSpPerTick(
 }
 
 export function canStaffAdditionalAgent(state: GameState): boolean {
-  return hasUnassignedAgent(state.agents) || canSpawnAgent(state)
+  return hasStaffableAgent(state.agents) || canSpawnAgent(state)
 }
 
 export function agentCapacity(state: GameState): { used: number; max: number; totalRam: number; totalGpus: number } {

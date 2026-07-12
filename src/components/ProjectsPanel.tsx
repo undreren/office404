@@ -1,4 +1,5 @@
 import {
+  agentIsBusy,
   agentWorkProgressPct,
   formatAgentDutyLabel,
   formatStoryPoints,
@@ -67,7 +68,7 @@ function staffingAgentLabelPlural(job: AgentJob, count: number): string {
 }
 
 function countIdleAgents(agents: Agent[]): number {
-  return agents.filter((agent) => agent.job === null).length
+  return agents.filter((agent) => !agentIsBusy(agent)).length
 }
 
 function staffingAddHint(
