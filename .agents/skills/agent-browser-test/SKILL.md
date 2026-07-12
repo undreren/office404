@@ -16,45 +16,28 @@ First `browser` call auto-installs `agent-browser` + Chromium if missing.
 
 ## Test loop (repeat)
 
-1. `browser open http://localhost:5173/?fixture=fresh-tutorial`
-2. `browser snapshot -i` — read `@ref` handles
-3. Dismiss onboarding (see below) until no modal
-4. You start on **Projects** — other tabs locked until tutorial ships
-5. `browser snapshot -i` after each action to see new refs
+1. `browser open http://localhost:5173/?fixture=fresh-tutorial&skipOnboarding=1` (or full onboarding URL below)
+2. Dismiss any modal: `browser find testid onboarding-dismiss` (repeat until “Element not found”)
+3. You start on **Projects** — other tabs locked until tutorial ships
+4. `browser snapshot -i` after each action to see new refs for in-page buttons
 
-### Dismiss onboarding (use this — refs are unreliable on modals)
+### Dismiss onboarding (use this — snapshot refs fail on modals)
 
-**Preferred:** stable test id, not snapshot refs.
+**Preferred:** `find testid onboarding-dismiss` — it **auto-clicks** the Got it button. No separate `click @eN` needed.
 
 ```
 browser find testid onboarding-dismiss
-browser click @eN
 ```
 
-Run `find` again after each dismiss — the ref changes. Repeat until `find` returns nothing.
+Run again after each modal (story intro → tab intro → tutorial steps). Stop when find returns “Element not found”.
 
-**Batch job** (snapshot + click in one call — refs stay valid):
+**Do not** use `click @e3` / `click text=Got it` / `semanticAction` from a prior `snapshot -i` — refs are stale between tool calls on this app.
 
-```json
-{
-  "job": {
-    "steps": [
-      { "action": "open", "url": "http://localhost:5173/?fixture=fresh-tutorial" },
-      { "action": "wait", "milliseconds": 2000 },
-      { "action": "find", "selector": "testid onboarding-dismiss" },
-      { "action": "click", "selector": "@eN" }
-    ]
-  }
-}
-```
-
-Replace `@eN` with the ref from the find step in the same batch.
-
-**Skip modals entirely** (gameplay only):
+**Skip story + tab intros** (start on Projects, tutorial step modals still appear):
 
 `http://localhost:5173/?fixture=fresh-tutorial&skipOnboarding=1`
 
-Tutorial step modals can still appear as you progress — dismiss those with `find testid onboarding-dismiss`.
+Dismiss step modals with `find testid onboarding-dismiss` as they appear.
 
 ## Tutorial gig (Friendly Neighbor App)
 
@@ -72,7 +55,7 @@ Dismiss each new **Got it** tutorial modal. Leads unlock after deliver.
 | Goal | `browser` arg string |
 |------|----------------------|
 | See page | `snapshot -i` |
-| Dismiss modal | `find testid onboarding-dismiss` then `click @eN` |
+| Dismiss modal | `find testid onboarding-dismiss` (auto-clicks) |
 | Tap button | `click @eN` (after fresh `snapshot -i`) |
 | Check title | `get title` |
 | Visual check | `screenshot` |
@@ -80,8 +63,8 @@ Dismiss each new **Got it** tutorial modal. Leads unlock after deliver.
 
 ## Rules
 
-- Use `find testid onboarding-dismiss` for modals — do **not** use `click --text` or `click --role` (unsupported)
-- Do **not** trust `@eN` refs from a prior `snapshot` for modal buttons — use `find` or a batch job
+- Use `find testid onboarding-dismiss` for modals — it auto-clicks; do **not** use `click --text`, `click --role`, or `semanticAction`
+- Do **not** trust `@eN` refs from a prior `snapshot` for modal buttons — use `find testid` only
 - Dismiss **Got it** first; game is paused while modals are open
 - Dev URL is `localhost:5173`; CI uses Playwright on `4173` — agents use dev
 - Fixture `fresh-tutorial` = clean tutorial save, no localStorage fumbling

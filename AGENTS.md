@@ -59,9 +59,12 @@ Merge when CI is green — no diff review expected.
 
 **pi-agent-browser** — for local models driving a real browser. See `.agents/skills/agent-browser-test/SKILL.md`.
 
-Quick manual fixture: `http://localhost:5173/?fixture=fresh-tutorial`
+Quick fixtures:
 
-Dismiss onboarding with **Got it** (`e2e/helpers/onboarding.ts`).
+- Gameplay (skip story/tab intros): `http://localhost:5173/?fixture=fresh-tutorial&skipOnboarding=1`
+- Full onboarding flow: `http://localhost:5173/?fixture=fresh-tutorial`
+
+Dismiss modals with **`find testid onboarding-dismiss`** (auto-clicks; repeat until not found). Do **not** use `click @eN` refs from `snapshot -i` on modal buttons — refs go stale between calls. Playwright uses `getByTestId('onboarding-dismiss')` in `e2e/helpers/onboarding.ts`.
 
 ## Tone
 
