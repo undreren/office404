@@ -1,7 +1,7 @@
 import { SAVE_KEY } from '../game/constants'
 import type { GameState } from '../game/types'
 
-const SAVE_VERSION = 5
+const SAVE_VERSION = 6
 
 export type PersistedState = Omit<GameState, never>
 
@@ -12,6 +12,12 @@ function migrateState(state: GameState, fromVersion: number): GameState {
       ...next,
       acknowledgedTutorialStep: next.acknowledgedTutorialStep ?? -1,
       seenTabIntros: next.seenTabIntros ?? [],
+    }
+  }
+  if (fromVersion < 6) {
+    next = {
+      ...next,
+      seenStoryIntro: next.seenStoryIntro ?? true,
     }
   }
   return next
@@ -38,6 +44,7 @@ export function partializeState(state: GameState): PersistedState {
     leads: state.leads,
     selectedTaskId: state.selectedTaskId,
     tutorialDone: state.tutorialDone,
+    seenStoryIntro: state.seenStoryIntro,
     acknowledgedTutorialStep: state.acknowledgedTutorialStep,
     seenTabIntros: state.seenTabIntros,
     leadSpawnCooldown: state.leadSpawnCooldown,

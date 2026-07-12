@@ -85,6 +85,7 @@
   "leads": [],
   "selectedTaskId": null,
   "tutorialDone": false,
+  "seenStoryIntro": false,
   "acknowledgedTutorialStep": -1,
   "seenTabIntros": [],
   "leadSpawnCooldown": 4,

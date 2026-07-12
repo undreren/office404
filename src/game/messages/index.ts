@@ -3,6 +3,7 @@ import type { AgentJob, GameState, MainTabId } from '../types'
 import {
   acceptLead,
   acknowledgeTabIntro,
+  acknowledgeStoryIntro,
   acknowledgeTutorialStep,
   adjustCrewCap,
   adjustRoleCount,
@@ -120,6 +121,10 @@ export function resetGameMsg(at: number, rngSeed?: number): GameMessage {
 
 export function acknowledgeTabIntroMsg(at: number, tab: MainTabId): GameMessage {
   return { at, apply: (state) => acknowledgeTabIntro(state, tab, at) }
+}
+
+export function acknowledgeStoryIntroMsg(at: number): GameMessage {
+  return { at, apply: (state) => acknowledgeStoryIntro(state, at) }
 }
 
 export function acknowledgeTutorialStepMsg(at: number, step: number): GameMessage {

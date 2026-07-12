@@ -2,26 +2,36 @@ import { useEffect, useMemo } from 'react'
 import { useTabNav } from '../context/TabNavContext'
 import {
   getTutorialStep,
+  STORY_INTRO_COPY,
   TAB_INTRO_COPY,
   TUTORIAL_STEP_COPY,
   TUTORIAL_STEP_COUNT,
   type TutorialStep,
 } from '../game/onboarding'
 import type { MainTabId } from '../game/types'
-import { acknowledgeTabIntroMsg, acknowledgeTutorialStepMsg } from '../game/messages'
+import {
+  acknowledgeStoryIntroMsg,
+  acknowledgeTabIntroMsg,
+  acknowledgeTutorialStepMsg,
+} from '../game/messages'
 import { useGameDispatchAt, useGamePaused, useGameState } from '../runtime/GameRuntime'
 
 type OnboardingModal =
+  | { kind: 'story' }
   | { kind: 'tab'; tab: MainTabId }
   | { kind: 'tutorial'; step: TutorialStep }
 
 function resolveOnboardingModal(
   activeTab: MainTabId,
+  seenStoryIntro: boolean,
   seenTabIntros: MainTabId[],
   tutorialDone: boolean,
   acknowledgedTutorialStep: number,
   tutorialStep: TutorialStep | null,
 ): OnboardingModal | null {
+  if (activeTab === 'projects' && !seenStoryIntro) {
+    return { kind: 'story' }
+  }
   if (!seenTabIntros.includes(activeTab)) {
     return { kind: 'tab', tab: activeTab }
   }
@@ -45,12 +55,20 @@ export function OnboardingOverlay() {
     () =>
       resolveOnboardingModal(
         activeTab,
+        state.seenStoryIntro,
         state.seenTabIntros,
         state.tutorialDone,
         state.acknowledgedTutorialStep,
         tutorialStep,
       ),
-    [activeTab, state.seenTabIntros, state.tutorialDone, state.acknowledgedTutorialStep, tutorialStep],
+    [
+      activeTab,
+      state.seenStoryIntro,
+      state.seenTabIntros,
+      state.tutorialDone,
+      state.acknowledgedTutorialStep,
+      tutorialStep,
+    ],
   )
 
   useEffect(() => {
@@ -61,9 +79,17 @@ export function OnboardingOverlay() {
 
   const activeModal = modal
   const copy =
-    activeModal.kind === 'tab' ? TAB_INTRO_COPY[activeModal.tab] : TUTORIAL_STEP_COPY[activeModal.step]
+    activeModal.kind === 'story'
+      ? STORY_INTRO_COPY
+      : activeModal.kind === 'tab'
+        ? TAB_INTRO_COPY[activeModal.tab]
+        : TUTORIAL_STEP_COPY[activeModal.step]
 
   function dismiss() {
+    if (activeModal.kind === 'story') {
+      dispatchAt((at) => acknowledgeStoryIntroMsg(at))
+      return
+    }
     if (activeModal.kind === 'tab') {
       dispatchAt((at) => acknowledgeTabIntroMsg(at, activeModal.tab))
       return
@@ -80,7 +106,7 @@ export function OnboardingOverlay() {
           </p>
         )}
         <h2 id="onboarding-title">{copy.title}</h2>
-        <p>{copy.body}</p>
+        <p className={activeModal.kind === 'story' ? 'onboarding-overlay__story' : undefined}>{copy.body}</p>
         <button type="button" className="btn btn--sprint" onClick={dismiss}>
           Got it
         </button>

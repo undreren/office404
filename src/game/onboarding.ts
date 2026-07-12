@@ -5,6 +5,17 @@ export type TutorialStep = 0 | 1 | 2 | 3
 
 export const TUTORIAL_STEP_COUNT = 4
 
+export const STORY_INTRO_COPY = {
+  title: 'Welcome to Office 404',
+  body: `The Singularity happened on a Tuesday. Nobody noticed — the models were busy hallucinating a better Tuesday.
+
+You woke up with a cardboard box for an office, one GPU, and a freelance LLC called Office 404 (Intelligence Not Found; invoices very much found). Your AI agents burn tokens you can't afford, compact their brains mid-sentence, and somehow still ship faster than you.
+
+Clients want "AI-powered synergy" yesterday. Rent wants $40 tomorrow. Your mission: finish the tutorial gig below, unlock real leads, upgrade your life from cardboard to CUDA palace, and retire at $10M before your reputation flatlines.
+
+No pressure. Infinite audacity.`,
+}
+
 export function getTutorialStep(state: GameState): TutorialStep | null {
   if (state.tutorialDone) return null
   const tutorial = state.projects.find((p) => p.isTutorial && p.status === 'active')

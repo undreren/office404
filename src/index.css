@@ -1101,6 +1101,10 @@ body {
   line-height: 1.5;
 }
 
+.onboarding-overlay__story {
+  white-space: pre-line;
+}
+
 .task-item__top {
   display: flex;
   justify-content: space-between;
@@ -1391,6 +1395,15 @@ body {
 .bottom-nav__item--active {
   background: rgba(57, 217, 138, 0.12);
   color: var(--accent);
+}
+
+.bottom-nav__item--locked {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.bottom-nav__item--locked:active {
+  transform: none;
 }
 
 .bottom-nav__icon {

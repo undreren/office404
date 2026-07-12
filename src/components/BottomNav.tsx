@@ -12,7 +12,7 @@ const TABS: { id: TabId; icon: string; label: string }[] = [
 
 export function BottomNav() {
   const { activeTab, setActiveTab } = useTabNav()
-  const { leads, projects } = useGameState()
+  const { leads, projects, tutorialDone } = useGameState()
 
   const availableLeads = leads.filter((l) => l.status === 'available').length
   const hasDeliverable = projects.some((p) => isReadyToDeliver(p))
@@ -23,18 +23,27 @@ export function BottomNav() {
     return null
   }
 
+  function isLocked(tab: TabId): boolean {
+    return !tutorialDone && tab !== 'projects'
+  }
+
   return (
     <nav className="bottom-nav" aria-label="Main navigation">
       {TABS.map((tab) => {
         const badge = badgeFor(tab.id)
+        const locked = isLocked(tab.id)
         return (
           <button
             key={tab.id}
             type="button"
-            className={`bottom-nav__item ${activeTab === tab.id ? 'bottom-nav__item--active' : ''}`}
-            aria-label={tab.label}
+            className={`bottom-nav__item ${activeTab === tab.id ? 'bottom-nav__item--active' : ''} ${locked ? 'bottom-nav__item--locked' : ''}`}
+            aria-label={locked ? `${tab.label} (locked until tutorial complete)` : tab.label}
             aria-current={activeTab === tab.id ? 'page' : undefined}
-            onClick={() => setActiveTab(tab.id)}
+            aria-disabled={locked || undefined}
+            disabled={locked}
+            onClick={() => {
+              if (!locked) setActiveTab(tab.id)
+            }}
           >
             <span className="bottom-nav__icon" aria-hidden="true">
               {tab.icon}
