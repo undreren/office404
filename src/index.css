@@ -86,9 +86,24 @@ body {
 
 .resource-bar--compact {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: calc(0.5rem + var(--safe-top)) 1rem 0.5rem;
+}
+
+.resource-bar--compact__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.resource-bar__title--compact small {
+  font-size: 0.65rem;
+}
+
+.glitch--compact {
+  font-size: 1rem;
 }
 
 .resource-bar--compact__stats {

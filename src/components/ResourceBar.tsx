@@ -24,14 +24,19 @@ export function ResourceBar({ variant = 'full' }: ResourceBarProps) {
   if (variant === 'compact') {
     return (
       <header className="resource-bar resource-bar--compact">
+        <div className="resource-bar--compact__header">
+          <div className="resource-bar__title resource-bar__title--compact">
+            <span className="glitch glitch--compact" data-text="OFFICE 404">
+              OFFICE 404
+            </span>
+            <small>Intelligence Not Found · Day {Math.floor(gameDay)}</small>
+          </div>
+          <NewGameButton />
+        </div>
         <div className="resource-bar--compact__stats">
           <div className="resource-bar--compact__stat">
             <label>Cash</label>
             <span className="value">${Math.floor(cash)}</span>
-          </div>
-          <div className="resource-bar--compact__stat">
-            <label>Day</label>
-            <span className="value">{Math.floor(gameDay)}</span>
           </div>
           <div className="resource-bar--compact__stat resource-bar--compact__stat--grow">
             <label>Retire</label>
@@ -41,7 +46,6 @@ export function ResourceBar({ variant = 'full' }: ResourceBarProps) {
             <span className="value value--sm">{Math.floor(winPct)}%</span>
           </div>
         </div>
-        <NewGameButton />
       </header>
     )
   }
