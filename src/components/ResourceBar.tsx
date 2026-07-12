@@ -1,4 +1,5 @@
 import { APARTMENT_CONFIG, WIN_CASH } from '../game/constants'
+import { formatGameClock } from '../game/mechanics'
 import { MODEL_TIERS } from '../game/models'
 import { agentCapacity, getNetWorth } from '../game/selectors'
 import { useGamePaused, useGameState } from '../runtime/GameRuntime'
@@ -27,7 +28,7 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
             OFFICE 404
           </span>
           <small>
-            Intelligence Not Found · Day {Math.floor(gameDay)}
+            Intelligence Not Found · {formatGameClock(gameDay)}
             {paused && <span className="resource-bar__paused"> · Paused</span>}
           </small>
         </div>

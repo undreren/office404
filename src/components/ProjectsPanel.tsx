@@ -17,6 +17,7 @@ import {
   tasksForRequirement,
   untestedMergedTasks,
   visibleRequirements,
+  roleCanAcceptStaffing,
 } from '../game/projects'
 import {
   adjustCrewCapMsg,
@@ -26,6 +27,7 @@ import {
   toggleConductorMsg,
 } from '../game/messages'
 import {
+  agentCapacity,
   canStaffAdditionalAgent,
   isReadyToDeliver,
   projectProgressPct,
@@ -41,6 +43,62 @@ const STAFF_JOBS: { job: AgentJob; label: string }[] = [
   { job: 'review', label: 'Review' },
   { job: 'test', label: 'Test' },
 ]
+
+function staffingAgentLabel(job: AgentJob): string {
+  switch (job) {
+    case 'code':
+      return 'coding agent'
+    case 'review':
+      return 'review agent'
+    case 'refine':
+      return 'refining agent'
+    case 'test':
+      return 'QA agent'
+    case 'conductor':
+      return 'conductor'
+  }
+}
+
+function staffingAgentLabelPlural(job: AgentJob, count: number): string {
+  const label = staffingAgentLabel(job)
+  if (count === 1) return label
+  if (job === 'conductor') return 'conductors'
+  return `${label}s`
+}
+
+function countIdleAgents(agents: Agent[]): number {
+  return agents.filter((agent) => agent.job === null).length
+}
+
+function staffingAddHint(
+  canAdd: boolean,
+  hasRoleWork: boolean,
+  idleAgents: number,
+  rosterUsed: number,
+  rosterMax: number,
+): string {
+  if (!hasRoleWork) return 'no work for this role yet'
+  if (!canAdd) {
+    if (rosterUsed >= rosterMax) return `roster full (${rosterUsed}/${rosterMax})`
+    return 'all agents busy'
+  }
+  if (idleAgents > 0) return `${idleAgents} idle in roster — assign here`
+  return 'room to hire another agent'
+}
+
+function staffingGroupLabel(
+  job: AgentJob,
+  projectName: string,
+  assigned: number,
+  idleAgents: number,
+  rosterUsed: number,
+  rosterMax: number,
+  hasRoleWork: boolean,
+): string {
+  const role = staffingAgentLabelPlural(job, assigned)
+  const workNote = hasRoleWork ? '' : ', no work for this role'
+  return `${role} on ${projectName}: ${assigned} assigned, ${idleAgents} idle on roster (${rosterUsed}/${rosterMax})${workNote}`
+}
 
 function visibleTasksForRequirement(project: Project, requirementId: string): Task[] {
   return tasksForRequirement(project, requirementId)
@@ -260,6 +318,10 @@ function RoleCounter({
   canAdd,
   agents,
   project,
+  idleAgents,
+  rosterUsed,
+  rosterMax,
+  hasRoleWork,
 }: {
   projectId: string
   job: AgentJob
@@ -268,12 +330,27 @@ function RoleCounter({
   canAdd: boolean
   agents: Agent[]
   project: Project
+  idleAgents: number
+  rosterUsed: number
+  rosterMax: number
+  hasRoleWork: boolean
 }) {
   const dispatchAt = useGameDispatchAt()
   const displayCount = Math.max(count, agents.length)
   const canRemove = displayCount > 0
+  const agentLabel = staffingAgentLabel(job)
+  const agentLabelPlural = staffingAgentLabelPlural(job, displayCount)
+  const addHint = staffingAddHint(canAdd, hasRoleWork, idleAgents, rosterUsed, rosterMax)
 
-  const staffingLabel = `${label} staffing for ${project.clientName}`
+  const staffingLabel = staffingGroupLabel(
+    job,
+    project.clientName,
+    displayCount,
+    idleAgents,
+    rosterUsed,
+    rosterMax,
+    hasRoleWork,
+  )
 
   return (
     <div className="crew-row">
@@ -284,19 +361,25 @@ function RoleCounter({
             type="button"
             className="btn btn--small"
             disabled={!canRemove}
-            aria-label={`Remove ${label.toLowerCase()} from ${project.clientName}`}
+            aria-label={
+              canRemove
+                ? `Unassign ${agentLabel} from ${project.clientName} (${displayCount} assigned)`
+                : `Unassign ${agentLabel} from ${project.clientName} (none assigned)`
+            }
+            data-testid={`staffing-remove-${job}-${projectId}`}
             onClick={() => dispatchAt((at) => adjustRoleCountMsg(at, projectId, job, -1))}
           >
             −
           </button>
-          <span className="crew-count" aria-live="polite">
+          <span className="crew-count" aria-label={`${displayCount} ${agentLabelPlural} assigned`}>
             {displayCount}
           </span>
           <button
             type="button"
             className="btn btn--small"
             disabled={!canAdd}
-            aria-label={`Add ${label.toLowerCase()} to ${project.clientName}`}
+            aria-label={`Assign ${agentLabel} to ${project.clientName} (${displayCount} assigned, ${addHint})`}
+            data-testid={`staffing-add-${job}-${projectId}`}
             onClick={() => dispatchAt((at) => adjustRoleCountMsg(at, projectId, job, 1))}
           >
             +
@@ -321,9 +404,15 @@ function ProjectCard({ project }: { project: Project }) {
 
   const canStaff = canStaffAdditionalAgent(state)
   const conductorUnlocked = hasConductorCourse(vibingCourses)
+  const { used: rosterUsed, max: rosterMax } = agentCapacity(state)
+  const idleAgents = countIdleAgents(agents)
 
   function projectAgents(projectId: string, job: AgentJob) {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
+  }
+
+  function roleCanAdd(job: AgentJob): boolean {
+    return canStaff && roleCanAcceptStaffing(synced, job, agents)
   }
 
   const synced = syncTestScope(project)
@@ -386,8 +475,29 @@ function ProjectCard({ project }: { project: Project }) {
         </section>
       )}
 
-      <section className="project-crew" aria-labelledby={`staffing-${project.id}`}>
+      <section
+        className="project-crew"
+        aria-labelledby={`staffing-${project.id}`}
+        aria-describedby={`staffing-roster-${project.id}`}
+      >
         <h4 id={`staffing-${project.id}`}>Staffing</h4>
+        <button
+          type="button"
+          disabled
+          id={`staffing-roster-${project.id}`}
+          className="hint staffing-roster-summary"
+          data-testid="staffing-roster-summary"
+          aria-label={`Roster: ${agents.length} agent${agents.length === 1 ? '' : 's'}, ${idleAgents} idle${
+            rosterUsed < rosterMax
+              ? `, ${rosterMax - rosterUsed} hire slot${rosterMax - rosterUsed === 1 ? '' : 's'} left`
+              : ', roster full'
+          }`}
+        >
+          Roster: {agents.length} agent{agents.length === 1 ? '' : 's'}, {idleAgents} idle
+          {rosterUsed < rosterMax
+            ? ` (${rosterMax - rosterUsed} hire slot${rosterMax - rosterUsed === 1 ? '' : 's'} left)`
+            : ' (full)'}
+        </button>
         {conductorUnlocked && (
           <div className="crew-row">
             <label className="crew-label">
@@ -435,6 +545,10 @@ function ProjectCard({ project }: { project: Project }) {
               canAdd={canStaff && project.roleCounts.conductor < 1}
               agents={projectAgents(project.id, 'conductor')}
               project={project}
+              idleAgents={idleAgents}
+              rosterUsed={rosterUsed}
+              rosterMax={rosterMax}
+              hasRoleWork
             />
             <p className="hint">
               Conductor auto-staffs refine → code → review → test within crew cap (
@@ -453,6 +567,10 @@ function ProjectCard({ project }: { project: Project }) {
                 canAdd={false}
                 agents={projectAgents(project.id, job)}
                 project={project}
+                idleAgents={idleAgents}
+                rosterUsed={rosterUsed}
+                rosterMax={rosterMax}
+                hasRoleWork={roleCanAcceptStaffing(synced, job, agents)}
               />
             ))}
           </>
@@ -464,9 +582,13 @@ function ProjectCard({ project }: { project: Project }) {
               job={job}
               label={label}
               count={project.roleCounts[job]}
-              canAdd={canStaff}
+              canAdd={roleCanAdd(job)}
               agents={projectAgents(project.id, job)}
               project={project}
+              idleAgents={idleAgents}
+              rosterUsed={rosterUsed}
+              rosterMax={rosterMax}
+              hasRoleWork={roleCanAcceptStaffing(synced, job, agents)}
             />
           ))
         )}
@@ -486,6 +608,7 @@ function ProjectCard({ project }: { project: Project }) {
           <button
             type="button"
             className="btn btn--deploy"
+            data-testid={`deliver-${project.id}`}
             onClick={() => dispatchAt((at) => deliverProjectMsg(at, project.id))}
           >
             Deliver to {project.clientName}

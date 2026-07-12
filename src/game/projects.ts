@@ -735,6 +735,13 @@ export function projectRoleHasWork(
   }
 }
 
+/** Whether staffing +1 on this role would have work to do (UI gate for agent playtests). */
+export function roleCanAcceptStaffing(project: Project, job: AgentJob, agents: Agent[]): boolean {
+  if (project.status !== 'active') return false
+  if (job === 'conductor') return true
+  return projectRoleHasWork(project, job as StaffJob, '', agents)
+}
+
 export function implementationTasks(project: Project): Task[] {
   return project.tasks.filter((t) => !t.isBugFix && !t.isReviewComment)
 }

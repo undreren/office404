@@ -87,6 +87,22 @@ export function formatSpPerTick(parameters: number, gameDay = 0): string {
   return `${storyPointProgressPerTick(parameters, gameDay).toFixed(1)} SP/tick`
 }
 
+const GAME_DAY_START_HOUR = 8
+
+/** In-game clock: each day begins at 08:00 AM; `gameDay` fraction advances through 24h. */
+export function formatGameClock(gameDay: number): string {
+  const dayNumber = Math.floor(gameDay)
+  const dayFraction = gameDay - dayNumber
+  const totalMinutes = GAME_DAY_START_HOUR * 60 + dayFraction * 24 * 60
+  const hours24 = Math.floor(totalMinutes / 60) % 24
+  const minutes = Math.floor(totalMinutes % 60)
+  const period = hours24 >= 12 ? 'PM' : 'AM'
+  const hours12 = hours24 % 12 || 12
+  const hh = String(hours12).padStart(2, '0')
+  const mm = String(minutes).padStart(2, '0')
+  return `Day ${dayNumber} - ${hh}:${mm} ${period}`
+}
+
 /** Base PR quality when coding completes (0–100). */
 export function computePrBaseQuality(
   parameters: number,

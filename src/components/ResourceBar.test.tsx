@@ -17,6 +17,7 @@ describe('ResourceBar', () => {
 
     await waitFor(() => {
       expect(screen.getByText('OFFICE 404')).toBeInTheDocument()
+      expect(screen.getByText(/Day 0 - 08:00 AM/)).toBeInTheDocument()
     })
 
     const cashResource = screen.getByText('Cash').closest('.resource')

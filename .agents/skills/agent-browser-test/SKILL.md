@@ -14,65 +14,88 @@ npm install && npm run dev
 
 First `browser` call auto-installs `agent-browser` + Chromium if missing.
 
-## Test loop (repeat)
+## Golden rule
 
-1. `browser open http://localhost:5173/?fixture=fresh-tutorial&skipOnboarding=1` (or full onboarding URL below)
-2. Dismiss any modal: `browser find testid onboarding-dismiss` (repeat until “Element not found”)
-3. You start on **Projects** — other tabs locked until tutorial ships
-4. `browser snapshot -i` after each action to see new refs for in-page buttons
+**Never `click @eN` from a prior `snapshot -i`.** Refs die between separate tool calls. Use **`find testid …`** (auto-clicks) or a single **`job`** batch (open + find + wait in one call).
 
-### Dismiss onboarding (use this — snapshot refs fail on modals)
+## Fast tutorial playtest (recommended)
 
-**Preferred:** `find testid onboarding-dismiss` — it **auto-clicks** the Got it button. No separate `click @eN` needed.
+Use the **ready-for-code** fixture — skips waiting for refine:
 
 ```
-browser find testid onboarding-dismiss
+http://localhost:5173/?fixture=tutorial-ready-for-code&skipOnboarding=1
 ```
 
-Run again after each modal (story intro → tab intro → tutorial steps). Stop when find returns “Element not found”.
+### One `job` batch (copy this shape)
 
-**Do not** use `click @e3` / `click text=Got it` / `semanticAction` from a prior `snapshot -i` — refs are stale between tool calls on this app.
+```json
+{
+  "job": {
+    "steps": [
+      { "action": "open", "url": "http://localhost:5173/?fixture=tutorial-ready-for-code&skipOnboarding=1" },
+      { "action": "args", "args": ["find", "testid", "onboarding-dismiss"] },
+      { "action": "args", "args": ["find", "testid", "staffing-add-code-proj-1"] },
+      { "action": "wait", "milliseconds": 15000 },
+      { "action": "args", "args": ["snapshot", "-i"] }
+    ]
+  }
+}
+```
 
-**Skip story + tab intros** (start on Projects, tutorial step modals still appear):
+`find testid` **auto-clicks** when it finds the element. `"Element not found"` on `onboarding-dismiss` is **good** — no modal blocking the game.
 
-`http://localhost:5173/?fixture=fresh-tutorial&skipOnboarding=1`
+## Full tutorial from scratch
 
-Dismiss step modals with `find testid onboarding-dismiss` as they appear.
+```
+http://localhost:5173/?fixture=fresh-tutorial&skipOnboarding=1
+```
 
-## Tutorial gig (Friendly Neighbor App)
+`skipOnboarding=1` skips story + tab intros **and** tutorial step modals. Game still needs real time to refine requirements.
 
 | Step | What to do |
 |------|------------|
-| 1 | Wait — refine agent turns requirements into tasks (game paused during modals) |
-| 2 | Click **+** next to **Code** under Staffing (`find role button` + name filter, or snapshot ref) |
-| 3 | Wait — code → review → QA runs automatically |
-| 4 | Click **Deliver** when the card glows ready |
+| 1 | `find testid onboarding-dismiss` — dismiss any modal first (game **paused** while modal open) |
+| 2 | Wait in **5–10s** chunks; `snapshot -i` until header shows **Day 1 - …** (clock advances from `Day 0 - 08:00 AM`) and tasks appear |
+| 3 | `find testid staffing-add-code-proj-1` when enabled (not disabled in snapshot) |
+| 4 | Wait — code → review → QA runs automatically |
+| 5 | `find testid deliver-proj-1` when card glows ready |
 
-Dismiss each new **Got it** tutorial modal. Leads unlock after deliver.
+**Why "+" is disabled:** game **paused** (dismiss modal first), **no work for that role** (only Code lights up when tasks are ready), agent still refining, or roster full. Check `staffing-roster-summary` for idle count. Wait in **5–10s** chunks — do **not** wait 60s in one call (wrapper times out ~35s).
+
+## Stable testids
+
+| Action | `find testid` value |
+|--------|---------------------|
+| Dismiss Got it modal | `onboarding-dismiss` |
+| Roster status (idle / full) | `staffing-roster-summary` |
+| Staff coder (+ Code) | `staffing-add-code-proj-1` |
+| Staff refine / review / test | `staffing-add-refine-proj-1`, `staffing-add-review-proj-1`, `staffing-add-test-proj-1` |
+| Deliver tutorial gig | `deliver-proj-1` |
+
+Project id is `proj-1` for the tutorial gig.
 
 ## Handy commands
 
-| Goal | `browser` arg string |
-|------|----------------------|
-| See page | `snapshot -i` |
-| Dismiss modal | `find testid onboarding-dismiss` (auto-clicks) |
-| Tap button | `click @eN` (after fresh `snapshot -i`) |
-| Check title | `get title` |
-| Visual check | `screenshot` |
+| Goal | Args |
+|------|------|
+| Open game | `open http://localhost:5173/?fixture=tutorial-ready-for-code&skipOnboarding=1` |
+| Dismiss modal | `find testid onboarding-dismiss` |
+| Staff coder | `find testid staffing-add-code-proj-1` |
+| Deliver | `find testid deliver-proj-1` |
+| See page | `snapshot -i` (read only — do not click refs from this output in the **next** call) |
 | Done | `close` |
 
 ## Rules
 
-- Use `find testid onboarding-dismiss` for modals — it auto-clicks; do **not** use `click --text`, `click --role`, or `semanticAction`
-- Do **not** trust `@eN` refs from a prior `snapshot` for modal buttons — use `find testid` only
-- Dismiss **Got it** first; game is paused while modals are open
-- Dev URL is `localhost:5173`; CI uses Playwright on `4173` — agents use dev
-- Fixture `fresh-tutorial` = clean tutorial save, no localStorage fumbling
-- If stuck: `browser close` then reopen with `sessionMode=fresh`
+- **`find testid` only** for clicks — not `click @eN`, not `click --text`, not `semanticAction`
+- Dismiss modals **before** waiting for game progress
+- Dev URL is `localhost:5173`; CI uses Playwright on `4173`
+- If tab drifts to `about:blank`: `close` then reopen with `sessionMode=fresh`
+- Keep waits ≤10s per call; chain in a `job` if you need longer
 
 ## Do not
 
 - Raw `agent-browser` shell commands — use the pi `browser` tool
 - Click locked nav tabs (Feed/Shop/Agents/Leads) before tutorial done
-- Expect JSON snapshots — output is compact text with `@e1`, `@e2`, … refs
-- Use `click --text "Got it"` or `click --role button --name "Got it"` — they fail on this app
+- Trust `@eN` refs across separate tool calls
+- Use `get text body` — unknown command; use `snapshot -i` instead
