@@ -33,13 +33,13 @@ export function ResourceBar({ variant = 'full' }: ResourceBarProps) {
           </div>
           <NewGameButton />
         </div>
-        <div className="resource-bar--compact__stats">
-          <div className="resource-bar--compact__stat">
+        <div className="resource-grid resource-grid--compact">
+          <div className="resource">
             <label>Cash</label>
             <span className="value">${Math.floor(cash)}</span>
           </div>
-          <div className="resource-bar--compact__stat resource-bar--compact__stat--grow">
-            <label>Retire</label>
+          <div className="resource">
+            <label>Retire Goal</label>
             <div className="meter meter--sm">
               <div className="meter__fill meter__fill--code" style={{ width: `${winPct}%` }} />
             </div>

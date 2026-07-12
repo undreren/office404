@@ -10,7 +10,7 @@ type SwipeCarouselProps = {
   index: number
   onIndexChange: (index: number) => void
   headers: CarouselSlideHeader[]
-  children: ReactNode
+  slides: ReactNode[]
   panelClassName?: string
 }
 
@@ -18,12 +18,11 @@ export function SwipeCarousel({
   index,
   onIndexChange,
   headers,
-  children,
+  slides,
   panelClassName = '',
 }: SwipeCarouselProps) {
   const count = headers.length
   const enabled = count > 1
-  const header = headers[index] ?? headers[0]
   const { onTouchStart, onTouchEnd } = useSwipeCarousel({
     index,
     count,
@@ -38,13 +37,26 @@ export function SwipeCarousel({
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        <div className="swipe-carousel__header">
-          <div className="swipe-carousel__titles">
-            <h2>{header?.title}</h2>
-            {header?.subtitle && <p className="swipe-carousel__subtitle">{header.subtitle}</p>}
+        <div className="swipe-carousel__viewport">
+          <div
+            className="swipe-carousel__track"
+            style={{ transform: `translateX(-${index * 100}%)` }}
+          >
+            {headers.map((header, i) => (
+              <div key={header.title} className="swipe-carousel__slide" aria-hidden={i !== index}>
+                <div className="swipe-carousel__header">
+                  <div className="swipe-carousel__titles">
+                    <h2>{header.title}</h2>
+                    {header.subtitle && (
+                      <p className="swipe-carousel__subtitle">{header.subtitle}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="swipe-carousel__body">{slides[i]}</div>
+              </div>
+            ))}
           </div>
         </div>
-        <div className="swipe-carousel__body">{children}</div>
       </div>
       {enabled && (
         <div className="swipe-carousel__footer">
