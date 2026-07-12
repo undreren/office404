@@ -3,6 +3,7 @@ import type {
   AgentJob,
   GameEvent,
   GameState,
+  MainTabId,
   Project,
   StaffJob,
   Task,
@@ -152,6 +153,8 @@ export function createInitialState(at: number, rngSeed?: number): GameState {
     leads: [],
     selectedTaskId: null,
     tutorialDone: false,
+    acknowledgedTutorialStep: -1,
+    seenTabIntros: [],
     leadSpawnCooldown: LEAD_SPAWN_INTERVAL_DAYS,
     events: pushEvent(ctx, [], 'system', 'Day 0. $0. One agent. One laptop. Infinite audacity.', at),
     stats: {
@@ -610,7 +613,11 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
             nextEvents = pushEvent(ctx, nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`, at)
           }
 
-          if (leadSpawnCooldown <= 0 && nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS) {
+          if (
+            state.tutorialDone &&
+            leadSpawnCooldown <= 0 &&
+            nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS
+          ) {
             nextLeads = [generateLead(ctx, reputation, gameDay), ...nextLeads]
             leadSpawnCooldown = leadSpawnIntervalDays(reputation, gameDay)
             nextEvents = pushEvent(ctx, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
@@ -1146,16 +1153,29 @@ export function deliverProject(state: GameState, projectId: string, at: number):
     nextEvents = pushEvent(ctx, nextEvents, 'system', 'No reputation. No clients. Game over.', at)
   }
 
+  const tutorialJustCompleted = project.isTutorial && !state.tutorialDone
+  const tutorialDone = state.tutorialDone || !nextProjects.some((p) => p.isTutorial)
+
+  let nextLeads = state.leads
+  let nextLeadSpawnCooldown = state.leadSpawnCooldown
+  if (tutorialJustCompleted) {
+    nextLeads = [generateLead(ctx, reputation, state.gameDay)]
+    nextLeadSpawnCooldown = leadSpawnIntervalDays(reputation, state.gameDay)
+    nextEvents = pushEvent(ctx, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
+  }
+
   return withCtx({
     ...state,
     cash: finalCash,
     reputation,
     projects: nextProjects,
     agents: nextAgents,
+    leads: nextLeads,
+    leadSpawnCooldown: nextLeadSpawnCooldown,
     stats: { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 },
     events: nextEvents,
     phase,
-    tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+    tutorialDone,
   }, ctx, at)
 }
 
@@ -1364,6 +1384,16 @@ export function retire(state: GameState, at: number): GameState {
 
 export function resetGame(at: number, rngSeed?: number): GameState {
   return createInitialState(at, rngSeed)
+}
+
+export function acknowledgeTabIntro(state: GameState, tab: MainTabId, at: number): GameState {
+  if (state.seenTabIntros.includes(tab)) return state
+  return { ...state, seenTabIntros: [...state.seenTabIntros, tab], snapshotAt: at }
+}
+
+export function acknowledgeTutorialStep(state: GameState, step: number, at: number): GameState {
+  if (step <= state.acknowledgedTutorialStep) return state
+  return { ...state, acknowledgedTutorialStep: step, snapshotAt: at }
 }
 
 export function getNetWorth(state: Pick<GameState, 'cash'>): number {

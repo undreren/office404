@@ -1,7 +1,9 @@
 import type { GameMessage } from '../engine/Message'
-import type { AgentJob, GameState } from '../types'
+import type { AgentJob, GameState, MainTabId } from '../types'
 import {
   acceptLead,
+  acknowledgeTabIntro,
+  acknowledgeTutorialStep,
   adjustCrewCap,
   adjustRoleCount,
   advanceTime,
@@ -114,6 +116,14 @@ export function retireMsg(at: number): GameMessage {
 
 export function resetGameMsg(at: number, rngSeed?: number): GameMessage {
   return { at, apply: () => resetGame(at, rngSeed) }
+}
+
+export function acknowledgeTabIntroMsg(at: number, tab: MainTabId): GameMessage {
+  return { at, apply: (state) => acknowledgeTabIntro(state, tab, at) }
+}
+
+export function acknowledgeTutorialStepMsg(at: number, step: number): GameMessage {
+  return { at, apply: (state) => acknowledgeTutorialStep(state, step, at) }
 }
 
 /** Returns true if the message changed state (for shop purchases). */

@@ -85,6 +85,8 @@
   "leads": [],
   "selectedTaskId": null,
   "tutorialDone": false,
+  "acknowledgedTutorialStep": -1,
+  "seenTabIntros": [],
   "leadSpawnCooldown": 4,
   "events": [
     {

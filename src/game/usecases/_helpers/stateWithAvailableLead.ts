@@ -5,6 +5,6 @@ import { initialPlaying } from './initialPlaying'
 import { SEED, T0 } from './testConstants'
 
 export function stateWithAvailableLead(seed: number = SEED): GameState {
-  const state = initialPlaying(seed)
+  const state = { ...initialPlaying(seed), tutorialDone: true }
   return advanceGameDays(state, LEAD_SPAWN_INTERVAL_DAYS, T0 + 1000)
 }

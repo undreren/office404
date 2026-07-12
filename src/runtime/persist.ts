@@ -1,9 +1,21 @@
 import { SAVE_KEY } from '../game/constants'
 import type { GameState } from '../game/types'
 
-const SAVE_VERSION = 4
+const SAVE_VERSION = 5
 
 export type PersistedState = Omit<GameState, never>
+
+function migrateState(state: GameState, fromVersion: number): GameState {
+  let next = state
+  if (fromVersion < 5) {
+    next = {
+      ...next,
+      acknowledgedTutorialStep: next.acknowledgedTutorialStep ?? -1,
+      seenTabIntros: next.seenTabIntros ?? [],
+    }
+  }
+  return next
+}
 
 export function partializeState(state: GameState): PersistedState {
   return {
@@ -26,6 +38,8 @@ export function partializeState(state: GameState): PersistedState {
     leads: state.leads,
     selectedTaskId: state.selectedTaskId,
     tutorialDone: state.tutorialDone,
+    acknowledgedTutorialStep: state.acknowledgedTutorialStep,
+    seenTabIntros: state.seenTabIntros,
     leadSpawnCooldown: state.leadSpawnCooldown,
     events: state.events,
     stats: state.stats,
@@ -41,7 +55,11 @@ export function loadPersistedState(): GameState | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as { state?: GameState; version?: number }
     if (!parsed.state) return null
-    if (parsed.version !== undefined && parsed.version < SAVE_VERSION) return null
+    const version = parsed.version ?? 4
+    if (version > SAVE_VERSION) return null
+    if (version < SAVE_VERSION) {
+      return migrateState(parsed.state, version)
+    }
     return parsed.state
   } catch {
     return null

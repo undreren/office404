@@ -21,6 +21,8 @@ export type LeadStatus = 'available' | 'expired' | 'accepted' | 'rejected'
 
 export type GamePhase = 'playing' | 'won' | 'lost'
 
+export type MainTabId = 'feed' | 'shop' | 'agents' | 'projects' | 'leads'
+
 export type ApartmentTier = 'cardboard' | 'shared_1br' | 'studio' | 'loft' | 'penthouse'
 
 export type FineTuneRole = 'code' | 'review' | 'refine' | 'test'
@@ -165,6 +167,10 @@ export interface GameState {
   leads: Lead[]
   selectedTaskId: string | null
   tutorialDone: boolean
+  /** Highest tutorial step modal the player has dismissed (-1 = none). */
+  acknowledgedTutorialStep: number
+  /** Main nav tabs whose intro modal has been shown. */
+  seenTabIntros: MainTabId[]
   leadSpawnCooldown: number
   events: GameEvent[]
   stats: {

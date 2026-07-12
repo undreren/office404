@@ -23,7 +23,6 @@ import {
   adjustRoleCountMsg,
   deliverProjectMsg,
   justMergePrMsg,
-  selectTaskMsg,
   toggleConductorMsg,
 } from '../game/messages'
 import {
@@ -57,14 +56,12 @@ function TaskCard({
   project,
   agents,
   selectedTaskId,
-  onSelect,
   onJustMerge,
 }: {
   task: Task
   project: Project
   agents: Agent[]
   selectedTaskId: string | null
-  onSelect: (id: string) => void
   onJustMerge: (id: string) => void
 }) {
   const pct = taskLifecycleProgressPct(task, project, agents)
@@ -72,20 +69,25 @@ function TaskCard({
   const isSelected = selectedTaskId === task.id
   const comments = reviewCommentsOnTask(project, task.id)
   const resolved = resolvedReviewComments(project, task.id).length
+  const statusSummary = `${phase}, ${Math.floor(pct)}%, ${formatStoryPoints(task.storyPointsRequired)} story points`
 
   return (
     <li
       className={`task-item task-item--${task.status} ${isSelected ? 'task-item--selected' : ''} ${task.isBugFix ? 'task-item--bug' : ''}`}
     >
-      <button type="button" className="task-select" onClick={() => onSelect(task.id)}>
+      <article
+        className="task-card"
+        data-task-id={task.id}
+        aria-label={`Task: ${task.title} — ${statusSummary}`}
+      >
         <div className="task-item__top">
-          <strong>{task.title}</strong>
+          <h5 className="task-card__title">{task.title}</h5>
           <span className="task-status">{phase}</span>
         </div>
         <div className="meter meter--sm">
           <div className="meter__fill meter__fill--code" style={{ width: `${pct}%` }} />
         </div>
-        <span className="task-sp">
+        <p className="task-sp">
           {Math.floor(pct)}% · {formatStoryPoints(task.storyPointsRequired)} SP
           {task.isBugFix && ' · bug fix'}
           {task.bugDiscovered && !task.isBugFix && ' · bug found'}
@@ -99,8 +101,8 @@ function TaskCard({
           {task.status === 'pr_ready' && comments.length > 0 && (
             <> · comments {resolved}/{comments.length}</>
           )}
-        </span>
-      </button>
+        </p>
+      </article>
 
       {comments.length > 0 && (
         <ul className="review-comment-list">
@@ -140,6 +142,7 @@ function TaskCard({
           <button
             type="button"
             className="btn btn--small btn--danger"
+            aria-label={`Just merge ${task.title} without waiting for review`}
             onClick={() => onJustMerge(task.id)}
           >
             Just Merge
@@ -155,14 +158,12 @@ function RequirementBlock({
   project,
   agents,
   selectedTaskId,
-  onSelect,
   onJustMerge,
 }: {
   requirement: Requirement
   project: Project
   agents: Agent[]
   selectedTaskId: string | null
-  onSelect: (id: string) => void
   onJustMerge: (id: string) => void
 }) {
   const refinePct = requirementRefineProgressPct(project, requirement, agents)
@@ -171,9 +172,12 @@ function RequirementBlock({
   const hasRefinedTasks = requirement.status !== 'open'
 
   return (
-    <li className={`requirement-item requirement-item--${requirement.status}`}>
+    <li
+      className={`requirement-item requirement-item--${requirement.status}`}
+      aria-label={`Requirement: ${requirement.title}, ${formatStoryPoints(requirement.storyPoints)} story points, ${requirement.status}`}
+    >
       <div className="requirement-item__header">
-        <span className="requirement-item__title">{requirement.title}</span>
+        <h5 className="requirement-item__title">{requirement.title}</h5>
         <span className="requirement-item__meta">
           {formatStoryPoints(requirement.storyPoints)} SP
           {requirement.status === 'open' && ' · refining'}
@@ -209,7 +213,7 @@ function RequirementBlock({
       )}
 
       {tasks.length > 0 && (
-        <ul className="task-list task-list--nested">
+        <ul className="task-list task-list--nested" aria-label={`Tasks for ${requirement.title}`}>
           {tasks.map((task) => (
             <TaskCard
               key={task.id}
@@ -217,7 +221,6 @@ function RequirementBlock({
               project={project}
               agents={agents}
               selectedTaskId={selectedTaskId}
-              onSelect={onSelect}
               onJustMerge={onJustMerge}
             />
           ))}
@@ -270,24 +273,30 @@ function RoleCounter({
   const displayCount = Math.max(count, agents.length)
   const canRemove = displayCount > 0
 
+  const staffingLabel = `${label} staffing for ${project.clientName}`
+
   return (
     <div className="crew-row">
       <div className="crew-row__header">
         <span className="crew-label">{label}</span>
-        <div className="crew-counter">
+        <div className="crew-counter" role="group" aria-label={staffingLabel}>
           <button
             type="button"
             className="btn btn--small"
             disabled={!canRemove}
+            aria-label={`Remove ${label.toLowerCase()} from ${project.clientName}`}
             onClick={() => dispatchAt((at) => adjustRoleCountMsg(at, projectId, job, -1))}
           >
             −
           </button>
-          <span className="crew-count">{displayCount}</span>
+          <span className="crew-count" aria-live="polite">
+            {displayCount}
+          </span>
           <button
             type="button"
             className="btn btn--small"
             disabled={!canAdd}
+            aria-label={`Add ${label.toLowerCase()} to ${project.clientName}`}
             onClick={() => dispatchAt((at) => adjustRoleCountMsg(at, projectId, job, 1))}
           >
             +
@@ -360,8 +369,8 @@ function ProjectCard({ project }: { project: Project }) {
       </div>
 
       {requirements.length > 0 && (
-        <div className="requirements-block">
-          <h4>Requirements</h4>
+        <section className="requirements-block" aria-labelledby={`requirements-${project.id}`}>
+          <h4 id={`requirements-${project.id}`}>Requirements</h4>
           <ul className="requirement-list">
             {requirements.map((req) => (
               <RequirementBlock
@@ -370,16 +379,15 @@ function ProjectCard({ project }: { project: Project }) {
                 project={synced}
                 agents={agents}
                 selectedTaskId={selectedTaskId}
-                onSelect={(id) => dispatchAt((at) => selectTaskMsg(at, id))}
                 onJustMerge={(id) => dispatchAt((at) => justMergePrMsg(at, id))}
               />
             ))}
           </ul>
-        </div>
+        </section>
       )}
 
-      <div className="project-crew">
-        <h4>Staffing</h4>
+      <section className="project-crew" aria-labelledby={`staffing-${project.id}`}>
+        <h4 id={`staffing-${project.id}`}>Staffing</h4>
         {conductorUnlocked && (
           <div className="crew-row">
             <label className="crew-label">
@@ -393,11 +401,12 @@ function ProjectCard({ project }: { project: Project }) {
               Conductor mode
             </label>
             {project.useConductor && (
-              <div className="crew-counter">
+              <div className="crew-counter" role="group" aria-label={`Crew cap for ${project.clientName}`}>
                 <span className="crew-label">Crew cap</span>
                 <button
                   type="button"
                   className="btn btn--small"
+                  aria-label={`Decrease crew cap for ${project.clientName}`}
                   onClick={() => dispatchAt((at) => adjustCrewCapMsg(at, project.id, -1))}
                 >
                   −
@@ -406,6 +415,7 @@ function ProjectCard({ project }: { project: Project }) {
                 <button
                   type="button"
                   className="btn btn--small"
+                  aria-label={`Increase crew cap for ${project.clientName}`}
                   onClick={() => dispatchAt((at) => adjustCrewCapMsg(at, project.id, 1))}
                 >
                   +
@@ -460,7 +470,7 @@ function ProjectCard({ project }: { project: Project }) {
             />
           ))
         )}
-      </div>
+      </section>
 
       {synced.testStoryPointsRequired > 0 && !readyToDeliver && synced.testPercent < 100 && (
         <p className="hint">

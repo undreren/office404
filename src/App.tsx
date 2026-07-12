@@ -7,6 +7,7 @@ import { UpgradesPanel } from './components/UpgradesPanel'
 import { AgentsPanel } from './components/AgentsPanel'
 import { EventLog } from './components/EventLog'
 import { GameOverlay } from './components/GameOverlay'
+import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { GameRuntimeProvider, useGameRuntime } from './runtime/GameRuntime'
 
 function AppShell() {
@@ -16,6 +17,7 @@ function AppShell() {
     <div className="app">
       <div className="scanlines" aria-hidden="true" />
       <ResourceBar compact={activeTab !== 'feed'} />
+      <OnboardingOverlay />
       <GameOverlay />
 
       <main className="main">

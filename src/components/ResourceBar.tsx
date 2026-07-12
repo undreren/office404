@@ -1,7 +1,7 @@
 import { APARTMENT_CONFIG, WIN_CASH } from '../game/constants'
 import { MODEL_TIERS } from '../game/models'
 import { agentCapacity, getNetWorth } from '../game/selectors'
-import { useGameState } from '../runtime/GameRuntime'
+import { useGamePaused, useGameState } from '../runtime/GameRuntime'
 import { NewGameButton } from './NewGameButton'
 
 type ResourceBarProps = {
@@ -10,6 +10,7 @@ type ResourceBarProps = {
 
 export function ResourceBar({ compact = false }: ResourceBarProps) {
   const state = useGameState()
+  const { paused } = useGamePaused()
   const { cash, reputation, gameDay, rentDueInDays, apartment } = state
 
   const { used, max, totalRam, totalGpus } = agentCapacity(state)
@@ -25,7 +26,10 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
           <span className={`glitch${compact ? ' glitch--compact' : ''}`} data-text="OFFICE 404">
             OFFICE 404
           </span>
-          <small>Intelligence Not Found · Day {Math.floor(gameDay)}</small>
+          <small>
+            Intelligence Not Found · Day {Math.floor(gameDay)}
+            {paused && <span className="resource-bar__paused"> · Paused</span>}
+          </small>
         </div>
         <NewGameButton />
       </div>
