@@ -1,5 +1,5 @@
 import { test as base, expect } from '@playwright/test'
-import type { GameState } from '../src/game/types'
+import type { GameState } from '../../src/game/types'
 
 export const test = base.extend({
   loadFixture: async ({ page }, use) => {
