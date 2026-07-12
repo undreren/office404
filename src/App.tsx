@@ -17,7 +17,7 @@ function AppShell() {
   return (
     <div className="app">
       <div className="scanlines" aria-hidden="true" />
-      <ResourceBar variant={activeTab === 'feed' ? 'full' : 'compact'} />
+      <ResourceBar compact={activeTab !== 'feed'} />
       <GameOverlay />
 
       <main className="main">
