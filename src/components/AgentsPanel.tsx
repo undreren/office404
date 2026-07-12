@@ -22,6 +22,7 @@ export function AgentsPanel() {
     return (
       <section className="panel agents-panel">
         <h2>Agents</h2>
+        <p className="panel__subtitle">Synthetic coworkers who never ask about your weekend.</p>
         <p className="hint">No agents deployed. Staff a project with + to spawn.</p>
       </section>
     )
@@ -30,6 +31,7 @@ export function AgentsPanel() {
   return (
     <section className="panel agents-panel">
       <h2>Agents ({agents.length})</h2>
+      <p className="panel__subtitle">Synthetic coworkers who never ask about your weekend.</p>
       <p className="hint">
         All running {model.displayName} · spawn on assign, bench on unassign (context preserved)
       </p>

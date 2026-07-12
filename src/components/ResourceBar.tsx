@@ -3,7 +3,11 @@ import { MODEL_TIERS } from '../game/models'
 import { agentCapacity, getNetWorth, useGameStore } from '../game/store'
 import { NewGameButton } from './NewGameButton'
 
-export function ResourceBar() {
+type ResourceBarProps = {
+  variant?: 'full' | 'compact'
+}
+
+export function ResourceBar({ variant = 'full' }: ResourceBarProps) {
   const cash = useGameStore((s) => s.cash)
   const reputation = useGameStore((s) => s.reputation)
   const gameDay = useGameStore((s) => s.gameDay)
@@ -16,6 +20,31 @@ export function ResourceBar() {
   const netWorth = getNetWorth(state)
   const winPct = Math.min(100, (netWorth / WIN_CASH) * 100)
   const rentAmount = APARTMENT_CONFIG[apartment].rent
+
+  if (variant === 'compact') {
+    return (
+      <header className="resource-bar resource-bar--compact">
+        <div className="resource-bar--compact__stats">
+          <div className="resource-bar--compact__stat">
+            <label>Cash</label>
+            <span className="value">${Math.floor(cash)}</span>
+          </div>
+          <div className="resource-bar--compact__stat">
+            <label>Day</label>
+            <span className="value">{Math.floor(gameDay)}</span>
+          </div>
+          <div className="resource-bar--compact__stat resource-bar--compact__stat--grow">
+            <label>Retire</label>
+            <div className="meter meter--sm">
+              <div className="meter__fill meter__fill--code" style={{ width: `${winPct}%` }} />
+            </div>
+            <span className="value value--sm">{Math.floor(winPct)}%</span>
+          </div>
+        </div>
+        <NewGameButton />
+      </header>
+    )
+  }
 
   return (
     <header className="resource-bar">
