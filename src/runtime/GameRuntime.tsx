@@ -23,6 +23,8 @@ type GameRuntimeContextValue = {
   dispatch: (message: GameMessage) => void
   dispatchPurchase: (message: GameMessage) => boolean
   hydrated: boolean
+  paused: boolean
+  setPaused: (paused: boolean) => void
 }
 
 const GameRuntimeContext = createContext<GameRuntimeContextValue | null>(null)
@@ -36,6 +38,7 @@ function bootState(at: number): GameState {
 export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GameState | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  const [paused, setPaused] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -75,13 +78,13 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
-    if (!hydrated || !state) return
+    if (!hydrated || !state || paused) return
     const interval = setInterval(() => {
       const at = Date.now()
       dispatchMsg(timeElapsed(at, TICK_INTERVAL_MS / 1000))
     }, TICK_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [hydrated, dispatchMsg, state])
+  }, [hydrated, dispatchMsg, state, paused])
 
   useEffect(() => {
     if (!hydrated || !state) return
@@ -94,8 +97,8 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo((): GameRuntimeContextValue | null => {
     if (!state) return null
-    return { state, dispatch: dispatchMsg, dispatchPurchase, hydrated }
-  }, [state, dispatchMsg, dispatchPurchase, hydrated])
+    return { state, dispatch: dispatchMsg, dispatchPurchase, hydrated, paused, setPaused }
+  }, [state, dispatchMsg, dispatchPurchase, hydrated, paused])
 
   if (!value) {
     return null
@@ -128,6 +131,11 @@ export function useGameDispatchAt() {
 
 export function useGameDispatchPurchase() {
   return useGameRuntime().dispatchPurchase
+}
+
+export function useGamePaused() {
+  const { paused, setPaused } = useGameRuntime()
+  return { paused, setPaused }
 }
 
 export function useNow(intervalMs = 1000): number {

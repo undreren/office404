@@ -11,7 +11,7 @@ describe('accept-lead-adds-project', () => {
   it('matches use case invariants', () => {
     const spawnSec = LEAD_SPAWN_INTERVAL_DAYS * SECONDS_PER_GAME_DAY
 
-    let state = createInitialState(T0, SEED)
+    let state = { ...createInitialState(T0, SEED), tutorialDone: true }
     state = dispatchChain(state, [timeElapsed(T0 + 1000, spawnSec)])
 
     const available = state.leads.filter((l) => l.status === 'available')

@@ -4,7 +4,7 @@ import { effectiveLeadDuration } from '../game/projects'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
 export function LeadsPanel() {
-  const { leads, reputation, gameDay, projects } = useGameState()
+  const { leads, reputation, gameDay, projects, tutorialDone } = useGameState()
   const { acceptLead } = useTabNav()
   const dispatchAt = useGameDispatchAt()
 
@@ -15,7 +15,13 @@ export function LeadsPanel() {
       <h2>Leads</h2>
       <p className="panel__subtitle">Accept the pain. Reject professionally. Let expire for shame.</p>
 
-      {available.length === 0 && <p className="empty-slot">No leads right now. Check back after more suffering.</p>}
+      {available.length === 0 && (
+        <p className="empty-slot">
+          {!tutorialDone
+            ? 'Finish your first project to unlock leads.'
+            : 'No leads right now. Check back after more suffering.'}
+        </p>
+      )}
 
       {available.map((lead) => {
         const canAccept = reputation >= lead.repRequired && projects.length < 4
