@@ -19,6 +19,22 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
   const netWorth = getNetWorth(state)
   const winPct = Math.min(100, (netWorth / WIN_CASH) * 100)
   const rentAmount = APARTMENT_CONFIG[apartment].rent
+  const compactSummary = compact
+    ? [
+        `Cash $${Math.floor(cash)}`,
+        `net worth $${Math.floor(netWorth).toLocaleString()} of $10M goal`,
+        `reputation ${Math.floor(reputation)}`,
+        `home ${APARTMENT_CONFIG[apartment].label}`,
+        `agents ${used}/${max}`,
+        `${totalRam} GB RAM`,
+        `${totalGpus} GPU`,
+        `model ${model.displayName}`,
+        `rent $${rentAmount} due in ${Math.ceil(rentDueInDays)} days`,
+        paused ? 'paused' : null,
+      ]
+        .filter(Boolean)
+        .join(', ')
+    : undefined
 
   return (
     <header className={`resource-bar${compact ? ' resource-bar--compact' : ''}`}>
@@ -27,7 +43,7 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
           <span className={`glitch${compact ? ' glitch--compact' : ''}`} data-text="OFFICE 404">
             OFFICE 404
           </span>
-          <small>
+          <small aria-label={`Game clock: ${formatGameClock(gameDay)}${paused ? ', paused' : ''}`}>
             Intelligence Not Found · {formatGameClock(gameDay)}
             {paused && <span className="resource-bar__paused"> · Paused</span>}
           </small>
@@ -35,13 +51,16 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
         <NewGameButton />
       </div>
 
-      <div className="resource-grid">
-        <div className="resource">
+      <div className="resource-grid" role="region" aria-label={compactSummary ?? 'Resources'}>
+        <div className="resource" aria-label={`Cash: $${Math.floor(cash)}`}>
           <label>Cash</label>
           <span className="value">${Math.floor(cash)}</span>
         </div>
 
-        <div className="resource">
+        <div
+          className="resource"
+          aria-label={`Retire goal: $${Math.floor(netWorth).toLocaleString()} of $10M (${Math.floor(winPct)}%)`}
+        >
           <label>Retire Goal</label>
           <div className="meter">
             <div className="meter__fill meter__fill--code" style={{ width: `${winPct}%` }} />
@@ -51,36 +70,48 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
 
         {!compact && (
           <>
-            <div className="resource resource--inline">
+            <div className="resource resource--inline" aria-label={`Reputation: ${Math.floor(reputation)}`}>
               <label>Rep</label>
               <span className="value">{Math.floor(reputation)}</span>
             </div>
 
-            <div className="resource resource--inline">
+            <div
+              className="resource resource--inline"
+              aria-label={`Home: ${APARTMENT_CONFIG[apartment].label}`}
+            >
               <label>Home</label>
               <span className="value value--sm">{APARTMENT_CONFIG[apartment].label}</span>
             </div>
 
-            <div className="resource resource--inline">
+            <div
+              className="resource resource--inline"
+              aria-label={`Agents: ${used} of ${max} staffed`}
+            >
               <label>Agents</label>
               <span className="value value--sm">
                 {used}/{max}
               </span>
             </div>
 
-            <div className="resource resource--inline">
+            <div
+              className="resource resource--inline"
+              aria-label={`RAM ${totalRam} GB, ${totalGpus} GPU`}
+            >
               <label>RAM / GPU</label>
               <span className="value value--sm">
                 {totalRam} GB · {totalGpus} GPU
               </span>
             </div>
 
-            <div className="resource resource--inline">
+            <div className="resource resource--inline" aria-label={`Model: ${model.displayName}`}>
               <label>Model</label>
               <span className="value value--sm">{model.displayName}</span>
             </div>
 
-            <div className="resource resource--inline">
+            <div
+              className="resource resource--inline"
+              aria-label={`Rent: $${rentAmount} due in ${Math.ceil(rentDueInDays)} days`}
+            >
               <label>Rent</label>
               <span className={`value value--sm ${rentDueInDays < 5 ? 'text-danger' : ''}`}>
                 ${rentAmount} in {Math.ceil(rentDueInDays)}d

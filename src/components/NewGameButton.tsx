@@ -28,21 +28,34 @@ export function NewGameButton() {
       <button
         type="button"
         className={`btn resource-bar__quit ${canRetire ? 'resource-bar__quit--retire' : 'resource-bar__quit--danger'}`}
+        aria-label={canRetire ? 'Retire with $10M net worth' : 'Start a new game'}
         onClick={handleClick}
       >
         {canRetire ? 'Retire' : 'just give up'}
       </button>
 
       {confirming && (
-        <div className="game-overlay">
+        <div className="game-overlay" role="dialog" aria-label="Confirm new game">
           <div className="game-overlay__card">
             <h2>Give Up?</h2>
-            <p>Your agency, agents, and petty cash go back to Day 0. This cannot be undone.</p>
+            <p aria-label="Your agency, agents, and petty cash go back to Day 0. This cannot be undone.">
+              Your agency, agents, and petty cash go back to Day 0. This cannot be undone.
+            </p>
             <div className="game-overlay__actions">
-              <button type="button" className="btn btn--danger" onClick={handleConfirm}>
+              <button
+                type="button"
+                className="btn btn--danger"
+                aria-label="Confirm start new game"
+                onClick={handleConfirm}
+              >
                 just give up
               </button>
-              <button type="button" className="btn" onClick={() => setConfirming(false)}>
+              <button
+                type="button"
+                className="btn"
+                aria-label="Keep playing"
+                onClick={() => setConfirming(false)}
+              >
                 Keep Playing
               </button>
             </div>

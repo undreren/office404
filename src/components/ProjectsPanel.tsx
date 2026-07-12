@@ -100,6 +100,31 @@ function staffingGroupLabel(
   return `${role} on ${projectName}: ${assigned} assigned, ${idleAgents} idle on roster (${rosterUsed}/${rosterMax})${workNote}`
 }
 
+function taskAccessibleSummary(
+  task: Task,
+  phase: string,
+  pct: number,
+  commentCount: number,
+  resolvedComments: number,
+): string {
+  const parts = [
+    `${phase}, ${Math.floor(pct)}%, ${formatStoryPoints(task.storyPointsRequired)} story points`,
+  ]
+  if (task.isBugFix) parts.push('bug fix')
+  if (task.bugDiscovered && !task.isBugFix) parts.push('bug found')
+  if (task.status === 'merged' && task.prQuality !== null) {
+    parts.push(`PR ${Math.round(task.prQuality)}%`)
+  }
+  if (task.status === 'pr_ready' && !task.reviewed) parts.push('awaiting review')
+  if (task.status === 'pr_ready' && task.reviewed) {
+    parts.push(`PR ~${Math.round(task.prQualityStaging)}%`)
+  }
+  if (task.status === 'pr_ready' && commentCount > 0) {
+    parts.push(`comments ${resolvedComments}/${commentCount}`)
+  }
+  return parts.join(', ')
+}
+
 function visibleTasksForRequirement(project: Project, requirementId: string): Task[] {
   return tasksForRequirement(project, requirementId)
     .filter((t) => !taskIsFullyComplete(t))
@@ -127,7 +152,7 @@ function TaskCard({
   const isSelected = selectedTaskId === task.id
   const comments = reviewCommentsOnTask(project, task.id)
   const resolved = resolvedReviewComments(project, task.id).length
-  const statusSummary = `${phase}, ${Math.floor(pct)}%, ${formatStoryPoints(task.storyPointsRequired)} story points`
+  const statusSummary = taskAccessibleSummary(task, phase, pct, comments.length, resolved)
 
   return (
     <li
@@ -169,10 +194,20 @@ function TaskCard({
             const commentCoder = agents.find((a) => a.job === 'code' && a.taskId === comment.id)
             const addressed = comment.storyPointsEarned >= comment.storyPointsRequired
 
+            const commentSummary = [
+              `Review comment: "${comment.title}"`,
+              addressed ? 'addressed' : `${Math.floor(commentPct)}% complete`,
+              `${formatStoryPoints(comment.storyPointsRequired)} story points`,
+              commentCoder ? `${commentCoder.name} fixing` : null,
+            ]
+              .filter(Boolean)
+              .join(', ')
+
             return (
               <li
                 key={comment.id}
                 className={`review-comment ${addressed ? 'review-comment--resolved' : ''}`}
+                aria-label={commentSummary}
               >
                 <div className="review-comment__header">
                   <span className="review-comment__label">Review comment</span>
@@ -228,11 +263,22 @@ function RequirementBlock({
   const testPct = requirementTestPercent(project, requirement.id)
   const tasks = visibleTasksForRequirement(project, requirement.id)
   const hasRefinedTasks = requirement.status !== 'open'
+  const requirementSummary = [
+    `Requirement: ${requirement.title}`,
+    `${formatStoryPoints(requirement.storyPoints)} story points`,
+    requirement.status,
+    requirement.status === 'open' && refinePct !== null
+      ? `refining ${Math.floor(refinePct)}%`
+      : null,
+    hasRefinedTasks ? `QA coverage ${Math.floor(testPct)}%` : null,
+  ]
+    .filter(Boolean)
+    .join(', ')
 
   return (
     <li
       className={`requirement-item requirement-item--${requirement.status}`}
-      aria-label={`Requirement: ${requirement.title}, ${formatStoryPoints(requirement.storyPoints)} story points, ${requirement.status}`}
+      aria-label={requirementSummary}
     >
       <div className="requirement-item__header">
         <h5 className="requirement-item__title">{requirement.title}</h5>
@@ -293,8 +339,13 @@ function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
   const duty = formatAgentDutyLabel(agent, project.clientName, task?.title)
   const progress = agentWorkProgressPct(agent, task ?? null)
 
+  const agentSummary =
+    progress !== null
+      ? `${agent.name}: ${duty}, ${Math.floor(progress)}%`
+      : `${agent.name}: ${duty}`
+
   return (
-    <div className="crew-agent-row">
+    <div className="crew-agent-row" aria-label={agentSummary}>
       <span className="crew-agent-name">{agent.name}</span>
       {progress !== null ? (
         <>
@@ -423,15 +474,30 @@ function ProjectCard({ project }: { project: Project }) {
   const implMerged = allImplementationMerged(synced)
   const totalTasks = project.tasks.filter((t) => !t.isReviewComment).length
 
+  const projectSummary = [
+    project.clientName,
+    `$${project.payment}`,
+    `${Math.ceil(project.daysRemaining)} days left`,
+    `delivery quality ${Math.floor(synced.deliveryQuality)}%`,
+    `progress ${merged}/${totalTasks || 0} merged`,
+  ].join(', ')
+
   return (
     <article
       className={`project-card ${project.isTutorial ? 'project-card--tutorial' : ''} ${readyToDeliver ? 'project-card--ready' : ''}`}
+      aria-label={projectSummary}
     >
       <header className="project-card__header">
         <div>
-          <p className="project-blurb">{project.blurb}</p>
+          <p className="project-blurb" aria-label={`Project brief: ${project.blurb}`}>
+            {project.blurb}
+          </p>
         </div>
-        <div className="project-meta">
+        <div
+          className="project-meta"
+          role="group"
+          aria-label={`Payment $${project.payment}, ${Math.ceil(project.daysRemaining)} days left`}
+        >
           <span>${project.payment}</span>
           <span className={project.daysRemaining < 5 ? 'text-danger' : ''}>
             {Math.ceil(project.daysRemaining)}d left
@@ -439,7 +505,11 @@ function ProjectCard({ project }: { project: Project }) {
         </div>
       </header>
 
-      <div className="meter-row">
+      <div
+        className="meter-row"
+        role="group"
+        aria-label={`Delivery Quality (avg PR): ${Math.floor(synced.deliveryQuality)}%`}
+      >
         <label>Delivery Quality (avg PR)</label>
         <div className="meter">
           <div
@@ -450,7 +520,11 @@ function ProjectCard({ project }: { project: Project }) {
         <span>{Math.floor(synced.deliveryQuality)}%</span>
       </div>
 
-      <div className="meter-row">
+      <div
+        className="meter-row"
+        role="group"
+        aria-label={`Progress: ${merged}/${totalTasks || 0} merged, ${Math.floor(progress)}%`}
+      >
         <label>Progress ({merged}/{totalTasks || '—'} merged)</label>
         <div className="meter">
           <div className="meter__fill meter__fill--code" style={{ width: `${progress}%` }} />
@@ -550,7 +624,14 @@ function ProjectCard({ project }: { project: Project }) {
               rosterMax={rosterMax}
               hasRoleWork
             />
-            <p className="hint">
+            <p
+              className="hint"
+              aria-label={`Conductor auto-staffs refine, code, review, and test within crew cap (${
+                projectAgents(project.id, 'conductor').length > 0
+                  ? `${project.crewCap - 1} worker slots`
+                  : 'assign conductor first'
+              }).`}
+            >
               Conductor auto-staffs refine → code → review → test within crew cap (
               {projectAgents(project.id, 'conductor').length > 0
                 ? `${project.crewCap - 1} worker slots`
@@ -595,7 +676,14 @@ function ProjectCard({ project }: { project: Project }) {
       </section>
 
       {synced.testStoryPointsRequired > 0 && !readyToDeliver && synced.testPercent < 100 && (
-        <p className="hint">
+        <p
+          className="hint"
+          aria-label={`${
+            implMerged ? 'Implementation merged.' : 'Merged tasks queue for QA as they land.'
+          } ${untestedMergedTasks(synced).length} task${
+            untestedMergedTasks(synced).length === 1 ? '' : 's'
+          } waiting for QA.`}
+        >
           {implMerged ? 'Implementation merged.' : 'Merged tasks queue for QA as they land.'}{' '}
           {untestedMergedTasks(synced).length} task
           {untestedMergedTasks(synced).length === 1 ? '' : 's'} waiting for QA.
@@ -604,7 +692,9 @@ function ProjectCard({ project }: { project: Project }) {
 
       {readyToDeliver && (
         <div className="deliver-row">
-          <p className="hint">All tasks merged and QA complete. Ship it.</p>
+          <p className="hint" aria-label="All tasks merged and QA complete. Ship it.">
+            All tasks merged and QA complete. Ship it.
+          </p>
           <button
             type="button"
             className="btn btn--deploy"
@@ -628,7 +718,9 @@ export function ProjectsPanel() {
       <section className="panel projects-panel">
         <h2>Projects</h2>
         <p className="panel__subtitle">Nothing on the board. Leads won&apos;t accept themselves.</p>
-        <p className="empty-slot">No active projects. Accept a lead or enjoy unemployment.</p>
+        <p className="empty-slot" aria-label="No active projects. Accept a lead or enjoy unemployment.">
+          No active projects. Accept a lead or enjoy unemployment.
+        </p>
       </section>
     )
   }
