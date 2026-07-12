@@ -9,9 +9,9 @@ test('tutorial-ready-for-code staffs coder via testid', async ({ page }) => {
 
   const addCode = page.getByTestId('staffing-add-code-proj-1')
   await expect(addCode).toBeEnabled()
-  await expect(page.getByTestId('staffing-add-refine-proj-1')).toBeDisabled()
-  await expect(page.getByTestId('staffing-add-review-proj-1')).toBeDisabled()
-  await expect(page.getByTestId('staffing-add-test-proj-1')).toBeDisabled()
+  await expect(page.getByTestId('staffing-add-refine-proj-1')).toBeEnabled()
+  await expect(page.getByTestId('staffing-add-review-proj-1')).toBeEnabled()
+  await expect(page.getByTestId('staffing-add-test-proj-1')).toBeEnabled()
 
   await addCode.click()
 

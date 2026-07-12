@@ -1,9 +1,17 @@
 import { SAVE_KEY } from '../game/constants'
+import { repairStaleCodingAssignments } from '../game/projects'
 import type { GameState } from '../game/types'
 
 const SAVE_VERSION = 6
 
 export type PersistedState = Omit<GameState, never>
+
+function normalizeLoadedState(state: GameState): GameState {
+  return {
+    ...state,
+    projects: repairStaleCodingAssignments(state.projects, state.agents),
+  }
+}
 
 function migrateState(state: GameState, fromVersion: number): GameState {
   let next = state
@@ -65,9 +73,9 @@ export function loadPersistedState(): GameState | null {
     const version = parsed.version ?? 4
     if (version > SAVE_VERSION) return null
     if (version < SAVE_VERSION) {
-      return migrateState(parsed.state, version)
+      return normalizeLoadedState(migrateState(parsed.state, version))
     }
-    return parsed.state
+    return normalizeLoadedState(parsed.state)
   } catch {
     return null
   }

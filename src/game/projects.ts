@@ -627,6 +627,27 @@ export function jobClaimedTaskIds(
   return ids
 }
 
+/** True when a coder is still staffed on the project for this task assignment. */
+export function isCodingTaskActivelyAssigned(task: Task, agents: Agent[]): boolean {
+  if (!task.assignedAgentId) return false
+  const assignee = agents.find((a) => a.id === task.assignedAgentId)
+  if (!assignee) return false
+  return assignee.job === 'code' && assignee.projectId === task.projectId
+}
+
+export function repairStaleCodingAssignments(
+  projects: Project[],
+  agents: Agent[],
+): Project[] {
+  return projects.map((project) => ({
+    ...project,
+    tasks: project.tasks.map((task) => {
+      if (!task.assignedAgentId || isCodingTaskActivelyAssigned(task, agents)) return task
+      return { ...task, assignedAgentId: null }
+    }),
+  }))
+}
+
 export function pickCodingTask(project: Project, agentId: string, agents: Agent[]): Task | null {
   const claimed = jobClaimedTaskIds(agents, project.id, 'code', agentId)
 
@@ -642,7 +663,7 @@ export function pickCodingTask(project: Project, agentId: string, agents: Agent[
       (t) =>
         t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
-        !t.assignedAgentId &&
+        !isCodingTaskActivelyAssigned(t, agents) &&
         !claimed.has(t.id) &&
         t.storyPointsEarned < t.storyPointsRequired,
     )
@@ -654,7 +675,7 @@ export function pickCodingTask(project: Project, agentId: string, agents: Agent[
       (t) =>
         !t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
-        !t.assignedAgentId &&
+        !isCodingTaskActivelyAssigned(t, agents) &&
         !claimed.has(t.id) &&
         t.storyPointsEarned < t.storyPointsRequired,
     )
