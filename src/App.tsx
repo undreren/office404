@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { TabNavProvider, useTabNav } from './context/TabNavContext'
 import { ResourceBar } from './components/ResourceBar'
 import { BottomNav } from './components/BottomNav'
@@ -8,8 +7,7 @@ import { UpgradesPanel } from './components/UpgradesPanel'
 import { AgentsPanel } from './components/AgentsPanel'
 import { EventLog } from './components/EventLog'
 import { GameOverlay } from './components/GameOverlay'
-import { useGameStore } from './game/store'
-import { useGameTick } from './hooks/useGameTick'
+import { GameRuntimeProvider, useGameRuntime } from './runtime/GameRuntime'
 
 function AppShell() {
   const { activeTab } = useTabNav()
@@ -43,14 +41,8 @@ function AppShell() {
   )
 }
 
-function App() {
-  const [hydrated, setHydrated] = useState(() => useGameStore.persist.hasHydrated())
-
-  useEffect(() => {
-    return useGameStore.persist.onFinishHydration(() => setHydrated(true))
-  }, [])
-
-  useGameTick(hydrated)
+function HydratedApp() {
+  const { hydrated } = useGameRuntime()
 
   if (!hydrated) {
     return (
@@ -65,6 +57,14 @@ function App() {
     <TabNavProvider>
       <AppShell />
     </TabNavProvider>
+  )
+}
+
+function App() {
+  return (
+    <GameRuntimeProvider>
+      <HydratedApp />
+    </GameRuntimeProvider>
   )
 }
 
