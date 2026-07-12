@@ -1,4 +1,6 @@
 /** Thematic subtask titles keyed by requirement theme. */
+import type { Rng } from './rng'
+
 export const SUBTASKS_BY_THEME: Record<string, string[]> = {
   auth: [
     'Login form validation that rejects passwords named "password123"',
@@ -387,14 +389,10 @@ export const BUG_DESCRIPTIONS = [
   'Agent added 100 bugs to the bug pool and introduced bug #101 immediately',
 ]
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
-
-function shuffle<T>(arr: T[]): T[] {
+function shuffle<T>(rng: Rng, arr: T[]): T[] {
   const copy = [...arr]
   for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
+    const j = rng.int(0, i)
     ;[copy[i], copy[j]] = [copy[j], copy[i]]
   }
   return copy
@@ -408,17 +406,17 @@ export function detectRequirementTheme(title: string): string {
   return 'general'
 }
 
-export function pickSubtaskTitles(requirementTitle: string, count: number): string[] {
+export function pickSubtaskTitles(rng: Rng, requirementTitle: string, count: number): string[] {
   const theme = detectRequirementTheme(requirementTitle)
   const pool = SUBTASKS_BY_THEME[theme] ?? SUBTASKS_BY_THEME.general
-  const candidates = shuffle(pool.filter((t) => t !== requirementTitle))
+  const candidates = shuffle(rng, pool.filter((t) => t !== requirementTitle))
   const titles: string[] = []
   for (let i = 0; i < count; i++) {
-    titles.push(candidates[i % candidates.length] ?? pick(SUBTASKS_BY_THEME.general))
+    titles.push(candidates[i % candidates.length] ?? rng.pick(SUBTASKS_BY_THEME.general))
   }
   return titles
 }
 
-export function pickBugDescription(): string {
-  return pick(BUG_DESCRIPTIONS)
+export function pickBugDescription(rng: Rng): string {
+  return rng.pick(BUG_DESCRIPTIONS)
 }

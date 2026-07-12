@@ -1,3 +1,5 @@
+import type { Rng } from './rng'
+
 const PREFIXES = [
   'Claude-ish',
   'GPT-wannabe',
@@ -36,13 +38,13 @@ const CRASH_LINES = [
   'merged into main without review',
 ]
 
-export function generateAgentName(): string {
-  const prefix = PREFIXES[Math.floor(Math.random() * PREFIXES.length)]
-  const suffix = SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]
+export function generateAgentName(rng: Rng): string {
+  const prefix = rng.pick(PREFIXES)
+  const suffix = rng.pick(SUFFIXES)
   return `${prefix} ${suffix}`
 }
 
-export function generatePersonality(): string {
+export function generatePersonality(rng: Rng): string {
   const traits = [
     'insists on daily retrospectives',
     'names all variables after Greek philosophers',
@@ -53,13 +55,13 @@ export function generatePersonality(): string {
     'refuses to touch legacy code written before Tuesday',
     'communicates exclusively in bullet points',
   ]
-  return traits[Math.floor(Math.random() * traits.length)]
+  return rng.pick(traits)
 }
 
-export function randomAwarenessLine(): string {
-  return AWARENESS_LINES[Math.floor(Math.random() * AWARENESS_LINES.length)]
+export function randomAwarenessLine(rng: Rng): string {
+  return rng.pick(AWARENESS_LINES)
 }
 
-export function randomCrashLine(): string {
-  return CRASH_LINES[Math.floor(Math.random() * CRASH_LINES.length)]
+export function randomCrashLine(rng: Rng): string {
+  return rng.pick(CRASH_LINES)
 }

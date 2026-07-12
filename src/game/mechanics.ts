@@ -18,6 +18,7 @@ import {
 import { getModelTier, MODEL_TIERS } from './models'
 import { GPU_UPGRADES, RAM_UPGRADES } from './upgrades'
 import type { Agent, AgentJob, FineTuneRole, GameState, Task } from './types'
+import type { Rng } from './rng'
 
 export const FIBONACCI = [0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
 
@@ -57,7 +58,7 @@ export function storyPointIncrement(
 }
 
 /** Reputation and calendar push lead sizes upward over time. */
-export function pickLeadFibonacci(reputation: number, gameDay = 0): number {
+export function pickLeadFibonacci(rng: Rng, reputation: number, gameDay = 0): number {
   let minIdx: number
   if (reputation < 10) minIdx = 3
   else if (reputation < 25) minIdx = 5
@@ -71,7 +72,7 @@ export function pickLeadFibonacci(reputation: number, gameDay = 0): number {
   for (let i = minIdx; i <= maxIdx; i++) {
     pool.push(FIBONACCI[i])
   }
-  return pool[Math.floor(Math.random() * pool.length)]
+  return rng.pick(pool)
 }
 
 /** Higher reputation and later calendar → leads arrive more often. */
@@ -103,8 +104,8 @@ export function prQualityAfterComments(base: number, resolvedCount: number): num
 }
 
 /** Bug-free chance at QA = prQuality%. */
-export function rollBugAtQa(prQuality: number): boolean {
-  return Math.random() >= prQuality / 100
+export function rollBugAtQa(rng: Rng, prQuality: number): boolean {
+  return rng.float() >= prQuality / 100
 }
 
 export function agentJobDurationDays(taskSp: number, agentParams: number): number {
@@ -129,8 +130,8 @@ export function refineJobDurationDays(taskSp: number, agentParams: number, split
   return splitMode ? base * 3 : base
 }
 
-export function reviewCommentSpawnCount(taskSp: number): number {
-  let count = 1 + Math.floor(Math.random() * 3)
+export function reviewCommentSpawnCount(rng: Rng, taskSp: number): number {
+  let count = 1 + rng.int(0, 2)
   if (taskSp >= 13) count = Math.max(count, 3)
   if (taskSp >= 8) count = Math.max(count, 3)
   return Math.min(4, Math.max(1, count))

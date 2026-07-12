@@ -181,10 +181,8 @@ export const JOKE_CLIENTS: JokeClient[] = [
   { name: 'Friendly Neighbor App', tagline: 'Hyperlocal. Hypothetical.' },
 ]
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
+import type { Rng } from './rng'
 
-export function pickJokeClient(): JokeClient {
-  return pick(JOKE_CLIENTS)
+export function pickJokeClient(rng: Rng): JokeClient {
+  return rng.pick(JOKE_CLIENTS)
 }

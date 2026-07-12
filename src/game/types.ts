@@ -173,27 +173,10 @@ export interface GameState {
     agentsDeployed: number
     compactionsSurvived: number
   }
+  /** Epoch ms when this snapshot was committed. */
+  snapshotAt: number
+  /** PRNG seed state — advanced on each random draw. */
+  rng: number
+  /** Monotonic counter for entity IDs. */
+  nextId: number
 }
-
-export interface GameActions {
-  tick: (deltaSec: number) => void
-  selectTask: (taskId: string | null) => void
-  mergePr: (taskId: string) => void
-  justMergePr: (taskId: string) => void
-  acceptLead: (leadId: string) => void
-  rejectLead: (leadId: string) => void
-  deliverProject: (projectId: string) => void
-  adjustRoleCount: (projectId: string, job: AgentJob, delta: number) => void
-  adjustCrewCap: (projectId: string, delta: number) => void
-  toggleConductor: (projectId: string, enabled: boolean) => void
-  buyRamUpgrade: (upgradeId: string) => boolean
-  buyGpuUpgrade: (upgradeId: string) => boolean
-  upgradeModelTier: () => boolean
-  buyFineTune: (fineTuneId: string) => boolean
-  buyVibingCourse: (courseId: string) => boolean
-  upgradeApartment: () => boolean
-  retire: () => void
-  resetGame: () => void
-}
-
-export type GameStore = GameState & GameActions
