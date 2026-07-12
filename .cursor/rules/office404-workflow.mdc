@@ -30,6 +30,7 @@ Skip grilling only when Kasper explicitly waives it or the task is obviously mic
 
 ## After implementing
 
+- Follow the `create-pr` skill checklist before commit, push, and PR.
 - Commit, push, open PR.
 - **Merge when CI is green** without waiting for Kasper to review code.
 - PR body: short bullets only — what broke, what changed, how verified.
