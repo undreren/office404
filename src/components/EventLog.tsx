@@ -17,7 +17,8 @@ export function EventLog() {
   return (
     <section className="panel event-log">
       <h2>Incident Feed</h2>
-      <ul className="event-list">
+      <p className="panel__subtitle">Where productivity goes to file a missing persons report.</p>
+      <ul className="event-list event-list--feed">
         {events.map((event) => (
           <li key={event.id} className={`event event--${event.type}`}>
             <span className="event__icon">{EVENT_ICONS[event.type] ?? '•'}</span>

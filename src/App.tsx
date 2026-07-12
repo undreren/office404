@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { TabNavProvider, useTabNav } from './context/TabNavContext'
 import { ResourceBar } from './components/ResourceBar'
+import { BottomNav } from './components/BottomNav'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { LeadsPanel } from './components/LeadsPanel'
 import { UpgradesPanel } from './components/UpgradesPanel'
@@ -8,6 +10,38 @@ import { EventLog } from './components/EventLog'
 import { GameOverlay } from './components/GameOverlay'
 import { useGameStore } from './game/store'
 import { useGameTick } from './hooks/useGameTick'
+
+function AppShell() {
+  const { activeTab } = useTabNav()
+
+  return (
+    <div className="app">
+      <div className="scanlines" aria-hidden="true" />
+      <ResourceBar variant={activeTab === 'feed' ? 'full' : 'compact'} />
+      <GameOverlay />
+
+      <main className="main">
+        <div className={`tab-view ${activeTab === 'feed' ? 'tab-view--active' : ''}`}>
+          <EventLog />
+        </div>
+        <div className={`tab-view ${activeTab === 'shop' ? 'tab-view--active' : ''}`}>
+          <UpgradesPanel />
+        </div>
+        <div className={`tab-view ${activeTab === 'agents' ? 'tab-view--active' : ''}`}>
+          <AgentsPanel />
+        </div>
+        <div className={`tab-view ${activeTab === 'projects' ? 'tab-view--active' : ''}`}>
+          <ProjectsPanel />
+        </div>
+        <div className={`tab-view ${activeTab === 'leads' ? 'tab-view--active' : ''}`}>
+          <LeadsPanel />
+        </div>
+      </main>
+
+      <BottomNav />
+    </div>
+  )
+}
 
 function App() {
   const [hydrated, setHydrated] = useState(() => useGameStore.persist.hasHydrated())
@@ -28,23 +62,9 @@ function App() {
   }
 
   return (
-    <div className="app">
-      <div className="scanlines" aria-hidden="true" />
-      <ResourceBar />
-      <GameOverlay />
-
-      <main className="main">
-        <ProjectsPanel />
-        <LeadsPanel />
-        <AgentsPanel />
-        <UpgradesPanel />
-        <EventLog />
-      </main>
-
-      <footer className="footer">
-        <p>Solo freelance · Agents do the work · You vibe</p>
-      </footer>
-    </div>
+    <TabNavProvider>
+      <AppShell />
+    </TabNavProvider>
   )
 }
 

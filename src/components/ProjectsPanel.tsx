@@ -25,6 +25,8 @@ import {
   projectProgressPct,
   useGameStore,
 } from '../game/store'
+import { useTabNav } from '../context/TabNavContext'
+import { SwipeCarousel } from './SwipeCarousel'
 
 const STAFF_JOBS: { job: AgentJob; label: string }[] = [
   { job: 'refine', label: 'Refine' },
@@ -295,8 +297,7 @@ function RoleCounter({
   )
 }
 
-export function ProjectsPanel() {
-  const projects = useGameStore((s) => s.projects)
+function ProjectCard({ project }: { project: Project }) {
   const selectedTaskId = useGameStore((s) => s.selectedTaskId)
   const agents = useGameStore((s) => s.agents)
   const vibingCourses = useGameStore((s) => s.vibingCourses)
@@ -314,191 +315,202 @@ export function ProjectsPanel() {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
   }
 
+  const synced = syncTestScope(project)
+  const progress = projectProgressPct(project)
+  const merged = project.tasks.filter((t) => t.status === 'merged' && !t.isReviewComment).length
+  const readyToDeliver = isReadyToDeliver(project)
+  const requirements = visibleRequirements(project)
+  const implMerged = allImplementationMerged(synced)
+  const totalTasks = project.tasks.filter((t) => !t.isReviewComment).length
+
+  return (
+    <article
+      className={`project-card ${project.isTutorial ? 'project-card--tutorial' : ''} ${readyToDeliver ? 'project-card--ready' : ''}`}
+    >
+      <header className="project-card__header">
+        <div>
+          <p className="project-blurb">{project.blurb}</p>
+        </div>
+        <div className="project-meta">
+          <span>${project.payment}</span>
+          <span className={project.daysRemaining < 5 ? 'text-danger' : ''}>
+            {Math.ceil(project.daysRemaining)}d left
+          </span>
+        </div>
+      </header>
+
+      <div className="meter-row">
+        <label>Delivery Quality (avg PR)</label>
+        <div className="meter">
+          <div
+            className={`meter__fill meter__fill--sanity ${synced.deliveryQuality < 40 ? 'meter__fill--critical' : ''}`}
+            style={{ width: `${synced.deliveryQuality}%` }}
+          />
+        </div>
+        <span>{Math.floor(synced.deliveryQuality)}%</span>
+      </div>
+
+      <div className="meter-row">
+        <label>Progress ({merged}/{totalTasks || '—'} merged)</label>
+        <div className="meter">
+          <div className="meter__fill meter__fill--code" style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+
+      {requirements.length > 0 && (
+        <div className="requirements-block">
+          <h4>Requirements</h4>
+          <ul className="requirement-list">
+            {requirements.map((req) => (
+              <RequirementBlock
+                key={req.id}
+                requirement={req}
+                project={synced}
+                agents={agents}
+                selectedTaskId={selectedTaskId}
+                onSelect={selectTask}
+                onJustMerge={justMergePr}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="project-crew">
+        <h4>Staffing</h4>
+        {conductorUnlocked && (
+          <div className="crew-row">
+            <label className="crew-label">
+              <input
+                type="checkbox"
+                checked={project.useConductor}
+                onChange={(e) => toggleConductor(project.id, e.target.checked)}
+              />{' '}
+              Conductor mode
+            </label>
+            {project.useConductor && (
+              <div className="crew-counter">
+                <span className="crew-label">Crew cap</span>
+                <button
+                  type="button"
+                  className="btn btn--small"
+                  onClick={() => adjustCrewCap(project.id, -1)}
+                >
+                  −
+                </button>
+                <span className="crew-count">{project.crewCap}</span>
+                <button
+                  type="button"
+                  className="btn btn--small"
+                  onClick={() => adjustCrewCap(project.id, 1)}
+                >
+                  +
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {project.useConductor && conductorUnlocked ? (
+          <>
+            <RoleCounter
+              projectId={project.id}
+              job="conductor"
+              label="Conductor"
+              count={project.roleCounts.conductor}
+              canAdd={canStaff && project.roleCounts.conductor < 1}
+              agents={projectAgents(project.id, 'conductor')}
+              project={project}
+            />
+            <p className="hint">
+              Conductor auto-staffs refine → code → review → test within crew cap (
+              {projectAgents(project.id, 'conductor').length > 0
+                ? `${project.crewCap - 1} worker slots`
+                : 'assign conductor first'}
+              ).
+            </p>
+            {STAFF_JOBS.map(({ job, label }) => (
+              <RoleCounter
+                key={job}
+                projectId={project.id}
+                job={job}
+                label={label}
+                count={project.roleCounts[job]}
+                canAdd={false}
+                agents={projectAgents(project.id, job)}
+                project={project}
+              />
+            ))}
+          </>
+        ) : (
+          STAFF_JOBS.map(({ job, label }) => (
+            <RoleCounter
+              key={job}
+              projectId={project.id}
+              job={job}
+              label={label}
+              count={project.roleCounts[job]}
+              canAdd={canStaff}
+              agents={projectAgents(project.id, job)}
+              project={project}
+            />
+          ))
+        )}
+      </div>
+
+      {synced.testStoryPointsRequired > 0 && !readyToDeliver && synced.testPercent < 100 && (
+        <p className="hint">
+          {implMerged ? 'Implementation merged.' : 'Merged tasks queue for QA as they land.'}{' '}
+          {untestedMergedTasks(synced).length} task
+          {untestedMergedTasks(synced).length === 1 ? '' : 's'} waiting for QA.
+        </p>
+      )}
+
+      {readyToDeliver && (
+        <div className="deliver-row">
+          <p className="hint">All tasks merged and QA complete. Ship it.</p>
+          <button
+            type="button"
+            className="btn btn--deploy"
+            onClick={() => deliverProject(project.id)}
+          >
+            Deliver to {project.clientName}
+          </button>
+        </div>
+      )}
+    </article>
+  )
+}
+
+export function ProjectsPanel() {
+  const projects = useGameStore((s) => s.projects)
+  const { projectIndex, setProjectIndex } = useTabNav()
+
   if (projects.length === 0) {
     return (
       <section className="panel projects-panel">
-        <h2>Active Projects</h2>
+        <h2>Projects</h2>
+        <p className="panel__subtitle">Nothing on the board. Leads won&apos;t accept themselves.</p>
         <p className="empty-slot">No active projects. Accept a lead or enjoy unemployment.</p>
       </section>
     )
   }
 
+  const headers = projects.map((project) => ({
+    title: project.clientName,
+    subtitle: project.clientTagline ? `"${project.clientTagline}"` : undefined,
+  }))
+
+  const activeProject = projects[projectIndex] ?? projects[0]
+
   return (
-    <section className="panel projects-panel">
-      <h2>Active Projects ({projects.length})</h2>
-
-      {projects.map((project) => {
-        const synced = syncTestScope(project)
-        const progress = projectProgressPct(project)
-        const merged = project.tasks.filter((t) => t.status === 'merged' && !t.isReviewComment).length
-        const readyToDeliver = isReadyToDeliver(project)
-        const requirements = visibleRequirements(project)
-        const implMerged = allImplementationMerged(synced)
-        const totalTasks = project.tasks.filter((t) => !t.isReviewComment).length
-
-        return (
-          <article
-            key={project.id}
-            className={`project-card ${project.isTutorial ? 'project-card--tutorial' : ''} ${readyToDeliver ? 'project-card--ready' : ''}`}
-          >
-            <header className="project-card__header">
-              <div>
-                <h3>{project.clientName}</h3>
-                {project.clientTagline && (
-                  <p className="client-tagline">"{project.clientTagline}"</p>
-                )}
-                <p className="project-blurb">{project.blurb}</p>
-              </div>
-              <div className="project-meta">
-                <span>${project.payment}</span>
-                <span className={project.daysRemaining < 5 ? 'text-danger' : ''}>
-                  {Math.ceil(project.daysRemaining)}d left
-                </span>
-              </div>
-            </header>
-
-            <div className="meter-row">
-              <label>Delivery Quality (avg PR)</label>
-              <div className="meter">
-                <div
-                  className={`meter__fill meter__fill--sanity ${synced.deliveryQuality < 40 ? 'meter__fill--critical' : ''}`}
-                  style={{ width: `${synced.deliveryQuality}%` }}
-                />
-              </div>
-              <span>{Math.floor(synced.deliveryQuality)}%</span>
-            </div>
-
-            <div className="meter-row">
-              <label>Progress ({merged}/{totalTasks || '—'} merged)</label>
-              <div className="meter">
-                <div className="meter__fill meter__fill--code" style={{ width: `${progress}%` }} />
-              </div>
-            </div>
-
-            {requirements.length > 0 && (
-              <div className="requirements-block">
-                <h4>Requirements</h4>
-                <ul className="requirement-list">
-                  {requirements.map((req) => (
-                    <RequirementBlock
-                      key={req.id}
-                      requirement={req}
-                      project={synced}
-                      agents={agents}
-                      selectedTaskId={selectedTaskId}
-                      onSelect={selectTask}
-                      onJustMerge={justMergePr}
-                    />
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="project-crew">
-              <h4>Staffing</h4>
-              {conductorUnlocked && (
-                <div className="crew-row">
-                  <label className="crew-label">
-                    <input
-                      type="checkbox"
-                      checked={project.useConductor}
-                      onChange={(e) => toggleConductor(project.id, e.target.checked)}
-                    />{' '}
-                    Conductor mode
-                  </label>
-                  {project.useConductor && (
-                    <div className="crew-counter">
-                      <span className="crew-label">Crew cap</span>
-                      <button
-                        type="button"
-                        className="btn btn--small"
-                        onClick={() => adjustCrewCap(project.id, -1)}
-                      >
-                        −
-                      </button>
-                      <span className="crew-count">{project.crewCap}</span>
-                      <button
-                        type="button"
-                        className="btn btn--small"
-                        onClick={() => adjustCrewCap(project.id, 1)}
-                      >
-                        +
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {project.useConductor && conductorUnlocked ? (
-                <>
-                  <RoleCounter
-                    projectId={project.id}
-                    job="conductor"
-                    label="Conductor"
-                    count={project.roleCounts.conductor}
-                    canAdd={canStaff && project.roleCounts.conductor < 1}
-                    agents={projectAgents(project.id, 'conductor')}
-                    project={project}
-                  />
-                  <p className="hint">
-                    Conductor auto-staffs refine → code → review → test within crew cap (
-                    {projectAgents(project.id, 'conductor').length > 0
-                      ? `${project.crewCap - 1} worker slots`
-                      : 'assign conductor first'}
-                    ).
-                  </p>
-                  {STAFF_JOBS.map(({ job, label }) => (
-                    <RoleCounter
-                      key={job}
-                      projectId={project.id}
-                      job={job}
-                      label={label}
-                      count={project.roleCounts[job]}
-                      canAdd={false}
-                      agents={projectAgents(project.id, job)}
-                      project={project}
-                    />
-                  ))}
-                </>
-              ) : (
-                STAFF_JOBS.map(({ job, label }) => (
-                  <RoleCounter
-                    key={job}
-                    projectId={project.id}
-                    job={job}
-                    label={label}
-                    count={project.roleCounts[job]}
-                    canAdd={canStaff}
-                    agents={projectAgents(project.id, job)}
-                    project={project}
-                  />
-                ))
-              )}
-            </div>
-
-            {synced.testStoryPointsRequired > 0 && !readyToDeliver && synced.testPercent < 100 && (
-              <p className="hint">
-                {implMerged ? 'Implementation merged.' : 'Merged tasks queue for QA as they land.'}{' '}
-                {untestedMergedTasks(synced).length} task
-                {untestedMergedTasks(synced).length === 1 ? '' : 's'} waiting for QA.
-              </p>
-            )}
-
-            {readyToDeliver && (
-              <div className="deliver-row">
-                <p className="hint">All tasks merged and QA complete. Ship it.</p>
-                <button
-                  type="button"
-                  className="btn btn--deploy"
-                  onClick={() => deliverProject(project.id)}
-                >
-                  Deliver to {project.clientName}
-                </button>
-              </div>
-            )}
-          </article>
-        )
-      })}
-    </section>
+    <SwipeCarousel
+      index={projectIndex}
+      onIndexChange={setProjectIndex}
+      headers={headers}
+      panelClassName="projects-panel"
+    >
+      {activeProject && <ProjectCard key={activeProject.id} project={activeProject} />}
+    </SwipeCarousel>
   )
 }

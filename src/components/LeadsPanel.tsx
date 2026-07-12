@@ -1,3 +1,4 @@
+import { useTabNav } from '../context/TabNavContext'
 import { useGameStore } from '../game/store'
 import { effectiveLeadDuration } from '../game/projects'
 
@@ -6,15 +7,15 @@ export function LeadsPanel() {
   const reputation = useGameStore((s) => s.reputation)
   const gameDay = useGameStore((s) => s.gameDay)
   const projects = useGameStore((s) => s.projects)
-  const acceptLead = useGameStore((s) => s.acceptLead)
+  const { acceptLead } = useTabNav()
   const rejectLead = useGameStore((s) => s.rejectLead)
 
   const available = leads.filter((l) => l.status === 'available')
 
   return (
     <section className="panel leads-panel">
-      <h2>Client Leads</h2>
-      <p className="hint">Accept the pain. Reject professionally. Let expire for shame.</p>
+      <h2>Leads</h2>
+      <p className="panel__subtitle">Accept the pain. Reject professionally. Let expire for shame.</p>
 
       {available.length === 0 && <p className="empty-slot">No leads right now. Check back after more suffering.</p>}
 
