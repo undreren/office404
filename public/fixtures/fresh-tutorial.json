@@ -1,0 +1,106 @@
+{
+  "phase": "playing",
+  "cash": 0,
+  "reputation": 5,
+  "gameDay": 0,
+  "rentDueInDays": 30,
+  "apartment": "cardboard",
+  "apartmentLeaseRemaining": 30,
+  "totalRam": 2,
+  "totalGpus": 1,
+  "modelTierIndex": 0,
+  "purchasedRamUpgrades": [],
+  "purchasedGpuUpgrades": [],
+  "purchasedFineTunes": [],
+  "vibingCourses": [],
+  "agents": [
+    {
+      "id": "agt-6",
+      "name": "GPT-wannabe the Slack Bot",
+      "job": "refine",
+      "taskId": null,
+      "projectId": "proj-1",
+      "jobProgress": 0,
+      "jobDuration": 0,
+      "status": "refining",
+      "personality": "refuses to touch legacy code written before Tuesday",
+      "contextUsed": 0,
+      "compactingRemainingSec": 0,
+      "uptime": 0
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj-1",
+      "clientName": "Friendly Neighbor App",
+      "clientTagline": "Hyperlocal. Hypothetical.",
+      "blurb": "Tutorial gig. Refine each requirement into a task, then ship.",
+      "payment": 200,
+      "durationDays": 20,
+      "daysRemaining": 20,
+      "isTutorial": true,
+      "repPenaltyMultiplier": 1,
+      "deliveryQuality": 0,
+      "testPercent": 0,
+      "testStoryPointsRequired": 0,
+      "testStoryPointsCompleted": 0,
+      "totalStoryPoints": 4,
+      "status": "active",
+      "requirements": [
+        {
+          "id": "req-3",
+          "projectId": "proj-1",
+          "title": "Users must be able to log in without a séance",
+          "storyPoints": 2,
+          "status": "open"
+        },
+        {
+          "id": "req-4",
+          "projectId": "proj-1",
+          "title": "Dashboard needs to not look like it misses 2009",
+          "storyPoints": 1,
+          "status": "open"
+        },
+        {
+          "id": "req-5",
+          "projectId": "proj-1",
+          "title": "API must return JSON sometimes, never XML emotionally",
+          "storyPoints": 1,
+          "status": "open"
+        }
+      ],
+      "tasks": [],
+      "lateCount": 0,
+      "crewCap": 1,
+      "roleCounts": {
+        "refine": 0,
+        "code": 0,
+        "review": 0,
+        "test": 0,
+        "conductor": 0
+      },
+      "useConductor": false
+    }
+  ],
+  "leads": [],
+  "selectedTaskId": null,
+  "tutorialDone": false,
+  "leadSpawnCooldown": 4,
+  "events": [
+    {
+      "id": "evt-7",
+      "timestamp": 1783861460972,
+      "type": "system",
+      "message": "Day 0. $0. One agent. One laptop. Infinite audacity."
+    }
+  ],
+  "stats": {
+    "projectsCompleted": 0,
+    "tasksMerged": 0,
+    "agentsDeployed": 1,
+    "compactionsSurvived": 0
+  },
+  "snapshotAt": 1783861460972,
+  "rng": -722000844,
+  "nextId": 8
+}
