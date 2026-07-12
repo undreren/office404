@@ -3,6 +3,7 @@ import type { GameState } from '../types'
 
 export function dispatch(state: GameState, message: GameMessage): GameState {
   const next = message.apply(state)
+  if (next === state) return state
   return { ...next, snapshotAt: message.at }
 }
 
