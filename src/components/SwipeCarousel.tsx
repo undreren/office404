@@ -34,15 +34,20 @@ export function SwipeCarousel({
   return (
     <section className={`panel swipe-carousel ${panelClassName}`.trim()}>
       <div
-        className={`swipe-carousel__header ${enabled ? 'swipe-carousel__header--swipeable' : ''}`}
+        className={`swipe-carousel__swipeable ${enabled ? 'swipe-carousel__swipeable--enabled' : ''}`}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        <div className="swipe-carousel__titles">
-          <h2>{header?.title}</h2>
-          {header?.subtitle && <p className="swipe-carousel__subtitle">{header.subtitle}</p>}
+        <div className="swipe-carousel__header">
+          <div className="swipe-carousel__titles">
+            <h2>{header?.title}</h2>
+            {header?.subtitle && <p className="swipe-carousel__subtitle">{header.subtitle}</p>}
+          </div>
         </div>
-        {enabled && (
+        <div className="swipe-carousel__body">{children}</div>
+      </div>
+      {enabled && (
+        <div className="swipe-carousel__footer">
           <div className="swipe-carousel__dots" role="tablist" aria-label="Slide navigation">
             {headers.map((slide, i) => (
               <button
@@ -56,9 +61,8 @@ export function SwipeCarousel({
               />
             ))}
           </div>
-        )}
-      </div>
-      <div className="swipe-carousel__body">{children}</div>
+        </div>
+      )}
     </section>
   )
 }
