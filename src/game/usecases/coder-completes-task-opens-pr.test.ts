@@ -3,7 +3,7 @@ import { timeElapsed } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { T0 } from './_helpers/testConstants'
-import type { Task } from '../types'
+import type { GameState, Task } from '../types'
 
 describe('coder-completes-task-opens-pr', () => {
   it('matches use case invariants', () => {
@@ -33,7 +33,7 @@ describe('coder-completes-task-opens-pr', () => {
       reviewed: false,
       testStoryPointsEarned: 0,
     }
-    let state = {
+    let state: GameState = {
       ...base,
       projects: [
         {

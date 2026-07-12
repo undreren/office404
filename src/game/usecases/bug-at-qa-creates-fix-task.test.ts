@@ -4,7 +4,7 @@ import { timeElapsed } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { T0 } from './_helpers/testConstants'
-import type { Task } from '../types'
+import type { GameState, Task } from '../types'
 
 // Pinned seed 1: just-merge prQuality 20 and bug roll succeeds at QA.
 const BUG_SEED = 1
@@ -37,7 +37,7 @@ describe('bug-at-qa-creates-fix-task', () => {
       reviewed: true,
       testStoryPointsEarned: 0,
     }
-    let state = {
+    let state: GameState = {
       ...base,
       projects: [
         {

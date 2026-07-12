@@ -4,7 +4,7 @@ import { deliverProjectMsg } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { T0 } from './_helpers/testConstants'
-import type { Task } from '../types'
+import type { GameState, Task } from '../types'
 
 describe('deliver-tutorial-grants-cash', () => {
   it('matches use case invariants', () => {
@@ -34,7 +34,7 @@ describe('deliver-tutorial-grants-cash', () => {
       reviewed: true,
       testStoryPointsEarned: 2,
     }
-    const before = {
+    const before: GameState = {
       ...base,
       cash: 0,
       projects: [

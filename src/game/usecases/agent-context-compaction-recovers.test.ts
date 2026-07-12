@@ -4,7 +4,7 @@ import { timeElapsed } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { T0 } from './_helpers/testConstants'
-import type { Task } from '../types'
+import type { GameState, Task } from '../types'
 
 describe('agent-context-compaction-recovers', () => {
   it('matches use case invariants', () => {
@@ -34,7 +34,7 @@ describe('agent-context-compaction-recovers', () => {
       reviewed: false,
       testStoryPointsEarned: 0,
     }
-    const before = {
+    const before: GameState = {
       ...base,
       projects: [
         {
@@ -55,7 +55,7 @@ describe('agent-context-compaction-recovers', () => {
     }
     const statsBefore = before.stats.compactionsSurvived
 
-    let state = dispatchChain(before, [timeElapsed(T0 + 100, 10)])
+    let state: GameState = dispatchChain(before, [timeElapsed(T0 + 100, 10)])
     expect(state.agents[0]!.status).toBe('compacting')
 
     state = dispatchChain(state, [timeElapsed(T0 + 200, COMPACT_DURATION_SEC)])
