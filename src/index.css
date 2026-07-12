@@ -80,7 +80,7 @@ body {
   flex-shrink: 0;
   z-index: 100;
   background: var(--bg);
-  padding: calc(0.75rem + var(--safe-top)) 1rem 0.75rem;
+  padding: calc(0.5rem + var(--safe-top)) 1rem 0.75rem;
   border-bottom: 1px solid var(--border);
 }
 
@@ -93,9 +93,14 @@ body {
 
 .resource-bar--compact__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.resource-bar__title--compact {
+  flex: 1;
+  min-width: 0;
 }
 
 .resource-bar__title--compact small {
@@ -138,7 +143,7 @@ body {
 
 .resource-bar__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
@@ -287,6 +292,22 @@ body {
 .tab-view > .panel,
 .tab-view > .swipe-carousel {
   margin-bottom: 0;
+}
+
+.tab-view:has(> .swipe-carousel) {
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0.5rem;
+}
+
+.tab-view--active:has(> .swipe-carousel) {
+  display: flex;
+}
+
+.tab-view > .swipe-carousel {
+  flex: 1;
+  min-height: 0;
 }
 
 .panel {
@@ -1387,20 +1408,30 @@ body {
 
 /* Swipe carousel */
 .swipe-carousel {
+  display: flex;
+  flex-direction: column;
   padding: 0;
   overflow: hidden;
 }
 
-.swipe-carousel__header {
-  padding: 1rem 1rem 0.75rem;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 0;
+.swipe-carousel__swipeable {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
-.swipe-carousel__header--swipeable {
+.swipe-carousel__swipeable--enabled {
   touch-action: pan-y;
   cursor: grab;
   user-select: none;
+}
+
+.swipe-carousel__header {
+  flex-shrink: 0;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
 }
 
 .swipe-carousel__titles h2 {
@@ -1414,11 +1445,16 @@ body {
   line-height: 1.4;
 }
 
+.swipe-carousel__footer {
+  flex-shrink: 0;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
 .swipe-carousel__dots {
   display: flex;
   justify-content: center;
   gap: 0.4rem;
-  margin-top: 0.75rem;
 }
 
 .swipe-carousel__dot {
@@ -1438,6 +1474,10 @@ body {
 }
 
 .swipe-carousel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 1rem;
 }
 
