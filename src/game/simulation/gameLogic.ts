@@ -26,6 +26,7 @@ import {
   projectHasTestWork,
   projectRoleHasWork,
   refineRequirementToTasks,
+  repairStaleCodingAssignments,
   resolvedReviewComments,
   syncTestScope,
   taskIsTested,
@@ -657,7 +658,10 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
             selectedTaskId,
             modelTierIndex,
             vibingCourses,
-          } = state
+          } = {
+            ...state,
+            projects: repairStaleCodingAssignments(state.projects, state.agents),
+          }
 
           let nextAgents = agents.map((a) => ({ ...a }))
           let nextProjects = projects.map((p) => ({
@@ -1257,37 +1261,41 @@ export function deliverProject(state: GameState, projectId: string, at: number):
 
 export function adjustRoleCount(state: GameState, projectId: string, job: AgentJob, delta: number, at: number): GameState {
   const ctx = ctxFrom(state)
-  const project = state.projects.find((p) => p.id === projectId)
+  const repaired = {
+    ...state,
+    projects: repairStaleCodingAssignments(state.projects, state.agents),
+  }
+  const project = repaired.projects.find((p) => p.id === projectId)
   if (!project) return state
 
-  if (delta > 0 && !hasStaffableAgent(state.agents) && !canSpawnAgent(state)) return state
+  if (delta > 0 && !hasStaffableAgent(repaired.agents) && !canSpawnAgent(repaired)) return state
 
   if (delta < 0) {
-    const result = unassignAgentFromRole(state.agents, projectId, job, state.projects, { force: true })
+    const result = unassignAgentFromRole(repaired.agents, projectId, job, repaired.projects, { force: true })
     if (!result) return state
     return withCtx({
-      ...state,
+      ...repaired,
       agents: result.agents,
       projects: result.projects.map((p) =>
         p.id === projectId
           ? { ...p, roleCounts: { ...p.roleCounts, [job]: Math.max(0, p.roleCounts[job] + delta) } }
           : p,
       ),
-      events: pushEvent(ctx, state.events, 'project', `Pulled one ${job} agent off ${project.clientName}.`, at),
+      events: pushEvent(ctx, repaired.events, 'project', `Pulled one ${job} agent off ${project.clientName}.`, at),
     }, ctx, at)
   }
 
-  const nextProjects = state.projects.map((p) =>
+  const nextProjects = repaired.projects.map((p) =>
     p.id === projectId
       ? { ...p, roleCounts: { ...p.roleCounts, [job]: p.roleCounts[job] + delta } }
       : p,
   )
   const updatedProject = nextProjects.find((p) => p.id === projectId)!
-  const reconciled = reconcileProjectStaffing(ctx, state, updatedProject, state.agents, nextProjects)
+  const reconciled = reconcileProjectStaffing(ctx, repaired, updatedProject, repaired.agents, nextProjects)
   const nextAgents = reconciled.agents
 
   return withCtx({
-    ...state,
+    ...repaired,
     agents: nextAgents,
     projects: reconciled.projects,
     stats: {

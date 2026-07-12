@@ -78,11 +78,11 @@ function staffingAddHint(
   rosterUsed: number,
   rosterMax: number,
 ): string {
-  if (!hasRoleWork) return 'no work for this role yet'
   if (!canAdd) {
     if (rosterUsed >= rosterMax) return `roster full (${rosterUsed}/${rosterMax})`
     return 'all agents busy'
   }
+  if (!hasRoleWork) return 'no work for this role yet — agent will idle'
   if (idleAgents > 0) return `${idleAgents} idle in roster — assign here`
   return 'room to hire another agent'
 }
@@ -463,8 +463,8 @@ function ProjectCard({ project }: { project: Project }) {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
   }
 
-  function roleCanAdd(job: AgentJob): boolean {
-    return canStaff && roleCanAcceptStaffing(synced, job, agents)
+  function roleCanAdd(_job: AgentJob): boolean {
+    return canStaff
   }
 
   const synced = syncTestScope(project)
