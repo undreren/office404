@@ -18,13 +18,21 @@ import {
   untestedMergedTasks,
   visibleRequirements,
 } from '../game/projects'
-import type { Agent, AgentJob, Project, Requirement, Task } from '../game/types'
+import {
+  adjustCrewCapMsg,
+  adjustRoleCountMsg,
+  deliverProjectMsg,
+  justMergePrMsg,
+  selectTaskMsg,
+  toggleConductorMsg,
+} from '../game/messages'
 import {
   canStaffAdditionalAgent,
   isReadyToDeliver,
   projectProgressPct,
-  useGameStore,
-} from '../game/store'
+} from '../game/selectors'
+import type { Agent, AgentJob, Project, Requirement, Task } from '../game/types'
+import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { useTabNav } from '../context/TabNavContext'
 import { SwipeCarousel } from './SwipeCarousel'
 
@@ -258,7 +266,7 @@ function RoleCounter({
   agents: Agent[]
   project: Project
 }) {
-  const adjustRoleCount = useGameStore((s) => s.adjustRoleCount)
+  const dispatchAt = useGameDispatchAt()
   const displayCount = Math.max(count, agents.length)
   const canRemove = displayCount > 0
 
@@ -271,7 +279,7 @@ function RoleCounter({
             type="button"
             className="btn btn--small"
             disabled={!canRemove}
-            onClick={() => adjustRoleCount(projectId, job, -1)}
+            onClick={() => dispatchAt((at) => adjustRoleCountMsg(at, projectId, job, -1))}
           >
             −
           </button>
@@ -280,7 +288,7 @@ function RoleCounter({
             type="button"
             className="btn btn--small"
             disabled={!canAdd}
-            onClick={() => adjustRoleCount(projectId, job, 1)}
+            onClick={() => dispatchAt((at) => adjustRoleCountMsg(at, projectId, job, 1))}
           >
             +
           </button>
@@ -298,15 +306,9 @@ function RoleCounter({
 }
 
 function ProjectCard({ project }: { project: Project }) {
-  const selectedTaskId = useGameStore((s) => s.selectedTaskId)
-  const agents = useGameStore((s) => s.agents)
-  const vibingCourses = useGameStore((s) => s.vibingCourses)
-  const state = useGameStore()
-  const selectTask = useGameStore((s) => s.selectTask)
-  const justMergePr = useGameStore((s) => s.justMergePr)
-  const deliverProject = useGameStore((s) => s.deliverProject)
-  const adjustCrewCap = useGameStore((s) => s.adjustCrewCap)
-  const toggleConductor = useGameStore((s) => s.toggleConductor)
+  const state = useGameState()
+  const { selectedTaskId, agents, vibingCourses } = state
+  const dispatchAt = useGameDispatchAt()
 
   const canStaff = canStaffAdditionalAgent(state)
   const conductorUnlocked = hasConductorCourse(vibingCourses)
@@ -368,8 +370,8 @@ function ProjectCard({ project }: { project: Project }) {
                 project={synced}
                 agents={agents}
                 selectedTaskId={selectedTaskId}
-                onSelect={selectTask}
-                onJustMerge={justMergePr}
+                onSelect={(id) => dispatchAt((at) => selectTaskMsg(at, id))}
+                onJustMerge={(id) => dispatchAt((at) => justMergePrMsg(at, id))}
               />
             ))}
           </ul>
@@ -384,7 +386,9 @@ function ProjectCard({ project }: { project: Project }) {
               <input
                 type="checkbox"
                 checked={project.useConductor}
-                onChange={(e) => toggleConductor(project.id, e.target.checked)}
+                onChange={(e) =>
+                  dispatchAt((at) => toggleConductorMsg(at, project.id, e.target.checked))
+                }
               />{' '}
               Conductor mode
             </label>
@@ -394,7 +398,7 @@ function ProjectCard({ project }: { project: Project }) {
                 <button
                   type="button"
                   className="btn btn--small"
-                  onClick={() => adjustCrewCap(project.id, -1)}
+                  onClick={() => dispatchAt((at) => adjustCrewCapMsg(at, project.id, -1))}
                 >
                   −
                 </button>
@@ -402,7 +406,7 @@ function ProjectCard({ project }: { project: Project }) {
                 <button
                   type="button"
                   className="btn btn--small"
-                  onClick={() => adjustCrewCap(project.id, 1)}
+                  onClick={() => dispatchAt((at) => adjustCrewCapMsg(at, project.id, 1))}
                 >
                   +
                 </button>
@@ -472,7 +476,7 @@ function ProjectCard({ project }: { project: Project }) {
           <button
             type="button"
             className="btn btn--deploy"
-            onClick={() => deliverProject(project.id)}
+            onClick={() => dispatchAt((at) => deliverProjectMsg(at, project.id))}
           >
             Deliver to {project.clientName}
           </button>
@@ -483,7 +487,7 @@ function ProjectCard({ project }: { project: Project }) {
 }
 
 export function ProjectsPanel() {
-  const projects = useGameStore((s) => s.projects)
+  const { projects } = useGameState()
   const { projectIndex, setProjectIndex } = useTabNav()
 
   if (projects.length === 0) {

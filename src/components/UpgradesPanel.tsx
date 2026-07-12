@@ -2,8 +2,17 @@ import type { ReactElement } from 'react'
 import { APARTMENT_CONFIG } from '../game/constants'
 import { FINE_TUNE_COST, FINE_TUNE_LABELS, FINE_TUNE_ROLES, MODEL_TIERS, fineTuneId } from '../game/models'
 import { canUpgradeModelTier, formatSpPerTick } from '../game/mechanics'
+import {
+  buyFineTuneMsg,
+  buyGpuUpgradeMsg,
+  buyRamUpgradeMsg,
+  buyVibingCourseMsg,
+  upgradeApartmentMsg,
+  upgradeModelTierMsg,
+} from '../game/messages'
+import { agentCapacity, getNextApartment } from '../game/selectors'
 import { GPU_UPGRADES, getVisibleTrackUpgrades, housingMeetsRequirement, RAM_UPGRADES, VIBING_COURSES } from '../game/upgrades'
-import { agentCapacity, getNextApartment, useGameStore } from '../game/store'
+import { useGameDispatchPurchase, useGameState } from '../runtime/GameRuntime'
 import { useTabNav } from '../context/TabNavContext'
 import { SwipeCarousel } from './SwipeCarousel'
 
@@ -18,9 +27,8 @@ const SHOP_SECTIONS = [
 type ShopSectionId = (typeof SHOP_SECTIONS)[number]['id']
 
 function HousingSection() {
-  const cash = useGameStore((s) => s.cash)
-  const apartment = useGameStore((s) => s.apartment)
-  const upgradeApartment = useGameStore((s) => s.upgradeApartment)
+  const { cash, apartment } = useGameState()
+  const dispatchPurchase = useGameDispatchPurchase()
   const nextApt = getNextApartment({ apartment })
 
   return (
@@ -30,7 +38,7 @@ function HousingSection() {
         <button
           type="button"
           className="btn btn--deploy"
-          onClick={() => upgradeApartment()}
+          onClick={() => dispatchPurchase(upgradeApartmentMsg(Date.now()))}
           disabled={cash < APARTMENT_CONFIG[nextApt].upgradeCost}
         >
           Move to {APARTMENT_CONFIG[nextApt].label} (${APARTMENT_CONFIG[nextApt].upgradeCost})
@@ -41,10 +49,8 @@ function HousingSection() {
 }
 
 function RamSection() {
-  const cash = useGameStore((s) => s.cash)
-  const apartment = useGameStore((s) => s.apartment)
-  const purchasedRamUpgrades = useGameStore((s) => s.purchasedRamUpgrades)
-  const buyRamUpgrade = useGameStore((s) => s.buyRamUpgrade)
+  const { cash, apartment, purchasedRamUpgrades } = useGameState()
+  const dispatchPurchase = useGameDispatchPurchase()
   const visibleRamUpgrades = getVisibleTrackUpgrades(RAM_UPGRADES, purchasedRamUpgrades)
 
   return (
@@ -64,7 +70,7 @@ function RamSection() {
                 type="button"
                 className="btn btn--small"
                 disabled={owned || !unlocked || cash < upgrade.cost}
-                onClick={() => buyRamUpgrade(upgrade.id)}
+                onClick={() => dispatchPurchase(buyRamUpgradeMsg(Date.now(), upgrade.id))}
               >
                 {owned ? 'Owned' : unlocked ? `$${upgrade.cost}` : 'Need better housing'}
               </button>
@@ -77,10 +83,8 @@ function RamSection() {
 }
 
 function GpuSection() {
-  const cash = useGameStore((s) => s.cash)
-  const apartment = useGameStore((s) => s.apartment)
-  const purchasedGpuUpgrades = useGameStore((s) => s.purchasedGpuUpgrades)
-  const buyGpuUpgrade = useGameStore((s) => s.buyGpuUpgrade)
+  const { cash, apartment, purchasedGpuUpgrades } = useGameState()
+  const dispatchPurchase = useGameDispatchPurchase()
   const visibleGpuUpgrades = getVisibleTrackUpgrades(GPU_UPGRADES, purchasedGpuUpgrades)
 
   return (
@@ -100,7 +104,7 @@ function GpuSection() {
                 type="button"
                 className="btn btn--small"
                 disabled={owned || !unlocked || cash < upgrade.cost}
-                onClick={() => buyGpuUpgrade(upgrade.id)}
+                onClick={() => dispatchPurchase(buyGpuUpgradeMsg(Date.now(), upgrade.id))}
               >
                 {owned ? 'Owned' : unlocked ? `$${upgrade.cost}` : 'Need better housing'}
               </button>
@@ -113,10 +117,9 @@ function GpuSection() {
 }
 
 function ModelSection() {
-  const state = useGameStore()
+  const state = useGameState()
   const { cash, gameDay, modelTierIndex, purchasedFineTunes } = state
-  const upgradeModelTier = useGameStore((s) => s.upgradeModelTier)
-  const buyFineTune = useGameStore((s) => s.buyFineTune)
+  const dispatchPurchase = useGameDispatchPurchase()
   const { totalRam } = agentCapacity(state)
   const currentModel = MODEL_TIERS[modelTierIndex]
   const nextModel = MODEL_TIERS[modelTierIndex + 1]
@@ -142,7 +145,7 @@ function ModelSection() {
             type="button"
             className="btn btn--deploy"
             disabled={!canModelUpgrade}
-            onClick={() => upgradeModelTier()}
+            onClick={() => dispatchPurchase(upgradeModelTierMsg(Date.now()))}
           >
             Upgrade to {nextModel.displayName} (${nextModel.upgradeCost})
           </button>
@@ -163,7 +166,7 @@ function ModelSection() {
                 type="button"
                 className="btn btn--small"
                 disabled={owned || cash < FINE_TUNE_COST}
-                onClick={() => buyFineTune(id)}
+                onClick={() => dispatchPurchase(buyFineTuneMsg(Date.now(), id))}
               >
                 {owned ? 'Owned' : `$${FINE_TUNE_COST}`}
               </button>
@@ -176,9 +179,8 @@ function ModelSection() {
 }
 
 function CoursesSection() {
-  const cash = useGameStore((s) => s.cash)
-  const vibingCourses = useGameStore((s) => s.vibingCourses)
-  const buyVibingCourse = useGameStore((s) => s.buyVibingCourse)
+  const { cash, vibingCourses } = useGameState()
+  const dispatchPurchase = useGameDispatchPurchase()
 
   return (
     <div className="market-section">
@@ -196,7 +198,7 @@ function CoursesSection() {
                 type="button"
                 className="btn btn--small"
                 disabled={owned || cash < course.cost}
-                onClick={() => buyVibingCourse(course.id)}
+                onClick={() => dispatchPurchase(buyVibingCourseMsg(Date.now(), course.id))}
               >
                 {owned ? 'Enrolled' : `$${course.cost}`}
               </button>

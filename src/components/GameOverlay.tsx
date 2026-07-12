@@ -1,8 +1,9 @@
-import { useGameStore } from '../game/store'
+import { resetGameMsg } from '../game/messages'
+import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
 export function GameOverlay() {
-  const phase = useGameStore((s) => s.phase)
-  const resetGame = useGameStore((s) => s.resetGame)
+  const { phase } = useGameState()
+  const dispatchAt = useGameDispatchAt()
 
   if (phase === 'playing') return null
 
@@ -21,7 +22,7 @@ export function GameOverlay() {
             <p>No reputation. No clients. The agents would keep working, but nobody's paying.</p>
           </>
         )}
-        <button type="button" className="btn btn--sprint" onClick={resetGame}>
+        <button type="button" className="btn btn--sprint" onClick={() => dispatchAt(resetGameMsg)}>
           Start Over
         </button>
       </div>

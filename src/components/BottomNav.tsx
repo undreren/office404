@@ -1,5 +1,6 @@
-import { isReadyToDeliver, useGameStore } from '../game/store'
 import { useTabNav, type TabId } from '../context/TabNavContext'
+import { isReadyToDeliver } from '../game/selectors'
+import { useGameState } from '../runtime/GameRuntime'
 
 const TABS: { id: TabId; icon: string; label: string }[] = [
   { id: 'feed', icon: '📋', label: 'Feed' },
@@ -11,8 +12,7 @@ const TABS: { id: TabId; icon: string; label: string }[] = [
 
 export function BottomNav() {
   const { activeTab, setActiveTab } = useTabNav()
-  const leads = useGameStore((s) => s.leads)
-  const projects = useGameStore((s) => s.projects)
+  const { leads, projects } = useGameState()
 
   const availableLeads = leads.filter((l) => l.status === 'available').length
   const hasDeliverable = projects.some((p) => isReadyToDeliver(p))

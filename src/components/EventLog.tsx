@@ -1,4 +1,4 @@
-import { useGameStore } from '../game/store'
+import { useGameState } from '../runtime/GameRuntime'
 
 const EVENT_ICONS: Record<string, string> = {
   crash: '💥',
@@ -12,7 +12,7 @@ const EVENT_ICONS: Record<string, string> = {
 }
 
 export function EventLog() {
-  const events = useGameStore((s) => s.events)
+  const { events } = useGameState()
 
   return (
     <section className="panel event-log">
