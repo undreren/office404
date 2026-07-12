@@ -17,10 +17,11 @@ type TabNavContextValue = {
 const TabNavContext = createContext<TabNavContextValue | null>(null)
 
 export function TabNavProvider({ children }: { children: ReactNode }) {
-  const [activeTab, setActiveTab] = useState<TabId>('feed')
+  const [activeTab, setActiveTab] = useState<TabId>('projects')
   const [projectIndex, setProjectIndex] = useState(0)
   const [shopIndex, setShopIndex] = useState(0)
-  const projectCount = useGameState().projects.length
+  const { tutorialDone, projects } = useGameState()
+  const projectCount = projects.length
   const dispatchAt = useGameDispatchAt()
   const pendingLeadNav = useRef<{ wasOnProjects: boolean; prevCount: number } | null>(null)
 
@@ -31,6 +32,12 @@ export function TabNavProvider({ children }: { children: ReactNode }) {
     }
     setProjectIndex((current) => Math.min(current, projectCount - 1))
   }, [projectCount])
+
+  useEffect(() => {
+    if (!tutorialDone && projects.length === 1 && projects[0]?.isTutorial) {
+      setActiveTab('projects')
+    }
+  }, [tutorialDone, projects])
 
   useEffect(() => {
     const pending = pendingLeadNav.current

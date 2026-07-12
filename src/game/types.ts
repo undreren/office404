@@ -167,6 +167,8 @@ export interface GameState {
   leads: Lead[]
   selectedTaskId: string | null
   tutorialDone: boolean
+  /** Opening story modal dismissed. */
+  seenStoryIntro: boolean
   /** Highest tutorial step modal the player has dismissed (-1 = none). */
   acknowledgedTutorialStep: number
   /** Main nav tabs whose intro modal has been shown. */

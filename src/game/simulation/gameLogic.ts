@@ -153,6 +153,7 @@ export function createInitialState(at: number, rngSeed?: number): GameState {
     leads: [],
     selectedTaskId: null,
     tutorialDone: false,
+    seenStoryIntro: false,
     acknowledgedTutorialStep: -1,
     seenTabIntros: [],
     leadSpawnCooldown: LEAD_SPAWN_INTERVAL_DAYS,
@@ -1389,6 +1390,11 @@ export function resetGame(at: number, rngSeed?: number): GameState {
 export function acknowledgeTabIntro(state: GameState, tab: MainTabId, at: number): GameState {
   if (state.seenTabIntros.includes(tab)) return state
   return { ...state, seenTabIntros: [...state.seenTabIntros, tab], snapshotAt: at }
+}
+
+export function acknowledgeStoryIntro(state: GameState, at: number): GameState {
+  if (state.seenStoryIntro) return state
+  return { ...state, seenStoryIntro: true, snapshotAt: at }
 }
 
 export function acknowledgeTutorialStep(state: GameState, step: number, at: number): GameState {
