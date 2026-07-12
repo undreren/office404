@@ -1,25 +1,25 @@
 import { useState } from 'react'
 import { WIN_CASH } from '../game/constants'
-import { useGameStore } from '../game/store'
+import { resetGameMsg, retireMsg } from '../game/messages'
+import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
 export function NewGameButton() {
-  const resetGame = useGameStore((s) => s.resetGame)
-  const retire = useGameStore((s) => s.retire)
-  const cash = useGameStore((s) => s.cash)
+  const { cash } = useGameState()
+  const dispatchAt = useGameDispatchAt()
   const [confirming, setConfirming] = useState(false)
 
   const canRetire = cash >= WIN_CASH
 
   function handleClick() {
     if (canRetire) {
-      retire()
+      dispatchAt(retireMsg)
       return
     }
     setConfirming(true)
   }
 
   function handleConfirm() {
-    resetGame()
+    dispatchAt(resetGameMsg)
     setConfirming(false)
   }
 

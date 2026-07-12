@@ -1,16 +1,14 @@
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type {
   Agent,
   AgentJob,
   GameEvent,
-  GameStore,
+  GameState,
   Project,
   StaffJob,
   Task,
   TaskStatus,
-} from './types'
-import { fineTuneId, getModelTier, MODEL_TIERS } from './models'
+} from '../types'
+import { fineTuneId, getModelTier, MODEL_TIERS } from '../models'
 import {
   allReviewCommentsAddressed,
   CONDUCTOR_ROLE_PRIORITY,
@@ -31,8 +29,8 @@ import {
   syncTestScope,
   taskIsTested,
   taskNeedsTesting,
-} from './projects'
-import { generateAgentName, generatePersonality } from './personalities'
+} from '../projects'
+import { generateAgentName, generatePersonality } from '../personalities'
 import {
   APARTMENT_CONFIG,
   COMPACT_DURATION_SEC,
@@ -49,10 +47,9 @@ import {
   MAX_LEADS,
   ON_TIME_REP_BONUS,
   RENT_INTERVAL_DAYS,
-  SAVE_KEY,
   SECONDS_PER_GAME_DAY,
   WIN_CASH,
-} from './constants'
+} from '../constants'
 import {
   agentTickSpeed,
   canUpgradeModelTier,
@@ -76,24 +73,23 @@ import {
   storyPointProgressPerTick,
   testStoryPointIncrement,
   usedRam,
-} from './mechanics'
+} from '../mechanics'
 import {
   GPU_UPGRADES,
   housingMeetsRequirement,
   RAM_UPGRADES,
   VIBING_COURSES,
-} from './upgrades'
+} from '../upgrades'
+import { createRngSeed } from '../rng'
+import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
 
-let idCounter = 0
-function uid(prefix: string): string {
-  idCounter += 1
-  return `${prefix}-${Date.now()}-${idCounter}`
-}
+export type { SimCtx } from './simCtx'
 
-function pushEvent(events: GameEvent[], type: GameEvent['type'], message: string): GameEvent[] {
-  const entry: GameEvent = { id: uid('evt'), timestamp: Date.now(), type, message }
+function pushEvent(ctx: SimCtx, events: GameEvent[], type: GameEvent['type'], message: string, at: number): GameEvent[] {
+  const entry: GameEvent = { id: uid(ctx, 'evt'), timestamp: at, type, message }
   return [entry, ...events].slice(0, MAX_EVENTS)
 }
+
 
 function emptyAgentJob(): Pick<Agent, 'job' | 'taskId' | 'projectId' | 'jobProgress' | 'jobDuration' | 'status'> {
   return { job: null, taskId: null, projectId: null, jobProgress: 0, jobDuration: 0, status: 'idle' }
@@ -112,21 +108,23 @@ function finishCompaction(agent: Agent): Agent {
   }
 }
 
-function createAgent(): Agent {
+function createAgent(ctx: SimCtx): Agent {
   return {
-    id: uid('agt'),
-    name: generateAgentName(),
+    id: uid(ctx, 'agt'),
+    name: generateAgentName(ctx.rng),
     ...emptyAgentJob(),
-    personality: generatePersonality(),
+    personality: generatePersonality(ctx.rng),
     contextUsed: 0,
     compactingRemainingSec: 0,
     uptime: 0,
   }
 }
 
-function createInitialState(): Omit<GameStore, keyof import('./types').GameActions> {
-  const tutorial = createTutorialProject()
-  const starter = createAgent()
+export function createInitialState(at: number, rngSeed?: number): GameState {
+  const seed = rngSeed ?? createRngSeed()
+  const ctx = ctxFrom({ nextId: 1, rng: seed, snapshotAt: at } as GameState)
+  const tutorial = createTutorialProject(ctx)
+  const starter = createAgent(ctx)
   starter.job = 'refine'
   starter.projectId = tutorial.id
   starter.status = 'refining'
@@ -134,7 +132,7 @@ function createInitialState(): Omit<GameStore, keyof import('./types').GameActio
   const totalRam = 2
   const totalGpus = 1
 
-  return {
+  const state: GameState = {
     phase: 'playing',
     cash: INITIAL_CASH,
     reputation: INITIAL_REPUTATION,
@@ -155,21 +153,18 @@ function createInitialState(): Omit<GameStore, keyof import('./types').GameActio
     selectedTaskId: null,
     tutorialDone: false,
     leadSpawnCooldown: LEAD_SPAWN_INTERVAL_DAYS,
-    events: [
-      {
-        id: uid('evt'),
-        timestamp: Date.now(),
-        type: 'system',
-        message: 'Day 0. $0. One agent. One laptop. Infinite audacity.',
-      },
-    ],
+    events: pushEvent(ctx, [], 'system', 'Day 0. $0. One agent. One laptop. Infinite audacity.', at),
     stats: {
       projectsCompleted: 0,
       tasksMerged: 0,
       agentsDeployed: 1,
       compactionsSurvived: 0,
     },
+    snapshotAt: at,
+    rng: ctx.rng.state,
+    nextId: ctx.ids.nextId,
   }
+  return withCtx(state, ctx, at)
 }
 
 function findTask(projects: Project[], taskId: string): { project: Project; task: Task } | null {
@@ -187,11 +182,11 @@ function updateTask(projects: Project[], taskId: string, updater: (t: Task) => T
   }))
 }
 
-function agentParamsFor(state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes'>, job: AgentJob | null): number {
+function agentParamsFor(state: Pick<GameState, 'modelTierIndex' | 'purchasedFineTunes'>, job: AgentJob | null): number {
   return getAgentParameters(state.modelTierIndex, state.purchasedFineTunes, job)
 }
 
-function canSpawnAgent(state: GameStore): boolean {
+function canSpawnAgent(state: GameState): boolean {
   const ram = getTotalRam(state)
   const cap = maxAgents(ram, state.modelTierIndex)
   if (state.agents.length >= cap) return false
@@ -291,7 +286,8 @@ function unassignAgentFromRole(
 }
 
 function staffAgentForRole(
-  state: GameStore,
+  ctx: SimCtx,
+  state: GameState,
   agents: Agent[],
   projectId: string,
   job: AgentJob,
@@ -304,7 +300,7 @@ function staffAgentForRole(
     return { agents: next, agentId: assigned.id }
   }
   if (!canSpawnAgent({ ...state, agents })) return null
-  const agent = createAgent()
+  const agent = createAgent(ctx)
   agent.job = job
   agent.projectId = projectId
   agent.status = job === 'conductor' ? 'conducting' : 'idle'
@@ -318,7 +314,7 @@ function hasUnassignedAgent(agents: Agent[]): boolean {
 function mergeTaskOnProject(
   projects: Project[],
   taskId: string,
-  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes' | 'vibingCourses'>,
+  state: Pick<GameState, 'modelTierIndex' | 'purchasedFineTunes' | 'vibingCourses'>,
   reviewed: boolean,
 ): { projects: Project[]; eventMessage: string } | null {
   const found = findTask(projects, taskId)
@@ -380,7 +376,7 @@ function mergeTaskOnProject(
 function tryAutoMergeReviewedPr(
   projects: Project[],
   parentTaskId: string,
-  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes' | 'vibingCourses'>,
+  state: Pick<GameState, 'modelTierIndex' | 'purchasedFineTunes' | 'vibingCourses'>,
 ): { projects: Project[]; eventMessage: string | null } {
   const found = findTask(projects, parentTaskId)
   if (!found || found.task.status !== 'pr_ready' || !found.task.reviewed) {
@@ -442,7 +438,8 @@ function tryProgressTask(
 }
 
 function reconcileProjectStaffing(
-  state: GameStore,
+  ctx: SimCtx,
+  state: GameState,
   project: Project,
   agents: Agent[],
 ): Agent[] {
@@ -454,7 +451,7 @@ function reconcileProjectStaffing(
     const desiredConductor = project.roleCounts.conductor > 0 ? 1 : 0
 
     if (desiredConductor > 0 && !hasConductor) {
-      const staffed = staffAgentForRole({ ...state, agents: nextAgents }, nextAgents, project.id, 'conductor')
+      const staffed = staffAgentForRole(ctx, { ...state, agents: nextAgents }, nextAgents, project.id, 'conductor')
       if (staffed) nextAgents = staffed.agents
     }
     if (desiredConductor === 0 && hasConductor) {
@@ -503,7 +500,7 @@ function reconcileProjectStaffing(
         projectRoleHasWork(project, role, 'conductor', nextAgents) &&
         (hasUnassignedAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
       ) {
-        const staffed = staffAgentForRole({ ...state, agents: nextAgents }, nextAgents, project.id, role)
+        const staffed = staffAgentForRole(ctx, { ...state, agents: nextAgents }, nextAgents, project.id, role)
         if (staffed) {
           nextAgents = staffed.agents.map((a) =>
             a.id === staffed.agentId
@@ -540,7 +537,7 @@ function reconcileProjectStaffing(
       let toAdd = desired - projectAgents(project.id, role, nextAgents).length
       while (toAdd > 0) {
         if (!hasUnassignedAgent(nextAgents) && !canSpawnAgent({ ...state, agents: nextAgents })) break
-        const staffed = staffAgentForRole({ ...state, agents: nextAgents }, nextAgents, project.id, role)
+        const staffed = staffAgentForRole(ctx, { ...state, agents: nextAgents }, nextAgents, project.id, role)
         if (!staffed) break
         nextAgents = staffed.agents
         if (role !== 'conductor') {
@@ -562,19 +559,12 @@ function reconcileProjectStaffing(
   return nextAgents
 }
 
-export const useGameStore = create<GameStore>()(
-  persist(
-    (set, get) => {
-      const initial = createInitialState()
 
-      return {
-        ...initial,
+export function advanceTime(state: GameState, deltaSec: number, at: number): GameState {
+  const ctx = ctxFrom(state)
+  if (state.phase !== 'playing') return state
 
-        tick(deltaSec: number) {
-          const stateAtStart = get()
-          if (stateAtStart.phase !== 'playing') return
-
-          const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
+                    const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
           let {
             cash,
             reputation,
@@ -590,7 +580,7 @@ export const useGameStore = create<GameStore>()(
             selectedTaskId,
             modelTierIndex,
             vibingCourses,
-          } = stateAtStart
+          } = state
 
           let nextAgents = agents.map((a) => ({ ...a }))
           let nextProjects = projects.map((p) => ({
@@ -601,10 +591,10 @@ export const useGameStore = create<GameStore>()(
           let nextLeads = leads.map((l) => ({ ...l }))
           let nextEvents = [...events]
           let nextStats = { ...stats }
-          let phase: GameStore['phase'] = stateAtStart.phase
+          let phase: GameState['phase'] = state.phase
 
-          const totalRam = getTotalRam(stateAtStart)
-          const totalGpus = getTotalGpus(stateAtStart)
+          const totalRam = getTotalRam(state)
+          const totalGpus = getTotalGpus(state)
           const model = getModelTier(modelTierIndex)!
           const ctxMult = contextFillMultiplier(vibingCourses)
 
@@ -614,16 +604,16 @@ export const useGameStore = create<GameStore>()(
           leadSpawnCooldown -= dayProgress
 
           if (rentDueInDays <= 0) {
-            const rent = APARTMENT_CONFIG[stateAtStart.apartment].rent
+            const rent = APARTMENT_CONFIG[state.apartment].rent
             cash -= rent
             rentDueInDays += RENT_INTERVAL_DAYS
-            nextEvents = pushEvent(nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`)
+            nextEvents = pushEvent(ctx, nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`, at)
           }
 
           if (leadSpawnCooldown <= 0 && nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS) {
-            nextLeads = [generateLead(reputation, gameDay), ...nextLeads]
+            nextLeads = [generateLead(ctx, reputation, gameDay), ...nextLeads]
             leadSpawnCooldown = leadSpawnIntervalDays(reputation, gameDay)
-            nextEvents = pushEvent(nextEvents, 'lead', 'New client lead appeared. They want it yesterday.')
+            nextEvents = pushEvent(ctx, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
           }
 
           for (const lead of nextLeads) {
@@ -633,9 +623,11 @@ export const useGameStore = create<GameStore>()(
                 lead.status = 'expired'
                 reputation = Math.max(0, reputation - EXPIRED_LEAD_REP_PENALTY)
                 nextEvents = pushEvent(
+                  ctx,
                   nextEvents,
                   'lead',
                   `${lead.clientName} ghosted you. Reputation -${EXPIRED_LEAD_REP_PENALTY}.`,
+                  at,
                 )
               }
             }
@@ -654,15 +646,17 @@ export const useGameStore = create<GameStore>()(
               reputation = Math.max(0, reputation - repHit)
               project.repPenaltyMultiplier += 0.25
               nextEvents = pushEvent(
+                ctx,
                 nextEvents,
                 'project',
                 `${project.clientName}: LATE. -$${fee} fee, -${repHit} rep. Extension granted. Suffering continues.`,
+                at,
               )
             }
           }
 
           for (const project of nextProjects.filter((p) => p.status === 'active')) {
-            nextAgents = reconcileProjectStaffing(stateAtStart, project, nextAgents)
+            nextAgents = reconcileProjectStaffing(ctx, state, project, nextAgents)
           }
 
           const baseSpeedGlobal = agentTickSpeed(nextAgents, totalGpus)
@@ -677,7 +671,7 @@ export const useGameStore = create<GameStore>()(
               }
               agent = finishCompaction(agent)
               nextAgents[agentIdx] = agent
-              nextEvents = pushEvent(nextEvents, 'crash', `${agent.name} context compacted. Back on task.`)
+              nextEvents = pushEvent(ctx, nextEvents, 'crash', `${agent.name} context compacted. Back on task.`, at)
             }
           }
 
@@ -692,7 +686,7 @@ export const useGameStore = create<GameStore>()(
             if (baseSpeed <= 0) continue
 
             agent.uptime += dayProgress
-            const params = agentParamsFor(stateAtStart, agent.job)
+            const params = agentParamsFor(state, agent.job)
 
             const overflow = () => {
               agent.status = 'compacting'
@@ -700,9 +694,11 @@ export const useGameStore = create<GameStore>()(
               agent.contextUsed = model.contextSize * 1000
               nextStats.compactionsSurvived += 1
               nextEvents = pushEvent(
+                ctx,
                 nextEvents,
                 'crash',
                 `${agent.name} context full — auto-compacting (${COMPACT_DURATION_SEC}s)...`,
+                at,
               )
             }
 
@@ -756,17 +752,21 @@ export const useGameStore = create<GameStore>()(
               if (result.becamePrReady) {
                 agent.taskId = null
                 nextEvents = pushEvent(
+                  ctx,
                   nextEvents,
                   'project',
                   `${agent.name} finished "${taskRef.task.title}". PR opened — ready for review.`,
+                  at,
                 )
               } else if (result.becameDone) {
                 agent.taskId = null
                 const parentId = taskRef.task.parentTaskId
                 nextEvents = pushEvent(
+                  ctx,
                   nextEvents,
                   'project',
                   `${agent.name} addressed review comment: "${taskRef.task.title}".`,
+                  at,
                 )
                 if (parentId) {
                   const parent = findTask(nextProjects, parentId)
@@ -781,10 +781,10 @@ export const useGameStore = create<GameStore>()(
                       prQualityStaging: staging,
                     }))
                   }
-                  const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, stateAtStart)
+                  const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, state)
                   nextProjects = autoMerge.projects
                   if (autoMerge.eventMessage) {
-                    nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
+                    nextEvents = pushEvent(ctx, nextEvents, 'project', autoMerge.eventMessage, at)
                     nextStats.tasksMerged += 1
                   }
                 }
@@ -826,7 +826,7 @@ export const useGameStore = create<GameStore>()(
 
               agent.jobProgress += dayProgress * baseSpeed
               if (agent.jobProgress >= agent.jobDuration) {
-                const comments = createReviewCommentTasks(task)
+                const comments = createReviewCommentTasks(ctx, task)
                 nextProjects = nextProjects.map((p) =>
                   p.id === project.id
                     ? {
@@ -847,15 +847,17 @@ export const useGameStore = create<GameStore>()(
                     ? ` Left ${comments.length} review comment${comments.length > 1 ? 's' : ''}.`
                     : ''
                 nextEvents = pushEvent(
+                  ctx,
                   nextEvents,
                   'project',
                   `${agent.name} reviewed "${task.title}". PR quality base: ${Math.round(task.prQualityStaging)}%.${commentNote}`,
+                  at,
                 )
 
-                const autoMerge = tryAutoMergeReviewedPr(nextProjects, task.id, stateAtStart)
+                const autoMerge = tryAutoMergeReviewedPr(nextProjects, task.id, state)
                 nextProjects = autoMerge.projects
                 if (autoMerge.eventMessage) {
-                  nextEvents = pushEvent(nextEvents, 'project', autoMerge.eventMessage)
+                  nextEvents = pushEvent(ctx, nextEvents, 'project', autoMerge.eventMessage, at)
                   nextStats.tasksMerged += 1
                 }
               }
@@ -892,7 +894,7 @@ export const useGameStore = create<GameStore>()(
 
               agent.jobProgress += dayProgress * baseSpeed
               if (agent.jobProgress >= agent.jobDuration) {
-                const newTasks = refineRequirementToTasks(target)
+                const newTasks = refineRequirementToTasks(ctx, target)
                 const refinedStatus = newTasks.length > 1 ? ('split' as const) : ('refined' as const)
                 nextProjects = nextProjects.map((p) =>
                   p.id === project.id
@@ -910,7 +912,7 @@ export const useGameStore = create<GameStore>()(
                   newTasks.length > 1
                     ? `split "${target.title}" into ${newTasks.length} tasks (${newTasks.map((t) => formatStoryPoints(t.storyPointsRequired)).join(' + ')} SP)`
                     : `refined "${target.title}" into "${newTasks[0].title}" (${formatStoryPoints(newTasks[0].storyPointsRequired)} SP)`
-                nextEvents = pushEvent(nextEvents, 'project', `${agent.name} ${taskSummary}.`)
+                nextEvents = pushEvent(ctx, nextEvents, 'project', `${agent.name} ${taskSummary}.`, at)
                 agent.jobProgress = 0
                 agent.taskId = null
               }
@@ -963,7 +965,7 @@ export const useGameStore = create<GameStore>()(
 
               let introducedBug = false
               if (taskFullyTested && testTask.prQuality !== null) {
-                introducedBug = rollBugAtQa(testTask.prQuality)
+                introducedBug = rollBugAtQa(ctx.rng, testTask.prQuality)
               }
 
               nextProjects = updateTask(nextProjects, testTask.id, (t) => ({
@@ -978,22 +980,26 @@ export const useGameStore = create<GameStore>()(
                 let updatedProject: Project = syncTestScope(projectAfterTask)
 
                 if (taskFullyTested && introducedBug) {
-                  const fixTask = createBugFixTask(testTask)
+                  const fixTask = createBugFixTask(ctx, testTask)
                   updatedProject = {
                     ...updatedProject,
                     tasks: updatedProject.tasks.concat(fixTask),
                     totalStoryPoints: updatedProject.totalStoryPoints + fixTask.storyPointsRequired,
                   }
                   nextEvents = pushEvent(
+                    ctx,
                     nextEvents,
                     'project',
                     `${agent.name} found a bug in "${testTask.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened. PR was ${Math.round(testTask.prQuality ?? 0)}% clean.`,
+                    at,
                   )
                 } else if (taskFullyTested) {
                   nextEvents = pushEvent(
+                    ctx,
                     nextEvents,
                     'project',
                     `${agent.name} finished QA on "${testTask.title}". Clean at ${Math.round(testTask.prQuality ?? 0)}%.`,
+                    at,
                   )
                   agent.taskId = null
                 }
@@ -1007,381 +1013,364 @@ export const useGameStore = create<GameStore>()(
 
           if (cash >= WIN_CASH) {
             phase = 'won'
-            nextEvents = pushEvent(nextEvents, 'milestone', '$10M cash. Retire. You win.')
+            nextEvents = pushEvent(ctx, nextEvents, 'milestone', '$10M cash. Retire. You win.', at)
           } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
             phase = 'lost'
-            nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.')
+            nextEvents = pushEvent(ctx, nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.', at)
           }
 
-          set({
-            cash,
-            reputation,
-            gameDay,
-            rentDueInDays,
-            apartmentLeaseRemaining,
-            agents: nextAgents,
-            projects: nextProjects,
-            leads: nextLeads,
-            events: nextEvents,
-            stats: nextStats,
-            leadSpawnCooldown,
-            selectedTaskId,
-            phase,
-            totalRam,
-            totalGpus,
-            tutorialDone: stateAtStart.tutorialDone || !nextProjects.some((p) => p.isTutorial),
-          })
-        },
+          return withCtx({
+    ...state,
+    cash,
+    reputation,
+    gameDay,
+    rentDueInDays,
+    apartmentLeaseRemaining,
+    agents: nextAgents,
+    projects: nextProjects,
+    leads: nextLeads,
+    events: nextEvents,
+    stats: nextStats,
+    leadSpawnCooldown,
+    selectedTaskId,
+    phase,
+    totalRam,
+    totalGpus,
+    tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+  }, ctx, at)
+}
 
-        selectTask(taskId) {
-          set({ selectedTaskId: taskId })
-        },
+export function selectTask(state: GameState, taskId: string | null, at: number): GameState {
+  return { ...state, selectedTaskId: taskId, snapshotAt: at }
+}
 
-        mergePr(taskId) {
-          const state = get()
-          const result = mergeTaskOnProject(state.projects, taskId, state, true)
-          if (!result) return
-          set({
-            projects: result.projects,
-            stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-            events: pushEvent(state.events, 'project', result.eventMessage),
-          })
-        },
+export function mergePr(state: GameState, taskId: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const result = mergeTaskOnProject(state.projects, taskId, state, true)
+  if (!result) return state
+  return withCtx({
+    ...state,
+    projects: result.projects,
+    stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
+    events: pushEvent(ctx, state.events, 'project', result.eventMessage, at),
+  }, ctx, at)
+}
 
-        justMergePr(taskId) {
-          const state = get()
-          const result = mergeTaskOnProject(state.projects, taskId, state, false)
-          if (!result) return
-          set({
-            projects: result.projects,
-            stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-            events: pushEvent(state.events, 'project', result.eventMessage),
-          })
-        },
+export function justMergePr(state: GameState, taskId: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const result = mergeTaskOnProject(state.projects, taskId, state, false)
+  if (!result) return state
+  return withCtx({
+    ...state,
+    projects: result.projects,
+    stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
+    events: pushEvent(ctx, state.events, 'project', result.eventMessage, at),
+  }, ctx, at)
+}
 
-        acceptLead(leadId) {
-          const state = get()
-          const lead = state.leads.find((l) => l.id === leadId)
-          if (!lead || lead.status !== 'available') return
-          if (state.reputation < lead.repRequired) return
-          if (state.projects.length >= MAX_ACTIVE_PROJECTS) return
+export function acceptLead(state: GameState, leadId: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const lead = state.leads.find((l) => l.id === leadId)
+  if (!lead || lead.status !== 'available') return state
+  if (state.reputation < lead.repRequired) return state
+  if (state.projects.length >= MAX_ACTIVE_PROJECTS) return state
 
-          const project = createProjectFromLead(lead, state.gameDay)
-          const daysWaited = Math.max(0, Math.floor(state.gameDay - (lead.spawnedGameDay ?? state.gameDay)))
-          const waitNote =
-            daysWaited > 0 ? ` (${daysWaited}d wait shaved ${daysWaited}d off deadline)` : ''
-          set({
-            projects: [...state.projects, project],
-            leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
-            events: pushEvent(
-              state.events,
-              'lead',
-              `Accepted ${lead.clientName}. ${project.durationDays}d to deliver.${waitNote}`,
-            ),
-          })
-        },
+  const project = createProjectFromLead(ctx, lead, state.gameDay)
+  const daysWaited = Math.max(0, Math.floor(state.gameDay - (lead.spawnedGameDay ?? state.gameDay)))
+  const waitNote =
+    daysWaited > 0 ? ` (${daysWaited}d wait shaved ${daysWaited}d off deadline)` : ''
+  return withCtx({
+    ...state,
+    projects: [...state.projects, project],
+    leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
+    events: pushEvent(
+      ctx,
+      state.events,
+      'lead',
+      `Accepted ${lead.clientName}. ${project.durationDays}d to deliver.${waitNote}`,
+      at,
+    ),
+  }, ctx, at)
+}
 
-        rejectLead(leadId) {
-          const state = get()
-          set({
-            leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'rejected' as const } : l)),
-            events: pushEvent(state.events, 'lead', 'Lead rejected. Professional boundaries (for now).'),
-          })
-        },
+export function rejectLead(state: GameState, leadId: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  return withCtx({
+    ...state,
+    leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'rejected' as const } : l)),
+    events: pushEvent(ctx, state.events, 'lead', 'Lead rejected. Professional boundaries (for now).', at),
+  }, ctx, at)
+}
 
-        deliverProject(projectId) {
-          set((state) => {
-            const project = state.projects.find((p) => p.id === projectId)
-            if (!project || project.status !== 'active') return state
-            if (!isReadyToDeliver(project)) return state
+export function deliverProject(state: GameState, projectId: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const project = state.projects.find((p) => p.id === projectId)
+  if (!project || project.status !== 'active') return state
+  if (!isReadyToDeliver(project)) return state
 
-            const synced = syncTestScope(project)
-            const payment = project.payment
-            const onTime = project.lateCount === 0
-            const qualityBonus = Math.round(synced.deliveryQuality / 25)
-            const reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS + qualityBonus : 1)
+  const synced = syncTestScope(project)
+  const payment = project.payment
+  const onTime = project.lateCount === 0
+  const qualityBonus = Math.round(synced.deliveryQuality / 25)
+  const reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS + qualityBonus : 1)
 
-            const nextProjects = state.projects.filter((p) => p.id !== projectId)
-            const nextAgents = state.agents.filter((a) => a.projectId !== projectId)
+  const nextProjects = state.projects.filter((p) => p.id !== projectId)
+  const nextAgents = state.agents.filter((a) => a.projectId !== projectId)
 
-            let nextEvents = state.events
-            const finalCash = state.cash + payment
-            if (project.isTutorial && !state.tutorialDone) {
-              nextEvents = pushEvent(
-                nextEvents,
-                'milestone',
-                `Tutorial complete! +$${payment}. Upgrade housing — unlock real hardware.`,
-              )
-            } else {
-              nextEvents = pushEvent(
-                nextEvents,
-                'milestone',
-                `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ''}. Avg PR quality ${Math.round(synced.deliveryQuality)}%.`,
-              )
-            }
+  let nextEvents = state.events
+  const finalCash = state.cash + payment
+  if (project.isTutorial && !state.tutorialDone) {
+    nextEvents = pushEvent(
+      ctx,
+      nextEvents,
+      'milestone',
+      `Tutorial complete! +$${payment}. Upgrade housing — unlock real hardware.`,
+      at,
+    )
+  } else {
+    nextEvents = pushEvent(
+      ctx,
+      nextEvents,
+      'milestone',
+      `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ''}. Avg PR quality ${Math.round(synced.deliveryQuality)}%.`,
+      at,
+    )
+  }
 
-            let phase = state.phase
-            if (finalCash >= WIN_CASH) {
-              phase = 'won'
-              nextEvents = pushEvent(nextEvents, 'milestone', '$10M cash. Retire. You win.')
-            } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
-              phase = 'lost'
-              nextEvents = pushEvent(nextEvents, 'system', 'No reputation. No clients. Game over.')
-            }
+  let phase = state.phase
+  if (finalCash >= WIN_CASH) {
+    phase = 'won'
+    nextEvents = pushEvent(ctx, nextEvents, 'milestone', '$10M cash. Retire. You win.', at)
+  } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
+    phase = 'lost'
+    nextEvents = pushEvent(ctx, nextEvents, 'system', 'No reputation. No clients. Game over.', at)
+  }
 
-            return {
-              ...state,
-              cash: finalCash,
-              reputation,
-              projects: nextProjects,
-              agents: nextAgents,
-              stats: { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 },
-              events: nextEvents,
-              phase,
-              tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
-            }
-          })
-        },
+  return withCtx({
+    ...state,
+    cash: finalCash,
+    reputation,
+    projects: nextProjects,
+    agents: nextAgents,
+    stats: { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 },
+    events: nextEvents,
+    phase,
+    tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+  }, ctx, at)
+}
 
-        adjustRoleCount(projectId, job, delta) {
-          const state = get()
-          const project = state.projects.find((p) => p.id === projectId)
-          if (!project) return
+export function adjustRoleCount(state: GameState, projectId: string, job: AgentJob, delta: number, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const project = state.projects.find((p) => p.id === projectId)
+  if (!project) return state
 
-          if (delta > 0 && !hasUnassignedAgent(state.agents) && !canSpawnAgent(state)) return
+  if (delta > 0 && !hasUnassignedAgent(state.agents) && !canSpawnAgent(state)) return state
 
-          if (delta < 0) {
-            const result = unassignAgentFromRole(state.agents, projectId, job, state.projects, { force: true })
-            if (!result) return
-            set({
-              agents: result.agents,
-              projects: state.projects.map((p) =>
-                p.id === projectId
-                  ? { ...p, roleCounts: { ...p.roleCounts, [job]: Math.max(0, p.roleCounts[job] + delta) } }
-                  : p,
-              ),
-              events: pushEvent(state.events, 'project', `Pulled one ${job} agent off ${project.clientName}.`),
-            })
-            return
-          }
+  if (delta < 0) {
+    const result = unassignAgentFromRole(state.agents, projectId, job, state.projects, { force: true })
+    if (!result) return state
+    return withCtx({
+      ...state,
+      agents: result.agents,
+      projects: state.projects.map((p) =>
+        p.id === projectId
+          ? { ...p, roleCounts: { ...p.roleCounts, [job]: Math.max(0, p.roleCounts[job] + delta) } }
+          : p,
+      ),
+      events: pushEvent(ctx, state.events, 'project', `Pulled one ${job} agent off ${project.clientName}.`, at),
+    }, ctx, at)
+  }
 
-          const nextProjects = state.projects.map((p) =>
-            p.id === projectId
-              ? { ...p, roleCounts: { ...p.roleCounts, [job]: p.roleCounts[job] + delta } }
-              : p,
-          )
-          const updatedProject = nextProjects.find((p) => p.id === projectId)!
-          let nextAgents = reconcileProjectStaffing(state, updatedProject, state.agents)
+  const nextProjects = state.projects.map((p) =>
+    p.id === projectId
+      ? { ...p, roleCounts: { ...p.roleCounts, [job]: p.roleCounts[job] + delta } }
+      : p,
+  )
+  const updatedProject = nextProjects.find((p) => p.id === projectId)!
+  const nextAgents = reconcileProjectStaffing(ctx, state, updatedProject, state.agents)
 
-          set({
-            agents: nextAgents,
-            projects: nextProjects,
-            stats: {
-              ...state.stats,
-              agentsDeployed: Math.max(state.stats.agentsDeployed, nextAgents.length),
-            },
-            events: pushEvent(state.events, 'project', `Staffed +1 ${job} on ${project.clientName}.`),
-          })
-        },
-
-        adjustCrewCap(projectId, delta) {
-          const state = get()
-          set({
-            projects: state.projects.map((p) =>
-              p.id === projectId
-                ? { ...p, crewCap: Math.max(1, Math.min(12, p.crewCap + delta)) }
-                : p,
-            ),
-          })
-        },
-
-        toggleConductor(projectId, enabled) {
-          const state = get()
-          if (enabled && !hasConductorCourse(state.vibingCourses)) return
-          set({
-            projects: state.projects.map((p) =>
-              p.id === projectId
-                ? {
-                    ...p,
-                    useConductor: enabled,
-                    roleCounts: enabled
-                      ? { ...p.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 }
-                      : { ...p.roleCounts, conductor: 0 },
-                  }
-                : p,
-            ),
-          })
-        },
-
-        buyRamUpgrade(upgradeId) {
-          const state = get()
-          const upgrade = RAM_UPGRADES.find((u) => u.id === upgradeId)
-          if (!upgrade || state.purchasedRamUpgrades.includes(upgradeId)) return false
-          if (!housingMeetsRequirement(state.apartment, upgrade.housingRequired)) return false
-          if (state.cash < upgrade.cost) return false
-
-          const purchasedRamUpgrades = [...state.purchasedRamUpgrades, upgradeId]
-          set({
-            cash: state.cash - upgrade.cost,
-            purchasedRamUpgrades,
-            totalRam: getTotalRam({ purchasedRamUpgrades }),
-            events: pushEvent(state.events, 'milestone', `Installed ${upgrade.label}. ${upgrade.tagline}`),
-          })
-          return true
-        },
-
-        buyGpuUpgrade(upgradeId) {
-          const state = get()
-          const upgrade = GPU_UPGRADES.find((u) => u.id === upgradeId)
-          if (!upgrade || state.purchasedGpuUpgrades.includes(upgradeId)) return false
-          if (!housingMeetsRequirement(state.apartment, upgrade.housingRequired)) return false
-          if (state.cash < upgrade.cost) return false
-
-          const purchasedGpuUpgrades = [...state.purchasedGpuUpgrades, upgradeId]
-          set({
-            cash: state.cash - upgrade.cost,
-            purchasedGpuUpgrades,
-            totalGpus: getTotalGpus({ purchasedGpuUpgrades }),
-            events: pushEvent(state.events, 'milestone', `Installed ${upgrade.label}. ${upgrade.tagline}`),
-          })
-          return true
-        },
-
-        upgradeModelTier() {
-          const state = get()
-          const nextTier = state.modelTierIndex + 1
-          const next = getModelTier(nextTier)
-          if (!next) return false
-          if (state.cash < next.upgradeCost) return false
-          if (!canUpgradeModelTier(getTotalRam(state), state.modelTierIndex)) {
-            return false
-          }
-
-          const despawned = state.agents.length
-          const upgradeMessage =
-            despawned > 0
-              ? `Upgraded to ${next.displayName}. ${next.tagline} ${despawned} agent${despawned === 1 ? '' : 's'} despawned — redeploy on the new tier.`
-              : `Upgraded to ${next.displayName}. ${next.tagline}`
-
-          set({
-            cash: state.cash - next.upgradeCost,
-            modelTierIndex: nextTier,
-            agents: [],
-            projects: clearAgentAssignmentsOnProjects(state.projects),
-            events: pushEvent(state.events, 'milestone', upgradeMessage),
-          })
-          return true
-        },
-
-        buyFineTune(fineTuneId) {
-          const state = get()
-          if (state.purchasedFineTunes.includes(fineTuneId)) return false
-          if (state.cash < 90) return false
-          const tierMatch = fineTuneId.match(/^tune-(\d+)-/)
-          if (!tierMatch) return false
-          const tier = Number(tierMatch[1])
-          if (tier > state.modelTierIndex) return false
-
-          set({
-            cash: state.cash - 90,
-            purchasedFineTunes: [...state.purchasedFineTunes, fineTuneId],
-            events: pushEvent(state.events, 'milestone', `Fine-tune purchased: ${fineTuneId}.`),
-          })
-          return true
-        },
-
-        buyVibingCourse(courseId) {
-          const state = get()
-          const course = VIBING_COURSES.find((c) => c.id === courseId)
-          if (!course || state.vibingCourses.includes(courseId)) return false
-          if (state.cash < course.cost) return false
-
-          set({
-            cash: state.cash - course.cost,
-            vibingCourses: [...state.vibingCourses, courseId],
-            events: pushEvent(
-              state.events,
-              'milestone',
-              `Enrolled in ${course.label}: "${course.tagline}"`,
-            ),
-          })
-          return true
-        },
-
-        upgradeApartment() {
-          const state = get()
-          const tiers = ['cardboard', 'shared_1br', 'studio', 'loft', 'penthouse'] as const
-          const idx = tiers.indexOf(state.apartment)
-          if (idx < 0 || idx >= tiers.length - 1) return false
-          const next = tiers[idx + 1]
-          const cost = APARTMENT_CONFIG[next].upgradeCost
-          if (state.cash < cost) return false
-
-          set({
-            cash: state.cash - cost,
-            apartment: next,
-            apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
-            rentDueInDays: RENT_INTERVAL_DAYS,
-            events: pushEvent(
-              state.events,
-              'milestone',
-              `Moved to ${APARTMENT_CONFIG[next].label}. New hardware tiers unlocked.`,
-            ),
-          })
-          return true
-        },
-
-        retire() {
-          const state = get()
-          if (state.phase !== 'playing' || state.cash < WIN_CASH) return
-          set({
-            phase: 'won',
-            events: pushEvent(state.events, 'milestone', '$10M cash. Retire. You win.'),
-          })
-        },
-
-        resetGame() {
-          set({ ...createInitialState() })
-        },
-      }
+  return withCtx({
+    ...state,
+    agents: nextAgents,
+    projects: nextProjects,
+    stats: {
+      ...state.stats,
+      agentsDeployed: Math.max(state.stats.agentsDeployed, nextAgents.length),
     },
-    {
-      name: SAVE_KEY,
-      version: 3,
-      migrate: () => createInitialState() as unknown as GameStore,
-      partialize: (state) => ({
-        phase: state.phase,
-        cash: state.cash,
-        reputation: state.reputation,
-        gameDay: state.gameDay,
-        rentDueInDays: state.rentDueInDays,
-        apartment: state.apartment,
-        apartmentLeaseRemaining: state.apartmentLeaseRemaining,
-        totalRam: state.totalRam,
-        totalGpus: state.totalGpus,
-        modelTierIndex: state.modelTierIndex,
-        purchasedRamUpgrades: state.purchasedRamUpgrades,
-        purchasedGpuUpgrades: state.purchasedGpuUpgrades,
-        purchasedFineTunes: state.purchasedFineTunes,
-        vibingCourses: state.vibingCourses,
-        agents: state.agents,
-        projects: state.projects,
-        leads: state.leads,
-        selectedTaskId: state.selectedTaskId,
-        tutorialDone: state.tutorialDone,
-        leadSpawnCooldown: state.leadSpawnCooldown,
-        events: state.events,
-        stats: state.stats,
-      }),
-    },
-  ),
-)
+    events: pushEvent(ctx, state.events, 'project', `Staffed +1 ${job} on ${project.clientName}.`, at),
+  }, ctx, at)
+}
 
-export function getNetWorth(state: Pick<GameStore, 'cash'>): number {
+export function adjustCrewCap(state: GameState, projectId: string, delta: number, at: number): GameState {
+  return {
+    ...state,
+    projects: state.projects.map((p) =>
+      p.id === projectId
+        ? { ...p, crewCap: Math.max(1, Math.min(12, p.crewCap + delta)) }
+        : p,
+    ),
+    snapshotAt: at,
+  }
+}
+
+export function toggleConductor(state: GameState, projectId: string, enabled: boolean, at: number): GameState {
+  if (enabled && !hasConductorCourse(state.vibingCourses)) return state
+  return {
+    ...state,
+    projects: state.projects.map((p) =>
+      p.id === projectId
+        ? {
+            ...p,
+            useConductor: enabled,
+            roleCounts: enabled
+              ? { ...p.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 }
+              : { ...p.roleCounts, conductor: 0 },
+          }
+        : p,
+    ),
+    snapshotAt: at,
+  }
+}
+
+export function buyRamUpgrade(state: GameState, upgradeId: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const upgrade = RAM_UPGRADES.find((u) => u.id === upgradeId)
+  if (!upgrade || state.purchasedRamUpgrades.includes(upgradeId)) return state
+  if (!housingMeetsRequirement(state.apartment, upgrade.housingRequired)) return state
+  if (state.cash < upgrade.cost) return state
+
+  const purchasedRamUpgrades = [...state.purchasedRamUpgrades, upgradeId]
+  return withCtx({
+    ...state,
+    cash: state.cash - upgrade.cost,
+    purchasedRamUpgrades,
+    totalRam: getTotalRam({ purchasedRamUpgrades }),
+    events: pushEvent(ctx, state.events, 'milestone', `Installed ${upgrade.label}. ${upgrade.tagline}`, at),
+  }, ctx, at)
+}
+
+export function buyGpuUpgrade(state: GameState, upgradeId: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const upgrade = GPU_UPGRADES.find((u) => u.id === upgradeId)
+  if (!upgrade || state.purchasedGpuUpgrades.includes(upgradeId)) return state
+  if (!housingMeetsRequirement(state.apartment, upgrade.housingRequired)) return state
+  if (state.cash < upgrade.cost) return state
+
+  const purchasedGpuUpgrades = [...state.purchasedGpuUpgrades, upgradeId]
+  return withCtx({
+    ...state,
+    cash: state.cash - upgrade.cost,
+    purchasedGpuUpgrades,
+    totalGpus: getTotalGpus({ purchasedGpuUpgrades }),
+    events: pushEvent(ctx, state.events, 'milestone', `Installed ${upgrade.label}. ${upgrade.tagline}`, at),
+  }, ctx, at)
+}
+
+export function upgradeModelTier(state: GameState, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const nextTier = state.modelTierIndex + 1
+  const next = getModelTier(nextTier)
+  if (!next) return state
+  if (state.cash < next.upgradeCost) return state
+  if (!canUpgradeModelTier(getTotalRam(state), state.modelTierIndex)) return state
+
+  const despawned = state.agents.length
+  const upgradeMessage =
+    despawned > 0
+      ? `Upgraded to ${next.displayName}. ${next.tagline} ${despawned} agent${despawned === 1 ? '' : 's'} despawned — redeploy on the new tier.`
+      : `Upgraded to ${next.displayName}. ${next.tagline}`
+
+  return withCtx({
+    ...state,
+    cash: state.cash - next.upgradeCost,
+    modelTierIndex: nextTier,
+    agents: [],
+    projects: clearAgentAssignmentsOnProjects(state.projects),
+    events: pushEvent(ctx, state.events, 'milestone', upgradeMessage, at),
+  }, ctx, at)
+}
+
+export function buyFineTune(state: GameState, fineTuneIdArg: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  if (state.purchasedFineTunes.includes(fineTuneIdArg)) return state
+  if (state.cash < 90) return state
+  const tierMatch = fineTuneIdArg.match(/^tune-(\d+)-/)
+  if (!tierMatch) return state
+  const tier = Number(tierMatch[1])
+  if (tier > state.modelTierIndex) return state
+
+  return withCtx({
+    ...state,
+    cash: state.cash - 90,
+    purchasedFineTunes: [...state.purchasedFineTunes, fineTuneIdArg],
+    events: pushEvent(ctx, state.events, 'milestone', `Fine-tune purchased: ${fineTuneIdArg}.`, at),
+  }, ctx, at)
+}
+
+export function buyVibingCourse(state: GameState, courseId: string, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const course = VIBING_COURSES.find((c) => c.id === courseId)
+  if (!course || state.vibingCourses.includes(courseId)) return state
+  if (state.cash < course.cost) return state
+
+  return withCtx({
+    ...state,
+    cash: state.cash - course.cost,
+    vibingCourses: [...state.vibingCourses, courseId],
+    events: pushEvent(
+      ctx,
+      state.events,
+      'milestone',
+      `Enrolled in ${course.label}: "${course.tagline}"`,
+      at,
+    ),
+  }, ctx, at)
+}
+
+export function upgradeApartment(state: GameState, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const tiers = ['cardboard', 'shared_1br', 'studio', 'loft', 'penthouse'] as const
+  const idx = tiers.indexOf(state.apartment)
+  if (idx < 0 || idx >= tiers.length - 1) return state
+  const next = tiers[idx + 1]
+  const cost = APARTMENT_CONFIG[next].upgradeCost
+  if (state.cash < cost) return state
+
+  return withCtx({
+    ...state,
+    cash: state.cash - cost,
+    apartment: next,
+    apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
+    rentDueInDays: RENT_INTERVAL_DAYS,
+    events: pushEvent(
+      ctx,
+      state.events,
+      'milestone',
+      `Moved to ${APARTMENT_CONFIG[next].label}. New hardware tiers unlocked.`,
+      at,
+    ),
+  }, ctx, at)
+}
+
+export function retire(state: GameState, at: number): GameState {
+  if (state.phase !== 'playing' || state.cash < WIN_CASH) return state
+  const ctx = ctxFrom(state)
+  return withCtx({
+    ...state,
+    phase: 'won',
+    events: pushEvent(ctx, state.events, 'milestone', '$10M cash. Retire. You win.', at),
+  }, ctx, at)
+}
+
+export function resetGame(at: number, rngSeed?: number): GameState {
+  return createInitialState(at, rngSeed)
+}
+
+export function getNetWorth(state: Pick<GameState, 'cash'>): number {
   return state.cash
 }
 
-export function getNextApartment(state: Pick<GameStore, 'apartment'>): string | null {
+export function getNextApartment(state: Pick<GameState, 'apartment'>): string | null {
   const tiers = ['cardboard', 'shared_1br', 'studio', 'loft', 'penthouse'] as const
   const idx = tiers.indexOf(state.apartment)
   return idx < tiers.length - 1 ? tiers[idx + 1] : null
@@ -1409,17 +1398,17 @@ export function isReadyToDeliver(project: Project): boolean {
 }
 
 export function modelSpPerTick(
-  state: Pick<GameStore, 'modelTierIndex' | 'purchasedFineTunes' | 'gameDay'>,
+  state: Pick<GameState, 'modelTierIndex' | 'purchasedFineTunes' | 'gameDay'>,
 ): number {
   const params = agentParamsFor(state, 'code')
   return storyPointProgressPerTick(params, state.gameDay)
 }
 
-export function canStaffAdditionalAgent(state: GameStore): boolean {
+export function canStaffAdditionalAgent(state: GameState): boolean {
   return hasUnassignedAgent(state.agents) || canSpawnAgent(state)
 }
 
-export function agentCapacity(state: GameStore): { used: number; max: number; totalRam: number; totalGpus: number } {
+export function agentCapacity(state: GameState): { used: number; max: number; totalRam: number; totalGpus: number } {
   const totalRam = getTotalRam(state)
   const totalGpus = getTotalGpus(state)
   return {

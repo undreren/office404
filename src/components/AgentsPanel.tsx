@@ -1,12 +1,10 @@
 import { agentContextDisplayPct, formatAgentDutyLabel } from '../game/mechanics'
 import { MODEL_TIERS } from '../game/models'
-import { useGameStore } from '../game/store'
 import type { Task } from '../game/types'
+import { useGameState } from '../runtime/GameRuntime'
 
 export function AgentsPanel() {
-  const agents = useGameStore((s) => s.agents)
-  const projects = useGameStore((s) => s.projects)
-  const modelTierIndex = useGameStore((s) => s.modelTierIndex)
+  const { agents, projects, modelTierIndex } = useGameState()
   const model = MODEL_TIERS[modelTierIndex]
 
   function findTask(taskId: string | null): Task | null {

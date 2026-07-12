@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useGameStore } from '../game/store'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { acceptLeadMsg } from '../game/messages'
+import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
 export type TabId = 'feed' | 'shop' | 'agents' | 'projects' | 'leads'
 
@@ -19,8 +20,9 @@ export function TabNavProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTab] = useState<TabId>('feed')
   const [projectIndex, setProjectIndex] = useState(0)
   const [shopIndex, setShopIndex] = useState(0)
-  const storeAcceptLead = useGameStore((s) => s.acceptLead)
-  const projectCount = useGameStore((s) => s.projects.length)
+  const projectCount = useGameState().projects.length
+  const dispatchAt = useGameDispatchAt()
+  const pendingLeadNav = useRef<{ wasOnProjects: boolean; prevCount: number } | null>(null)
 
   useEffect(() => {
     if (projectCount === 0) {
@@ -30,18 +32,22 @@ export function TabNavProvider({ children }: { children: ReactNode }) {
     setProjectIndex((current) => Math.min(current, projectCount - 1))
   }, [projectCount])
 
+  useEffect(() => {
+    const pending = pendingLeadNav.current
+    if (!pending) return
+    pendingLeadNav.current = null
+    if (projectCount > pending.prevCount && !pending.wasOnProjects) {
+      setActiveTab('projects')
+      setProjectIndex(projectCount - 1)
+    }
+  }, [projectCount])
+
   const acceptLead = useCallback(
     (leadId: string) => {
-      const wasOnProjects = activeTab === 'projects'
-      const prevCount = useGameStore.getState().projects.length
-      storeAcceptLead(leadId)
-      const nextCount = useGameStore.getState().projects.length
-      if (nextCount > prevCount && !wasOnProjects) {
-        setActiveTab('projects')
-        setProjectIndex(nextCount - 1)
-      }
+      pendingLeadNav.current = { wasOnProjects: activeTab === 'projects', prevCount: projectCount }
+      dispatchAt((at) => acceptLeadMsg(at, leadId))
     },
-    [activeTab, storeAcceptLead],
+    [activeTab, dispatchAt, projectCount],
   )
 
   const value = useMemo(

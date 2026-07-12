@@ -1,6 +1,7 @@
 import { APARTMENT_CONFIG, WIN_CASH } from '../game/constants'
 import { MODEL_TIERS } from '../game/models'
-import { agentCapacity, getNetWorth, useGameStore } from '../game/store'
+import { agentCapacity, getNetWorth } from '../game/selectors'
+import { useGameState } from '../runtime/GameRuntime'
 import { NewGameButton } from './NewGameButton'
 
 type ResourceBarProps = {
@@ -8,12 +9,8 @@ type ResourceBarProps = {
 }
 
 export function ResourceBar({ compact = false }: ResourceBarProps) {
-  const cash = useGameStore((s) => s.cash)
-  const reputation = useGameStore((s) => s.reputation)
-  const gameDay = useGameStore((s) => s.gameDay)
-  const rentDueInDays = useGameStore((s) => s.rentDueInDays)
-  const apartment = useGameStore((s) => s.apartment)
-  const state = useGameStore()
+  const state = useGameState()
+  const { cash, reputation, gameDay, rentDueInDays, apartment } = state
 
   const { used, max, totalRam, totalGpus } = agentCapacity(state)
   const model = MODEL_TIERS[state.modelTierIndex]

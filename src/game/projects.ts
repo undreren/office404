@@ -9,6 +9,9 @@ import {
   reviewCommentSpawnCount,
 } from './mechanics'
 import { pickBugDescription, pickSubtaskTitles } from './refinementContent'
+import { type SimCtx, uid } from './simulation/simCtx'
+
+export type { SimCtx } from './simulation/simCtx'
 
 const BLURBS = [
   'Rebuild the dashboard but make it "pop".',
@@ -261,27 +264,14 @@ const EMPTY_ROLE_COUNTS = {
   conductor: 0,
 }
 
-let idCounter = 0
-function uid(prefix: string): string {
-  idCounter += 1
-  return `${prefix}-${Date.now()}-${idCounter}`
-}
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
-
-function randInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min
-}
-
 export function createRequirement(
+  ctx: SimCtx,
   projectId: string,
   title: string,
   storyPoints: number,
 ): Requirement {
   return {
-    id: uid('req'),
+    id: uid(ctx, 'req'),
     projectId,
     title,
     storyPoints,
@@ -290,6 +280,7 @@ export function createRequirement(
 }
 
 export function createTask(
+  ctx: SimCtx,
   projectId: string,
   title: string,
   storyPoints: number,
@@ -298,7 +289,7 @@ export function createTask(
   requirementId: string | null = null,
 ): Task {
   return {
-    id: uid('task'),
+    id: uid(ctx, 'task'),
     projectId,
     requirementId,
     title,
@@ -322,24 +313,24 @@ export function createTask(
   }
 }
 
-function createRequirementsForProject(projectId: string, totalSp: number): Requirement[] {
+function createRequirementsForProject(ctx: SimCtx, projectId: string, totalSp: number): Requirement[] {
   const idx = fibIndex(totalSp)
   if (idx <= 1 || totalSp <= 3) {
-    return [createRequirement(projectId, pick(REQUIREMENT_TITLES), totalSp)]
+    return [createRequirement(ctx, projectId, ctx.rng.pick(REQUIREMENT_TITLES), totalSp)]
   }
 
   const spA = FIBONACCI[idx - 1]
   const spB = totalSp - spA
   const titles = [...REQUIREMENT_TITLES]
-  const titleA = pick(titles)
-  const titleB = pick(titles.filter((t) => t !== titleA))
+  const titleA = ctx.rng.pick(titles)
+  const titleB = ctx.rng.pick(titles.filter((t) => t !== titleA))
   return [
-    createRequirement(projectId, titleA, spA),
-    createRequirement(projectId, titleB, spB),
+    createRequirement(ctx, projectId, titleA, spA),
+    createRequirement(ctx, projectId, titleB, spB),
   ]
 }
 
-function defaultProjectFields(projectId: string, sp: number) {
+function defaultProjectFields(ctx: SimCtx, projectId: string, sp: number) {
   return {
     deliveryQuality: 0,
     testPercent: 0,
@@ -347,7 +338,7 @@ function defaultProjectFields(projectId: string, sp: number) {
     testStoryPointsCompleted: 0,
     totalStoryPoints: sp,
     status: 'active' as const,
-    requirements: createRequirementsForProject(projectId, sp),
+    requirements: createRequirementsForProject(ctx, projectId, sp),
     tasks: [] as Task[],
     lateCount: 0,
     crewCap: 1,
@@ -356,8 +347,8 @@ function defaultProjectFields(projectId: string, sp: number) {
   }
 }
 
-export function createTutorialProject(): Project {
-  const projectId = uid('proj')
+export function createTutorialProject(ctx: SimCtx): Project {
+  const projectId = uid(ctx, 'proj')
   const sp = 4
 
   return {
@@ -370,43 +361,45 @@ export function createTutorialProject(): Project {
     daysRemaining: 20,
     isTutorial: true,
     repPenaltyMultiplier: 1,
-    ...defaultProjectFields(projectId, sp),
+    ...defaultProjectFields(ctx, projectId, sp),
     requirements: [
-      createRequirement(projectId, 'Users must be able to log in without a séance', 2),
-      createRequirement(projectId, 'Dashboard needs to not look like it misses 2009', 1),
-      createRequirement(projectId, 'API must return JSON sometimes, never XML emotionally', 1),
+      createRequirement(ctx, projectId, 'Users must be able to log in without a séance', 2),
+      createRequirement(ctx, projectId, 'Dashboard needs to not look like it misses 2009', 1),
+      createRequirement(ctx, projectId, 'API must return JSON sometimes, never XML emotionally', 1),
     ],
   }
 }
 
-export function generateLead(reputation: number, gameDay: number): Lead {
+export function generateLead(ctx: SimCtx, reputation: number, gameDay: number): Lead {
   const repFactor = Math.max(1, reputation / 10)
   const dayFactor = 1 + Math.pow(gameDay / 100, 1.2) * 0.5
   const isUnreasonable = reputation > 25
 
-  const storyPoints = pickLeadFibonacci(reputation, gameDay)
+  const storyPoints = pickLeadFibonacci(ctx.rng, reputation, gameDay)
   const durationDays = Math.max(
     MIN_PROJECT_DAYS,
-    Math.round((isUnreasonable ? randInt(10, 18) : randInt(15, 35)) / (repFactor * dayFactor)),
+    Math.round(
+      (isUnreasonable ? ctx.rng.int(10, 18) : ctx.rng.int(15, 35)) / (repFactor * dayFactor),
+    ),
   )
   const payment = Math.round(
     storyPoints * (4 + reputation * 0.3) * (isUnreasonable ? 0.75 : 1),
   )
 
-  const client = pickJokeClient()
+  const client = pickJokeClient(ctx.rng)
 
   return {
-    id: uid('lead'),
+    id: uid(ctx, 'lead'),
     clientName: client.name,
     clientTagline: client.tagline,
-    blurb: pick(BLURBS),
+    blurb: ctx.rng.pick(BLURBS),
     payment,
     durationDays,
     totalStoryPoints: storyPoints,
-    daysToExpire: randInt(3, 8),
+    daysToExpire: ctx.rng.int(3, 8),
     spawnedGameDay: gameDay,
     status: 'available',
-    repRequired: Math.max(0, randInt(0, Math.floor(reputation * 0.6))),
+    repRequired: Math.max(0, ctx.rng.int(0, Math.floor(reputation * 0.6))),
   }
 }
 
@@ -420,8 +413,8 @@ export function effectiveLeadDuration(lead: Lead, acceptGameDay: number): number
   return Math.max(MIN_PROJECT_DAYS, lead.durationDays - leadDaysWaited(lead, acceptGameDay))
 }
 
-export function createProjectFromLead(lead: Lead, acceptGameDay: number): Project {
-  const projectId = uid('proj')
+export function createProjectFromLead(ctx: SimCtx, lead: Lead, acceptGameDay: number): Project {
+  const projectId = uid(ctx, 'proj')
   const sp = lead.totalStoryPoints
   const effectiveDuration = effectiveLeadDuration(lead, acceptGameDay)
 
@@ -435,7 +428,7 @@ export function createProjectFromLead(lead: Lead, acceptGameDay: number): Projec
     daysRemaining: effectiveDuration,
     isTutorial: false,
     repPenaltyMultiplier: 1 + effectiveDuration / 40,
-    ...defaultProjectFields(projectId, sp),
+    ...defaultProjectFields(ctx, projectId, sp),
   }
 }
 
@@ -443,14 +436,14 @@ export function canRefineRequirement(requirement: Requirement): boolean {
   return requirement.status === 'open'
 }
 
-export function requirementToTask(requirement: Requirement): Task {
-  const [task] = refineRequirementToTasks(requirement, { preferSplit: false, forceSingle: true })
+export function requirementToTask(ctx: SimCtx, requirement: Requirement): Task {
+  const [task] = refineRequirementToTasks(ctx, requirement, { preferSplit: false, forceSingle: true })
   return task
 }
 
 /** Split one requirement into two equal-SP tasks (legacy Prompt Engineering path). */
-export function splitRequirementToTasks(requirement: Requirement): Task[] {
-  return refineRequirementToTasks(requirement, { preferSplit: true, forceSplit: true })
+export function splitRequirementToTasks(ctx: SimCtx, requirement: Requirement): Task[] {
+  return refineRequirementToTasks(ctx, requirement, { preferSplit: true, forceSplit: true })
 }
 
 function splitStoryPoints(total: number): [number, number] | null {
@@ -463,6 +456,7 @@ function splitStoryPoints(total: number): [number, number] | null {
 }
 
 export function refineRequirementToTasks(
+  ctx: SimCtx,
   requirement: Requirement,
   options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean } = {},
 ): Task[] {
@@ -475,21 +469,21 @@ export function refineRequirementToTasks(
       shouldSplit = splitStoryPoints(sp) !== null
     } else {
       const splitChance = preferSplit ? 0.85 : 0.4
-      shouldSplit = Math.random() < splitChance && splitStoryPoints(sp) !== null
+      shouldSplit = ctx.rng.chance(splitChance) && splitStoryPoints(sp) !== null
     }
   }
 
   if (shouldSplit) {
     const parts = splitStoryPoints(sp)!
-    const titles = pickSubtaskTitles(requirement.title, 2)
+    const titles = pickSubtaskTitles(ctx.rng, requirement.title, 2)
     return [
-      createTask(requirement.projectId, titles[0], parts[0], fibIndex(parts[0]), null, requirement.id),
-      createTask(requirement.projectId, titles[1], parts[1], fibIndex(parts[1]), null, requirement.id),
+      createTask(ctx, requirement.projectId, titles[0], parts[0], fibIndex(parts[0]), null, requirement.id),
+      createTask(ctx, requirement.projectId, titles[1], parts[1], fibIndex(parts[1]), null, requirement.id),
     ]
   }
 
-  const [title] = pickSubtaskTitles(requirement.title, 1)
-  return [createTask(requirement.projectId, title, sp, fibIndex(sp), null, requirement.id)]
+  const [title] = pickSubtaskTitles(ctx.rng, requirement.title, 1)
+  return [createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id)]
 }
 
 export function tasksForRequirement(project: Project, requirementId: string): Task[] {
@@ -702,16 +696,16 @@ export function allReviewCommentsAddressed(project: Project, parentTaskId: strin
   return comments.every((c) => c.storyPointsEarned >= c.storyPointsRequired)
 }
 
-export function createReviewCommentTasks(parent: Task): Task[] {
-  const count = reviewCommentSpawnCount(parent.storyPointsRequired)
+export function createReviewCommentTasks(ctx: SimCtx, parent: Task): Task[] {
+  const count = reviewCommentSpawnCount(ctx.rng, parent.storyPointsRequired)
   const pool = [...REVIEW_COMMENT_TEXTS]
   const comments: Task[] = []
 
   for (let i = 0; i < count; i++) {
-    const idx = Math.floor(Math.random() * pool.length)
+    const idx = ctx.rng.int(0, pool.length - 1)
     const text = pool.splice(idx, 1)[0] ?? REVIEW_COMMENT_TEXTS[0]
     comments.push({
-      ...createTask(parent.projectId, text, 0.5, 0, parent.id),
+      ...createTask(ctx, parent.projectId, text, 0.5, 0, parent.id),
       isReviewComment: true,
     })
   }
@@ -827,11 +821,12 @@ export function pickTestTask(project: Project, agentId: string, agents: Agent[])
   return available[0] ?? null
 }
 
-export function createBugFixTask(source: Task): Task {
+export function createBugFixTask(ctx: SimCtx, source: Task): Task {
   return {
     ...createTask(
+      ctx,
       source.projectId,
-      pickBugDescription(),
+      pickBugDescription(ctx.rng),
       source.storyPointsRequired,
       source.complexity,
       source.id,

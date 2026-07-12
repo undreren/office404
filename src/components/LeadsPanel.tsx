@@ -1,14 +1,12 @@
 import { useTabNav } from '../context/TabNavContext'
-import { useGameStore } from '../game/store'
+import { rejectLeadMsg } from '../game/messages'
 import { effectiveLeadDuration } from '../game/projects'
+import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
 export function LeadsPanel() {
-  const leads = useGameStore((s) => s.leads)
-  const reputation = useGameStore((s) => s.reputation)
-  const gameDay = useGameStore((s) => s.gameDay)
-  const projects = useGameStore((s) => s.projects)
+  const { leads, reputation, gameDay, projects } = useGameState()
   const { acceptLead } = useTabNav()
-  const rejectLead = useGameStore((s) => s.rejectLead)
+  const dispatchAt = useGameDispatchAt()
 
   const available = leads.filter((l) => l.status === 'available')
 
@@ -46,7 +44,11 @@ export function LeadsPanel() {
               <button type="button" className="btn btn--deploy" onClick={() => acceptLead(lead.id)} disabled={!canAccept}>
                 Accept
               </button>
-              <button type="button" className="btn btn--small" onClick={() => rejectLead(lead.id)}>
+              <button
+                type="button"
+                className="btn btn--small"
+                onClick={() => dispatchAt((at) => rejectLeadMsg(at, lead.id))}
+              >
                 Reject
               </button>
             </div>
