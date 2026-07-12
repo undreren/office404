@@ -17,3 +17,12 @@ test('fixture loader hydrates tutorial state', async ({ page }) => {
     timeout: 10_000,
   })
 })
+
+test('skipOnboarding hides story and tab intro modals', async ({ page }) => {
+  await page.goto('/?fixture=fresh-tutorial&skipOnboarding=1')
+  await expect(page.getByText('Loading save')).toBeHidden({ timeout: 10_000 })
+  await expect(page.getByTestId('onboarding-dialog')).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Friendly Neighbor App' })).toBeVisible({
+    timeout: 10_000,
+  })
+})
