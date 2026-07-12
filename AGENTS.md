@@ -62,9 +62,12 @@ Merge when CI is green — no diff review expected.
 Quick fixtures:
 
 - Gameplay (skip story/tab intros): `http://localhost:5173/?fixture=fresh-tutorial&skipOnboarding=1`
+- Mid-tutorial, idle agent ready to code: `http://localhost:5173/?fixture=tutorial-ready-for-code&skipOnboarding=1`
 - Full onboarding flow: `http://localhost:5173/?fixture=fresh-tutorial`
 
 Dismiss modals with **`find testid onboarding-dismiss`** (auto-clicks; repeat until not found). Do **not** use `click @eN` refs from `snapshot -i` on modal buttons — refs go stale between calls. Playwright uses `getByTestId('onboarding-dismiss')` in `e2e/helpers/onboarding.ts`.
+
+Staffing uses stable testids: `staffing-add-code-proj-1`, `staffing-remove-code-proj-1`, `deliver-proj-1`, `staffing-roster-summary` (roster line in interactive snapshots). Only roles with work show enabled **+** buttons — on the ready-for-code fixture, only **Code** is staffable.
 
 ## Tone
 

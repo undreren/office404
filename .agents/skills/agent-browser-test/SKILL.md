@@ -60,13 +60,14 @@ http://localhost:5173/?fixture=fresh-tutorial&skipOnboarding=1
 | 4 | Wait — code → review → QA runs automatically |
 | 5 | `find testid deliver-proj-1` when card glows ready |
 
-**Why "Add code" is disabled:** the lone agent may still be refining, or all agents are busy. Wait for a day tick (~5–10s real time) and snapshot again. Do **not** wait 60s in one call — wrapper times out at ~35s.
+**Why "+" is disabled:** game **paused** (dismiss modal first), **no work for that role** (only Code lights up when tasks are ready), agent still refining, or roster full. Check `staffing-roster-summary` for idle count. Wait in **5–10s** chunks — do **not** wait 60s in one call (wrapper times out ~35s).
 
 ## Stable testids
 
 | Action | `find testid` value |
 |--------|---------------------|
 | Dismiss Got it modal | `onboarding-dismiss` |
+| Roster status (idle / full) | `staffing-roster-summary` |
 | Staff coder (+ Code) | `staffing-add-code-proj-1` |
 | Staff refine / review / test | `staffing-add-refine-proj-1`, `staffing-add-review-proj-1`, `staffing-add-test-proj-1` |
 | Deliver tutorial gig | `deliver-proj-1` |

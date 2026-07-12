@@ -323,6 +323,20 @@ body {
   margin-top: 0.5rem;
 }
 
+.staffing-roster-summary {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+  font: inherit;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
 .server-picker {
   margin-bottom: 1rem;
 }
