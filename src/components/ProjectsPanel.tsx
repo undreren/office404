@@ -1,9 +1,11 @@
 import {
   agentIsBusy,
   agentWorkProgressPct,
+  bestOfNTier,
   formatAgentDutyLabel,
   formatStoryPoints,
   hasConductorCourse,
+  maxAgentsPerTask,
 } from '../game/mechanics'
 import {
   allImplementationMerged,
@@ -453,11 +455,12 @@ function RoleCounter({
 
 function ProjectCard({ project }: { project: Project }) {
   const state = useGameState()
-  const { selectedTaskId, agents, vibingCourses } = state
+  const { selectedTaskId, agents, vibingCourses, vibingCourseTiers } = state
   const dispatchAt = useGameDispatchAt()
 
   const canStaff = canStaffAdditionalAgent(state)
   const conductorUnlocked = hasConductorCourse(vibingCourses)
+  const agentsPerTask = maxAgentsPerTask(bestOfNTier(vibingCourseTiers))
   const { used: rosterUsed, max: rosterMax } = agentCapacity(state)
   const idleAgents = countIdleAgents(agents)
 
@@ -654,7 +657,7 @@ function ProjectCard({ project }: { project: Project }) {
                 idleAgents={idleAgents}
                 rosterUsed={rosterUsed}
                 rosterMax={rosterMax}
-                hasRoleWork={roleCanAcceptStaffing(synced, job, agents)}
+                hasRoleWork={roleCanAcceptStaffing(synced, job, agents, agentsPerTask)}
               />
             ))}
           </>
@@ -672,7 +675,7 @@ function ProjectCard({ project }: { project: Project }) {
               idleAgents={idleAgents}
               rosterUsed={rosterUsed}
               rosterMax={rosterMax}
-              hasRoleWork={roleCanAcceptStaffing(synced, job, agents)}
+              hasRoleWork={roleCanAcceptStaffing(synced, job, agents, agentsPerTask)}
             />
           ))
         )}

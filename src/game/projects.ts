@@ -643,8 +643,9 @@ export function pickRefineTarget(
   project: Project,
   agents: Agent[],
   agentId: string,
+  maxPerTask = 1,
 ): Requirement | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'refine', agentId)
+  const claimed = jobClaimedTaskIds(agents, project.id, 'refine', agentId, maxPerTask)
   const self = agents.find((a) => a.id === agentId)
 
   if (self?.taskId) {
@@ -664,28 +665,72 @@ export function projectHasRefineWork(project: Project): boolean {
   return project.requirements.some(canRefineRequirement)
 }
 
+export function agentsOnTaskForJob(
+  agents: Agent[],
+  projectId: string,
+  job: AgentJob,
+  taskId: string,
+): Agent[] {
+  return agents.filter((a) => {
+    if (a.job !== job || a.projectId !== projectId || a.taskId !== taskId) return false
+    if (job === 'refine' && a.status === 'refining') return true
+    if (job === 'review' && a.status === 'reviewing') return true
+    if (job === 'test' && a.status === 'testing') return true
+    if (job === 'code' && a.status === 'working') return true
+    return agentIsBusy(a)
+  })
+}
+
+export function isTaskAtAgentCapacity(
+  agents: Agent[],
+  projectId: string,
+  job: AgentJob,
+  taskId: string,
+  maxPerTask: number,
+): boolean {
+  return agentsOnTaskForJob(agents, projectId, job, taskId).length >= maxPerTask
+}
+
+export function codingAgentsOnTask(task: Task, agents: Agent[]): Agent[] {
+  return agentsOnTaskForJob(agents, task.projectId, 'code', task.id)
+}
+
+export function reviewersOnTask(task: Task, agents: Agent[]): Agent[] {
+  return agentsOnTaskForJob(agents, task.projectId, 'review', task.id)
+}
+
 export function jobClaimedTaskIds(
   agents: Agent[],
   projectId: string,
   job: AgentJob,
   exceptAgentId: string,
+  maxPerTask = 1,
 ): Set<string> {
-  const ids = new Set<string>()
+  const counts = new Map<string, number>()
   for (const agent of agents) {
     if (agent.id === exceptAgentId) continue
     if (agent.job !== job || agent.projectId !== projectId || !agent.taskId) continue
     if (!agentIsBusy(agent) && agent.status !== 'refining') continue
-    ids.add(agent.taskId)
+    counts.set(agent.taskId, (counts.get(agent.taskId) ?? 0) + 1)
+  }
+  const ids = new Set<string>()
+  for (const [taskId, count] of counts) {
+    if (count >= maxPerTask) ids.add(taskId)
   }
   return ids
 }
 
 /** True when a coder is still staffed on the project for this task assignment. */
 export function isCodingTaskActivelyAssigned(task: Task, agents: Agent[]): boolean {
-  if (!task.assignedAgentId) return false
-  const assignee = agents.find((a) => a.id === task.assignedAgentId)
-  if (!assignee) return false
-  return assignee.job === 'code' && assignee.projectId === task.projectId
+  return codingAgentsOnTask(task, agents).length > 0
+}
+
+export function isCodingTaskAtCapacity(task: Task, agents: Agent[], maxPerTask: number): boolean {
+  return codingAgentsOnTask(task, agents).length >= maxPerTask
+}
+
+export function isReviewTaskAtCapacity(task: Task, agents: Agent[], maxPerTask: number): boolean {
+  return reviewersOnTask(task, agents).length >= maxPerTask
 }
 
 export function repairStaleCodingAssignments(
@@ -695,28 +740,46 @@ export function repairStaleCodingAssignments(
   return projects.map((project) => ({
     ...project,
     tasks: project.tasks.map((task) => {
-      if (!task.assignedAgentId || isCodingTaskActivelyAssigned(task, agents)) return task
-      return { ...task, assignedAgentId: null }
+      const coders = codingAgentsOnTask(task, agents)
+      if (coders.length === 0) {
+        return task.assignedAgentId ? { ...task, assignedAgentId: null } : task
+      }
+      const primary = coders.find((a) => a.id === task.assignedAgentId) ?? coders[0]!
+      return task.assignedAgentId === primary.id ? task : { ...task, assignedAgentId: primary.id }
     }),
   }))
 }
 
-export function pickCodingTask(project: Project, agentId: string, agents: Agent[]): Task | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'code', agentId)
+export function pickCodingTask(
+  project: Project,
+  agentId: string,
+  agents: Agent[],
+  maxPerTask = 1,
+): Task | null {
+  const claimed = jobClaimedTaskIds(agents, project.id, 'code', agentId, maxPerTask)
+  const self = agents.find((a) => a.id === agentId)
 
-  const own = project.tasks.find(
+  const ownByAssignment = project.tasks.find(
     (t) =>
       t.assignedAgentId === agentId &&
       (t.status === 'open' || t.status === 'in_progress'),
   )
-  if (own) return own
+  if (ownByAssignment) return ownByAssignment
+
+  const ownByTaskId = self?.taskId
+    ? project.tasks.find(
+        (t) =>
+          t.id === self.taskId && (t.status === 'open' || t.status === 'in_progress'),
+      )
+    : undefined
+  if (ownByTaskId) return ownByTaskId
 
   const openComments = project.tasks
     .filter(
       (t) =>
         t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
-        !isCodingTaskActivelyAssigned(t, agents) &&
+        !isCodingTaskAtCapacity(t, agents, maxPerTask) &&
         !claimed.has(t.id) &&
         t.storyPointsEarned < t.storyPointsRequired,
     )
@@ -728,7 +791,7 @@ export function pickCodingTask(project: Project, agentId: string, agents: Agent[
       (t) =>
         !t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
-        !isCodingTaskActivelyAssigned(t, agents) &&
+        !isCodingTaskAtCapacity(t, agents, maxPerTask) &&
         !claimed.has(t.id) &&
         t.storyPointsEarned < t.storyPointsRequired,
     )
@@ -739,16 +802,15 @@ export function pickCodingTask(project: Project, agentId: string, agents: Agent[
 
 /** The review agent actively working a PR, if any (first busy match in roster order). */
 export function activeReviewerForTask(task: Task, agents: Agent[]): Agent | undefined {
-  return agents.find(
-    (a) =>
-      a.job === 'review' &&
-      a.projectId === task.projectId &&
-      a.taskId === task.id &&
-      agentIsBusy(a),
-  )
+  return reviewersOnTask(task, agents)[0]
 }
 
-export function pickReviewTask(project: Project, agentId: string, agents: Agent[]): Task | null {
+export function pickReviewTask(
+  project: Project,
+  agentId: string,
+  agents: Agent[],
+  maxPerTask = 1,
+): Task | null {
   const self = agents.find((a) => a.id === agentId)
 
   const own = self?.taskId
@@ -756,12 +818,16 @@ export function pickReviewTask(project: Project, agentId: string, agents: Agent[
         (t) => t.id === self.taskId && t.status === 'pr_ready' && !t.reviewed,
       )
     : undefined
-  if (own && activeReviewerForTask(own, agents)?.id === agentId) return own
+  if (own) {
+    const onTask = reviewersOnTask(own, agents)
+    const slotIndex = onTask.findIndex((a) => a.id === agentId)
+    if (slotIndex >= 0 && slotIndex < maxPerTask) return own
+  }
 
   return (
     project.tasks.find((t) => {
       if (t.status !== 'pr_ready' || t.reviewed) return false
-      return !activeReviewerForTask(t, agents)
+      return !isReviewTaskAtCapacity(t, agents, maxPerTask)
     }) ?? null
   )
 }
@@ -803,28 +869,34 @@ export function projectRoleHasWork(
   job: StaffJob,
   agentId: string,
   agents: Agent[],
+  maxPerTask = 1,
 ): boolean {
   if (project.status !== 'active') return false
   switch (job) {
     case 'code':
-      return pickCodingTask(project, agentId, agents) !== null
+      return pickCodingTask(project, agentId, agents, maxPerTask) !== null
     case 'review':
       return (
         project.tasks.some((t) => t.status === 'pr_ready' && !t.reviewed) &&
-        pickReviewTask(project, agentId, agents) !== null
+        pickReviewTask(project, agentId, agents, maxPerTask) !== null
       )
     case 'refine':
-      return pickRefineTarget(project, agents, agentId) !== null
+      return pickRefineTarget(project, agents, agentId, maxPerTask) !== null
     case 'test':
-      return projectHasTestWork(project) && pickTestTask(project, agentId, agents) !== null
+      return projectHasTestWork(project) && pickTestTask(project, agentId, agents, maxPerTask) !== null
   }
 }
 
 /** Whether staffing +1 on this role would have work to do (UI gate for agent playtests). */
-export function roleCanAcceptStaffing(project: Project, job: AgentJob, agents: Agent[]): boolean {
+export function roleCanAcceptStaffing(
+  project: Project,
+  job: AgentJob,
+  agents: Agent[],
+  maxPerTask = 1,
+): boolean {
   if (project.status !== 'active') return false
   if (job === 'conductor') return true
-  return projectRoleHasWork(project, job as StaffJob, '', agents)
+  return projectRoleHasWork(project, job as StaffJob, '', agents, maxPerTask)
 }
 
 export function implementationTasks(project: Project): Task[] {
@@ -897,8 +969,13 @@ export function projectHasTestWork(project: Project): boolean {
   return untestedMergedTasks(project).length > 0
 }
 
-export function pickTestTask(project: Project, agentId: string, agents: Agent[]): Task | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'test', agentId)
+export function pickTestTask(
+  project: Project,
+  agentId: string,
+  agents: Agent[],
+  maxPerTask = 1,
+): Task | null {
+  const claimed = jobClaimedTaskIds(agents, project.id, 'test', agentId, maxPerTask)
   const self = agents.find((a) => a.id === agentId)
 
   if (self?.taskId) {

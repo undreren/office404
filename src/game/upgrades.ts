@@ -1,3 +1,6 @@
+export const BEST_OF_N_COURSE_ID = 'best_of_n'
+export const BEST_OF_N_MAX_TIER = 9
+
 export interface VibingCourse {
   id: string
   label: string
@@ -79,6 +82,14 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'One-click regret purchases.',
     cost: 275,
     description: 'Auto-buys upgrades costing less than 10% of current cash.',
+  },
+  {
+    id: BEST_OF_N_COURSE_ID,
+    label: 'Best-of-N',
+    tagline: 'Hallucinatory cooperation, real infighting.',
+    cost: 400,
+    description: '+1 max agent on the same task per tier. Coders, reviewers, refiners, and testers can pile on.',
+    maxTier: BEST_OF_N_MAX_TIER,
   },
 ]
 
