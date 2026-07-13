@@ -1404,6 +1404,19 @@ body {
   color: var(--text-dim);
 }
 
+.status-panel__specialist-box {
+  margin-top: 0.35rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.agent-mini-card--unassigned {
+  border-style: dashed;
+  opacity: 0.92;
+}
+
 .status-panel .hint {
   margin-bottom: 0.35rem;
 }

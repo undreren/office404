@@ -446,6 +446,12 @@ export function isAutomationAgentUnlocked(
   return getHallucinationLevel(state.meta, job) > 0
 }
 
+export function unlockedAutomationJobs(
+  state: Pick<GameState, 'vibingCourses' | 'meta'>,
+): AutomationAgentJob[] {
+  return AUTOMATION_AGENT_JOBS.filter((job) => isAutomationAgentUnlocked(state, job))
+}
+
 export function hasActiveAutomationAgent(agents: Agent[], job: AutomationAgentJob): boolean {
   return agents.some((a) => a.isAutomation && a.automationJob === job && a.job === job)
 }

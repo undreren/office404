@@ -191,6 +191,7 @@ export function syncAutomationAgents(state: GameState, ctx: SimCtx): GameState {
     if (!isAutomationAgentUnlocked(state, job)) continue
     const exists = agents.some((a) => a.isAutomation && a.automationJob === job)
     if (exists) continue
+    if (agents.length >= maxAgents({ ...state, agents })) break
     agents.push(createAutomationAgent(ctx, job))
     spawned += 1
   }
@@ -201,6 +202,41 @@ export function syncAutomationAgents(state: GameState, ctx: SimCtx): GameState {
     agents,
     stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + spawned },
   }
+}
+
+export function assignAutomationAgent(
+  state: GameState,
+  job: AutomationAgentJob,
+  at: number,
+): GameState {
+  if (!isAutomationAgentUnlocked(state, job)) return state
+
+  const existing = state.agents.find((a) => a.isAutomation && a.automationJob === job)
+  if (existing) {
+    return setAutomationAgentActive(state, existing.id, true, at)
+  }
+
+  if (state.agents.length >= maxAgents(state)) return state
+
+  const ctx = ctxFrom(state)
+  const agent = createAutomationAgent(ctx, job)
+  return withCtx(
+    {
+      ...state,
+      agents: [...state.agents, agent],
+      stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
+      events: pushEvent(
+        ctx,
+        state.meta,
+        state.events,
+        'system',
+        `${agent.name} (${agentRoleLabel(job)}) assigned to specialist duty.`,
+        at,
+      ),
+    },
+    ctx,
+    at,
+  )
 }
 
 export function setAutomationAgentActive(
@@ -1864,19 +1900,26 @@ export function buyAgentSlot(state: GameState, at: number): GameState {
   const cost = ramSlotCost(state.agentSlotPurchases)
   if (state.cash < cost) return state
 
-  return withCtx({
-    ...state,
-    cash: state.cash - cost,
-    agentSlotPurchases: state.agentSlotPurchases + 1,
-    events: pushEvent(
+  return withCtx(
+    syncAutomationAgents(
+      {
+        ...state,
+        cash: state.cash - cost,
+        agentSlotPurchases: state.agentSlotPurchases + 1,
+        events: pushEvent(
+          ctx,
+          state.meta,
+          state.events,
+          'milestone',
+          `Bought +1 agent slot for ${formatCash(cost)}. HR pretends this is normal.`,
+          at,
+        ),
+      },
       ctx,
-      state.meta,
-      state.events,
-      'milestone',
-      `Bought +1 agent slot for ${formatCash(cost)}. HR pretends this is normal.`,
-      at,
     ),
-  }, ctx, at)
+    ctx,
+    at,
+  )
 }
 
 export function buyGpuTick(state: GameState, at: number): GameState {
