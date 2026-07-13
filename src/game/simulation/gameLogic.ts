@@ -1577,7 +1577,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
             nextAgents[agentIdx] = agent
           }
 
-          return withCtx({
+  let tickState = withCtx({
     ...state,
     cash,
     reputation,
@@ -1596,6 +1596,16 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     gpuTickPurchases,
     tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
   }, ctx, at)
+
+  if (vibingCourses.includes('sales') && hasActiveAutomationAgent(tickState.agents, 'sales')) {
+    for (;;) {
+      const deliverable = tickState.projects.find((p) => isReadyToDeliver(p))
+      if (!deliverable) break
+      tickState = deliverProject(tickState, deliverable.id, at)
+    }
+  }
+
+  return tickState
 }
 
 export function selectTask(state: GameState, taskId: string | null, at: number): GameState {

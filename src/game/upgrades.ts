@@ -60,7 +60,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     label: 'Sales Agent',
     tagline: 'Closed-Won Bot 3000.',
     cost: 300,
-    description: 'Auto-accept real leads matching your rules.',
+    description: 'Auto-accept real leads and auto-deliver completed projects.',
   },
   {
     id: 'marketing',
