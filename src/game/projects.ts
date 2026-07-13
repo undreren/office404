@@ -1,10 +1,11 @@
 import type { Agent, AgentJob, Lead, LeadSource, Project, ProjectKind, Requirement, StaffJob, Task } from './types'
-import { MIN_PROJECT_DAYS, TUTORIAL_PAYMENT, MAX_CLIENT_TASK_SP, REP_ZERO_MAX_TASK_SP } from './constants'
+import { MIN_PROJECT_DAYS, TUTORIAL_PAYMENT, MAX_CLIENT_TASK_SP } from './constants'
 import { pickJokeClient } from './clients'
 import {
   agentIsBusy,
   FIBONACCI,
   fibIndex,
+  maxRequirementSpForReputation,
   pickLeadTotalStoryPoints,
   clientPaymentForTotalSp,
   repZeroPaymentMultiplier,
@@ -317,15 +318,16 @@ export function createTask(
   }
 }
 
-/** Split total SP into requirement chunks (each ≤ MAX_CLIENT_TASK_SP). */
-export function decomposeTotalSp(totalSp: number): number[] {
+/** Split total SP into requirement chunks (each ≤ maxChunkSp). */
+export function decomposeTotalSp(totalSp: number, maxChunkSp = MAX_CLIENT_TASK_SP): number[] {
   const parts: number[] = []
   let left = totalSp
+  const cap = Math.max(1, maxChunkSp)
   while (left > 0) {
-    const cap = Math.min(left, MAX_CLIENT_TASK_SP)
-    let best = cap
+    const chunkCap = Math.min(left, cap)
+    let best = chunkCap
     for (const f of FIBONACCI) {
-      if (f <= cap) best = f
+      if (f <= chunkCap) best = f
       else break
     }
     const chunk = left <= best ? left : best
@@ -335,8 +337,13 @@ export function decomposeTotalSp(totalSp: number): number[] {
   return parts
 }
 
-export function createRequirementsForProject(ctx: SimCtx, projectId: string, totalSp: number): Requirement[] {
-  const chunks = decomposeTotalSp(totalSp)
+export function createRequirementsForProject(
+  ctx: SimCtx,
+  projectId: string,
+  totalSp: number,
+  maxChunkSp = MAX_CLIENT_TASK_SP,
+): Requirement[] {
+  const chunks = decomposeTotalSp(totalSp, maxChunkSp)
   const titles = [...REQUIREMENT_TITLES]
   return chunks.map((sp) => {
     const title = ctx.rng.pick(titles)
@@ -344,7 +351,13 @@ export function createRequirementsForProject(ctx: SimCtx, projectId: string, tot
   })
 }
 
-export function defaultProjectFields(ctx: SimCtx, projectId: string, sp: number, kind: ProjectKind = 'client') {
+export function defaultProjectFields(
+  ctx: SimCtx,
+  projectId: string,
+  sp: number,
+  kind: ProjectKind = 'client',
+  maxChunkSp = MAX_CLIENT_TASK_SP,
+) {
   return {
     deliveryQuality: 0,
     testPercent: 0,
@@ -353,7 +366,7 @@ export function defaultProjectFields(ctx: SimCtx, projectId: string, sp: number,
     totalStoryPoints: sp,
     status: 'active' as const,
     kind,
-    requirements: createRequirementsForProject(ctx, projectId, sp),
+    requirements: createRequirementsForProject(ctx, projectId, sp, maxChunkSp),
     tasks: [] as Task[],
     lateCount: 0,
     crewCap: 1,
@@ -398,10 +411,7 @@ export function generateLead(
   const dayFactor = 1 + Math.pow(gameDay / 100, 1.2) * 0.5
   const isUnreasonable = reputation > 25
 
-  const storyPoints =
-    reputation <= 0
-      ? ctx.rng.int(3, Math.max(3, REP_ZERO_MAX_TASK_SP * 2))
-      : pickLeadTotalStoryPoints(ctx.rng, reputation, gameDay)
+  const storyPoints = pickLeadTotalStoryPoints(ctx.rng, reputation)
   const durationDays = Math.max(
     MIN_PROJECT_DAYS,
     Math.round(
@@ -444,10 +454,11 @@ export function effectiveLeadDuration(lead: Lead, acceptGameDay: number): number
   return Math.max(MIN_PROJECT_DAYS, lead.durationDays - leadDaysWaited(lead, acceptGameDay))
 }
 
-export function createProjectFromLead(ctx: SimCtx, lead: Lead, acceptGameDay: number): Project {
+export function createProjectFromLead(ctx: SimCtx, lead: Lead, acceptGameDay: number, reputation: number): Project {
   const projectId = uid(ctx, 'proj')
   const sp = lead.totalStoryPoints
   const effectiveDuration = effectiveLeadDuration(lead, acceptGameDay)
+  const maxChunkSp = maxRequirementSpForReputation(reputation)
 
   return {
     id: projectId,
@@ -460,7 +471,7 @@ export function createProjectFromLead(ctx: SimCtx, lead: Lead, acceptGameDay: nu
     isTutorial: false,
     isSynthetic: lead.source === 'synthetic',
     repPenaltyMultiplier: 1 + effectiveDuration / 40,
-    ...defaultProjectFields(ctx, projectId, sp, 'client'),
+    ...defaultProjectFields(ctx, projectId, sp, 'client', maxChunkSp),
   }
 }
 

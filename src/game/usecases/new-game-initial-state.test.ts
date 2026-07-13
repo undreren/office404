@@ -17,7 +17,7 @@ describe('new-game-initial-state', () => {
     expect(state.agents[0]!.job).toBe('refine')
     expect(state.agents[0]!.projectId).toBe(state.projects[0]!.id)
     expect(state.cash).toBe(0)
-    expect(state.reputation).toBe(5)
+    expect(state.reputation).toBe(0)
     expect(state.snapshotAt).toBe(T0)
     expect(state.rng).toBeTypeOf('number')
   })

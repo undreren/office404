@@ -7,7 +7,7 @@ import type { Task } from '../types'
 
 describe('project-deadline-late-applies-fee', () => {
   it('matches use case invariants', () => {
-    let state = stateWithAcceptedProject()
+    let state = { ...stateWithAcceptedProject(), reputation: 5 }
     const project = state.projects.find((p) => !p.isTutorial)!
     const paymentBefore = project.payment
     const repBefore = state.reputation

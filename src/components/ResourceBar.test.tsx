@@ -25,6 +25,6 @@ describe('ResourceBar', () => {
     const cashResource = screen.getByText('Cash').closest('.resource')
     const repResource = screen.getByText('Rep').closest('.resource')
     expect(cashResource).toHaveTextContent('$0')
-    expect(repResource).toHaveTextContent('5')
+    expect(repResource).toHaveTextContent('0')
   })
 })

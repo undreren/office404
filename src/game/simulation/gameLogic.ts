@@ -1271,7 +1271,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const maxSlots = maxClientProjectSlots(state.meta, state.vibingCourseTiers.project_manager ?? 0)
   if (clientProjects.length >= maxSlots) return state
 
-  const project = createProjectFromLead(ctx, lead, state.gameDay)
+  const project = createProjectFromLead(ctx, lead, state.gameDay, state.reputation)
   const daysWaited = Math.max(0, Math.floor(state.gameDay - (lead.spawnedGameDay ?? state.gameDay)))
   const waitNote =
     daysWaited > 0 ? ` (${daysWaited}d wait shaved ${daysWaited}d off deadline)` : ''
