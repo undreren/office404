@@ -5,6 +5,7 @@ import {
   agentIsBusy,
   FIBONACCI,
   fibIndex,
+  isFibonacci,
   maxRequirementSpForReputation,
   pickLeadTotalStoryPoints,
   clientPaymentForTotalSp,
@@ -489,44 +490,126 @@ export function splitRequirementToTasks(ctx: SimCtx, requirement: Requirement): 
 }
 
 function splitStoryPoints(total: number): [number, number] | null {
-  const idx = fibIndex(total)
-  if (idx < 2 || total < 2) return null
-  const spA = FIBONACCI[idx - 1]
+  if (!isFibonacci(total) || total < 2) return null
+  const idx = FIBONACCI.indexOf(total as (typeof FIBONACCI)[number])
+  const spA = FIBONACCI[idx - 1]!
   const spB = total - spA
-  if (spB <= 0 || !FIBONACCI.includes(spB as (typeof FIBONACCI)[number])) return null
+  if (spB <= 0 || !isFibonacci(spB)) return null
   return [spA, spB]
+}
+
+function passesAfterRefine(task: Task): number {
+  return Math.max(0, (task.refinePassesRemaining ?? 1) - 1)
+}
+
+function splitOptionsForTier(refinementTier: number): { preferSplit: boolean; forceSplit: boolean } {
+  return {
+    preferSplit: refinementTier > 0,
+    forceSplit: refinementTier >= 2,
+  }
+}
+
+function shouldSplitStoryPoints(
+  ctx: SimCtx,
+  sp: number,
+  options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean },
+): boolean {
+  const { preferSplit = false, forceSplit = false, forceSingle = false } = options
+  if (forceSingle || sp < 2 || splitStoryPoints(sp) === null) return false
+  if (forceSplit) return true
+  const splitChance = preferSplit ? 0.85 : 0.4
+  return ctx.rng.chance(splitChance)
+}
+
+function tasksFromSplit(
+  ctx: SimCtx,
+  projectId: string,
+  sourceTitle: string,
+  sp: number,
+  requirementId: string | null,
+  parentTaskId: string | null,
+  refinePassesRemaining: number,
+): Task[] {
+  if (splitStoryPoints(sp) !== null) {
+    const parts = splitStoryPoints(sp)!
+    const titles = pickSubtaskTitles(ctx.rng, sourceTitle, 2)
+    return [
+      {
+        ...createTask(ctx, projectId, titles[0], parts[0], fibIndex(parts[0]), parentTaskId, requirementId),
+        refinePassesRemaining,
+      },
+      {
+        ...createTask(ctx, projectId, titles[1], parts[1], fibIndex(parts[1]), parentTaskId, requirementId),
+        refinePassesRemaining,
+      },
+    ]
+  }
+
+  const [title] = pickSubtaskTitles(ctx.rng, sourceTitle, 1)
+  return [
+    {
+      ...createTask(ctx, projectId, title, sp, fibIndex(sp), parentTaskId, requirementId),
+      refinePassesRemaining,
+    },
+  ]
 }
 
 export function refineRequirementToTasks(
   ctx: SimCtx,
   requirement: Requirement,
-  options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean } = {},
+  options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean; refinementTier?: number } = {},
 ): Task[] {
-  const { preferSplit = false, forceSplit = false, forceSingle = false } = options
+  const { refinementTier = 0, forceSingle = false } = options
+  const tierSplit = splitOptionsForTier(refinementTier)
   const sp = requirement.storyPoints
-
-  let shouldSplit = false
-  if (!forceSingle && sp >= 2) {
-    if (forceSplit) {
-      shouldSplit = splitStoryPoints(sp) !== null
-    } else {
-      const splitChance = preferSplit ? 0.85 : 0.4
-      shouldSplit = ctx.rng.chance(splitChance) && splitStoryPoints(sp) !== null
-    }
-  }
+  const refinePassesRemaining = refinementTier
+  const shouldSplit = shouldSplitStoryPoints(ctx, sp, {
+    preferSplit: options.preferSplit ?? tierSplit.preferSplit,
+    forceSplit: options.forceSplit ?? tierSplit.forceSplit,
+    forceSingle,
+  })
 
   if (shouldSplit) {
-    const parts = splitStoryPoints(sp)!
-    const titles = pickSubtaskTitles(ctx.rng, requirement.title, 2)
-    return [
-      createTask(ctx, requirement.projectId, titles[0], parts[0], fibIndex(parts[0]), null, requirement.id),
-      createTask(ctx, requirement.projectId, titles[1], parts[1], fibIndex(parts[1]), null, requirement.id),
-    ]
+    return tasksFromSplit(ctx, requirement.projectId, requirement.title, sp, requirement.id, null, refinePassesRemaining)
   }
 
   const [title] = pickSubtaskTitles(ctx.rng, requirement.title, 1)
-  return [createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id)]
+  return [
+    {
+      ...createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id),
+      refinePassesRemaining,
+    },
+  ]
 }
+
+export function canRefineTask(task: Task): boolean {
+  return (
+    (task.refinePassesRemaining ?? 0) > 0 &&
+    !task.isBugFix &&
+    !task.isReviewComment &&
+    (task.status === 'open' || task.status === 'in_progress') &&
+    task.storyPointsEarned === 0 &&
+    task.storyPointsRequired >= 2 &&
+    splitStoryPoints(task.storyPointsRequired) !== null
+  )
+}
+
+export function refineTaskToTasks(ctx: SimCtx, task: Task): Task[] {
+  const passesAfter = passesAfterRefine(task)
+  return tasksFromSplit(
+    ctx,
+    task.projectId,
+    task.title,
+    task.storyPointsRequired,
+    task.requirementId,
+    task.parentTaskId ?? task.id,
+    passesAfter,
+  )
+}
+
+export type RefineTarget =
+  | { kind: 'requirement'; requirement: Requirement }
+  | { kind: 'task'; task: Task }
 
 export function tasksForRequirement(project: Project, requirementId: string): Task[] {
   return project.tasks.filter((t) => t.requirementId === requirementId && !t.isReviewComment)
@@ -644,25 +727,35 @@ export function pickRefineTarget(
   agents: Agent[],
   agentId: string,
   maxPerTask = 1,
-): Requirement | null {
+): RefineTarget | null {
   const claimed = jobClaimedTaskIds(agents, project.id, 'refine', agentId, maxPerTask)
   const self = agents.find((a) => a.id === agentId)
 
   if (self?.taskId) {
     const req = project.requirements.find((r) => r.id === self.taskId && canRefineRequirement(r))
-    if (req) return req
+    if (req) return { kind: 'requirement', requirement: req }
+    const task = project.tasks.find((t) => t.id === self.taskId && canRefineTask(t))
+    if (task) return { kind: 'task', task }
   }
 
   const openRequirements = project.requirements
     .filter(canRefineRequirement)
     .filter((r) => !claimed.has(r.id))
     .sort((a, b) => b.storyPoints - a.storyPoints)
+  if (openRequirements[0]) {
+    return { kind: 'requirement', requirement: openRequirements[0] }
+  }
 
-  return openRequirements[0] ?? null
+  const refinableTasks = project.tasks
+    .filter(canRefineTask)
+    .filter((t) => !claimed.has(t.id))
+    .sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
+
+  return refinableTasks[0] ? { kind: 'task', task: refinableTasks[0] } : null
 }
 
 export function projectHasRefineWork(project: Project): boolean {
-  return project.requirements.some(canRefineRequirement)
+  return project.requirements.some(canRefineRequirement) || project.tasks.some(canRefineTask)
 }
 
 export function agentsOnTaskForJob(
