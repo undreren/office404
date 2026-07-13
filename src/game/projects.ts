@@ -453,11 +453,17 @@ export function effectiveLeadDuration(lead: Lead, acceptGameDay: number): number
   return Math.max(MIN_PROJECT_DAYS, lead.durationDays - leadDaysWaited(lead, acceptGameDay))
 }
 
-export function createProjectFromLead(ctx: SimCtx, lead: Lead, acceptGameDay: number, reputation: number): Project {
+export function createProjectFromLead(
+  ctx: SimCtx,
+  lead: Lead,
+  acceptGameDay: number,
+  reputation: number,
+  refineHallucinationLevel = 0,
+): Project {
   const projectId = uid(ctx, 'proj')
   const sp = lead.totalStoryPoints
   const effectiveDuration = effectiveLeadDuration(lead, acceptGameDay)
-  const maxChunkSp = maxRequirementSpForReputation(reputation)
+  const maxChunkSp = maxRequirementSpForReputation(reputation, refineHallucinationLevel)
 
   return {
     id: projectId,
@@ -976,8 +982,12 @@ export function allReviewCommentsAddressed(project: Project, parentTaskId: strin
   return comments.every((c) => c.storyPointsEarned >= c.storyPointsRequired)
 }
 
-export function createReviewCommentTasks(ctx: SimCtx, parent: Task): Task[] {
-  const count = reviewCommentSpawnCount(ctx.rng, parent.storyPointsRequired)
+export function createReviewCommentTasks(
+  ctx: SimCtx,
+  parent: Task,
+  reviewHallucinationLevel = 0,
+): Task[] {
+  const count = reviewCommentSpawnCount(ctx.rng, parent.storyPointsRequired, reviewHallucinationLevel)
   const pool = [...REVIEW_COMMENT_TEXTS]
   const comments: Task[] = []
 
@@ -1136,3 +1146,11 @@ export function createBugFixTask(ctx: SimCtx, source: Task): Task {
 }
 
 export const CONDUCTOR_ROLE_PRIORITY: StaffJob[] = ['refine', 'code', 'review', 'test']
+
+/** Conductor staffing order — boosts test when merged PRs await QA. */
+export function conductorRolePriority(project: Project): StaffJob[] {
+  if (projectHasTestWork(project)) {
+    return ['refine', 'test', 'code', 'review']
+  }
+  return CONDUCTOR_ROLE_PRIORITY
+}

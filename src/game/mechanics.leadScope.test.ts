@@ -43,6 +43,10 @@ describe('maxRequirementSpForReputation', () => {
     expect(maxRequirementSpForReputation(10)).toBe(3)
     expect(maxRequirementSpForReputation(20)).toBe(5)
   })
+
+  it('respects refine hallucination level', () => {
+    expect(maxRequirementSpForReputation(100, 4)).toBeLessThan(maxRequirementSpForReputation(100, 0))
+  })
 })
 
 describe('decomposeTotalSp with rep cap', () => {

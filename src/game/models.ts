@@ -58,6 +58,20 @@ export const FINE_TUNE_LABELS: Record<(typeof FINE_TUNE_ROLES)[number], string> 
   test: 'Test-tuned',
 }
 
+export const FINE_TUNE_TAGLINES: Record<(typeof FINE_TUNE_ROLES)[number], string> = {
+  code: 'Writes code like it read the docs. It did not read the docs.',
+  review: 'Nitpicks with confidence and a thesaurus.',
+  refine: 'Splits tasks until Jira weeps.',
+  test: 'Finds bugs in your test suite.',
+}
+
+export const FINE_TUNE_DESCRIPTIONS: Record<(typeof FINE_TUNE_ROLES)[number], string> = {
+  code: '+12% effective parameters on coding tasks for the current model tier.',
+  review: '+12% effective parameters on review tasks for the current model tier.',
+  refine: '+12% effective parameters on refinement tasks for the current model tier.',
+  test: '+12% effective parameters on QA tasks for the current model tier.',
+}
+
 export const MODEL_ID_MIGRATION: Record<string, string> = {
   'tinyllama-1b': 'codellama-4b',
   'smallcode-2b': 'codellama-5b',
