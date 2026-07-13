@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useState } from 'react'
 import { HOUSING_CONFIG } from '../game/housing'
 import { getHallucinationLevel } from '../game/meta'
 import {
@@ -21,6 +21,7 @@ import {
 } from '../game/messages'
 import { agentCapacity, getNextApartment } from '../game/selectors'
 import { VIBING_COURSES, vibingCourseCost } from '../game/upgrades'
+import type { GameState } from '../game/types'
 import { useGameDispatchPurchase, useGameState } from '../runtime/GameRuntime'
 import { useTabNav } from '../context/TabNavContext'
 import { SwipeCarousel } from './SwipeCarousel'
@@ -39,7 +40,45 @@ const SHOP_SECTIONS = [
   },
 ] as const
 
-type ShopSectionId = (typeof SHOP_SECTIONS)[number]['id']
+function vendorCardClassName(maxed: boolean, compact = false): string {
+  return ['vendor-card', compact && 'vendor-card--compact', maxed && 'vendor-card--maxed']
+    .filter(Boolean)
+    .join(' ')
+}
+
+function ShopMaxedToggle({
+  checked,
+  onChange,
+  hiddenCount,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  hiddenCount: number
+}) {
+  if (hiddenCount === 0 && !checked) return null
+
+  return (
+    <label className="shop-maxed-toggle">
+      <input
+        type="checkbox"
+        checked={checked}
+        data-testid="shop-show-maxed"
+        aria-label={
+          hiddenCount > 0
+            ? `Show ${hiddenCount} maxed upgrade${hiddenCount === 1 ? '' : 's'}`
+            : 'Show maxed upgrades'
+        }
+        onChange={(e) => onChange(e.target.checked)}
+      />{' '}
+      Show maxed upgrades
+      {hiddenCount > 0 && !checked && (
+        <span className="shop-maxed-toggle__count" aria-hidden="true">
+          ({hiddenCount})
+        </span>
+      )}
+    </label>
+  )
+}
 
 function HousingSection() {
   const { cash, apartment } = useGameState()
@@ -70,7 +109,7 @@ function HousingSection() {
   )
 }
 
-function MetaFaceMarketspaceSection() {
+function MetaFaceMarketspaceSection({ showMaxedUpgrades }: { showMaxedUpgrades: boolean }) {
   const state = useGameState()
   const { cash, apartment, agentSlotPurchases, gpuTickPurchases, purchasedFineTunes, fineTuneTiers, meta } = state
   const dispatchPurchase = useGameDispatchPurchase()
@@ -91,45 +130,55 @@ function MetaFaceMarketspaceSection() {
       </p>
 
       <div className="vendor-list">
-        <article className="vendor-card" aria-label={`+1 agent slot for ${formatCash(ramCost)}`}>
-          <header>
-            <h4>+1 Agent Slot</h4>
-            <span>{agentSlots} total</span>
-          </header>
-          <p className="vendor-tagline">HR calls it headcount. You call it hope.</p>
-          <p className="hint">More seats on the roster. Housing caps how many you can buy.</p>
-          <button
-            type="button"
-            className="btn btn--small"
-            aria-label={
-              ramAtMax ? 'Agent slot purchases maxed for housing' : `Buy +1 agent slot for ${formatCash(ramCost)}`
-            }
-            disabled={ramAtMax || cash < ramCost}
-            onClick={() => dispatchPurchase(buyAgentSlotMsg(Date.now()))}
+        {(showMaxedUpgrades || !ramAtMax) && (
+          <article
+            className={vendorCardClassName(ramAtMax)}
+            aria-label={`+1 agent slot for ${formatCash(ramCost)}`}
           >
-            {ramAtMax ? 'Housing maxed' : formatCash(ramCost)}
-          </button>
-        </article>
+            <header>
+              <h4>+1 Agent Slot</h4>
+              <span>{agentSlots} total</span>
+            </header>
+            <p className="vendor-tagline">HR calls it headcount. You call it hope.</p>
+            <p className="hint">More seats on the roster. Housing caps how many you can buy.</p>
+            <button
+              type="button"
+              className="btn btn--small"
+              aria-label={
+                ramAtMax ? 'Agent slot purchases maxed for housing' : `Buy +1 agent slot for ${formatCash(ramCost)}`
+              }
+              disabled={ramAtMax || cash < ramCost}
+              onClick={() => dispatchPurchase(buyAgentSlotMsg(Date.now()))}
+            >
+              {ramAtMax ? 'Housing maxed' : formatCash(ramCost)}
+            </button>
+          </article>
+        )}
 
-        <article className="vendor-card" aria-label={`+1 GPU tick for ${formatCash(gpuCost)}`}>
-          <header>
-            <h4>+1 GPU Tick</h4>
-            <span>{gpuTicks} total</span>
-          </header>
-          <p className="vendor-tagline">Fans spin. Morale does not.</p>
-          <p className="hint">More ticks per second split across every agent burning GPU time.</p>
-          <button
-            type="button"
-            className="btn btn--small"
-            aria-label={
-              gpuAtMax ? 'GPU tick purchases maxed for housing' : `Buy +1 GPU tick for ${formatCash(gpuCost)}`
-            }
-            disabled={gpuAtMax || cash < gpuCost}
-            onClick={() => dispatchPurchase(buyGpuTickMsg(Date.now()))}
+        {(showMaxedUpgrades || !gpuAtMax) && (
+          <article
+            className={vendorCardClassName(gpuAtMax)}
+            aria-label={`+1 GPU tick for ${formatCash(gpuCost)}`}
           >
-            {gpuAtMax ? 'Housing maxed' : formatCash(gpuCost)}
-          </button>
-        </article>
+            <header>
+              <h4>+1 GPU Tick</h4>
+              <span>{gpuTicks} total</span>
+            </header>
+            <p className="vendor-tagline">Fans spin. Morale does not.</p>
+            <p className="hint">More ticks per second split across every agent burning GPU time.</p>
+            <button
+              type="button"
+              className="btn btn--small"
+              aria-label={
+                gpuAtMax ? 'GPU tick purchases maxed for housing' : `Buy +1 GPU tick for ${formatCash(gpuCost)}`
+              }
+              disabled={gpuAtMax || cash < gpuCost}
+              onClick={() => dispatchPurchase(buyGpuTickMsg(Date.now()))}
+            >
+              {gpuAtMax ? 'Housing maxed' : formatCash(gpuCost)}
+            </button>
+          </article>
+        )}
       </div>
 
       <h4 className="shop-section__subhead">Fine-tunes (tiered)</h4>
@@ -139,6 +188,7 @@ function MetaFaceMarketspaceSection() {
           const id = fineTuneId(modelLevel, role)
           const currentTier = getFineTuneLevel(fineTuneTiers, purchasedFineTunes, id)
           const maxed = currentTier >= FINE_TUNE_MAX_TIER
+          if (maxed && !showMaxedUpgrades) return null
           const cost = fineTuneCost(currentTier)
           const tuneSummary = [
             FINE_TUNE_LABELS[role],
@@ -147,7 +197,7 @@ function MetaFaceMarketspaceSection() {
           ].join(', ')
 
           return (
-            <article key={id} className="vendor-card vendor-card--compact" aria-label={tuneSummary}>
+            <article key={id} className={vendorCardClassName(maxed, true)} aria-label={tuneSummary}>
               <header>
                 <h4>
                   {FINE_TUNE_LABELS[role]}
@@ -180,7 +230,7 @@ function MetaFaceMarketspaceSection() {
   )
 }
 
-function CoursesSection() {
+function CoursesSection({ showMaxedUpgrades }: { showMaxedUpgrades: boolean }) {
   const { cash, vibingCourses, vibingCourseTiers } = useGameState()
   const dispatchPurchase = useGameDispatchPurchase()
 
@@ -192,6 +242,7 @@ function CoursesSection() {
             vibingCourseTiers[course.id] ?? (vibingCourses.includes(course.id) ? 1 : 0)
           const maxTier = course.maxTier ?? 1
           const maxed = currentTier >= maxTier
+          if (maxed && !showMaxedUpgrades) return null
           const cost = vibingCourseCost(course, currentTier)
           const tierLabel = maxTier > 1 ? ` tier ${currentTier}/${maxTier}` : ''
           const courseSummary = [
@@ -202,7 +253,7 @@ function CoursesSection() {
           ].join(', ')
 
           return (
-            <article key={course.id} className="vendor-card" aria-label={courseSummary}>
+            <article key={course.id} className={vendorCardClassName(maxed)} aria-label={courseSummary}>
               <header>
                 <h4>
                   {course.label}
@@ -237,25 +288,65 @@ function CoursesSection() {
   )
 }
 
-const SECTION_CONTENT: Record<ShopSectionId, () => ReactElement> = {
-  housing: HousingSection,
-  metaface: MetaFaceMarketspaceSection,
-  courses: CoursesSection,
+function countHiddenMaxedUpgrades(state: GameState): number {
+  const {
+    apartment,
+    agentSlotPurchases,
+    gpuTickPurchases,
+    purchasedFineTunes,
+    fineTuneTiers,
+    meta,
+    vibingCourses,
+    vibingCourseTiers,
+  } = state
+  let count = 0
+
+  if (agentSlotPurchases >= maxAgentSlotPurchases(apartment)) count++
+  if (gpuTickPurchases >= maxGpuTickPurchases(apartment)) count++
+
+  const modelLevel = getHallucinationLevel(meta, 'model')
+  for (const role of FINE_TUNE_ROLES) {
+    const id = fineTuneId(modelLevel, role)
+    const currentTier = getFineTuneLevel(fineTuneTiers, purchasedFineTunes, id)
+    if (currentTier >= FINE_TUNE_MAX_TIER) count++
+  }
+
+  for (const course of VIBING_COURSES) {
+    const currentTier =
+      vibingCourseTiers[course.id] ?? (vibingCourses.includes(course.id) ? 1 : 0)
+    const maxTier = course.maxTier ?? 1
+    if (currentTier >= maxTier) count++
+  }
+
+  return count
 }
 
 export function UpgradesPanel() {
   const { shopIndex, setShopIndex } = useTabNav()
+  const state = useGameState()
+  const [showMaxedUpgrades, setShowMaxedUpgrades] = useState(false)
+  const hiddenMaxedCount = countHiddenMaxedUpgrades(state)
 
   return (
-    <SwipeCarousel
-      index={shopIndex}
-      onIndexChange={setShopIndex}
-      headers={SHOP_SECTIONS.map((s) => ({ title: s.title, subtitle: s.subtitle }))}
-      panelClassName="marketplace-panel"
-      slides={SHOP_SECTIONS.map((section) => {
-        const SectionContent = SECTION_CONTENT[section.id]
-        return <SectionContent key={section.id} />
-      })}
-    />
+    <div className="shop-panel">
+      <ShopMaxedToggle
+        checked={showMaxedUpgrades}
+        onChange={setShowMaxedUpgrades}
+        hiddenCount={hiddenMaxedCount}
+      />
+      <SwipeCarousel
+        index={shopIndex}
+        onIndexChange={setShopIndex}
+        headers={SHOP_SECTIONS.map((s) => ({ title: s.title, subtitle: s.subtitle }))}
+        panelClassName="marketplace-panel"
+        slides={SHOP_SECTIONS.map((section) => {
+          if (section.id === 'housing') return <HousingSection key={section.id} />
+          if (section.id === 'metaface') {
+            return <MetaFaceMarketspaceSection key={section.id} showMaxedUpgrades={showMaxedUpgrades} />
+          }
+          return <CoursesSection key={section.id} showMaxedUpgrades={showMaxedUpgrades} />
+        })}
+      />
+    </div>
   )
 }

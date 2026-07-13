@@ -258,22 +258,26 @@ body {
 }
 
 .tab-view > .panel,
-.tab-view > .swipe-carousel {
+.tab-view > .swipe-carousel,
+.tab-view > .shop-panel {
   margin-bottom: 0;
 }
 
-.tab-view:has(> .swipe-carousel) {
+.tab-view:has(> .swipe-carousel),
+.tab-view:has(> .shop-panel) {
   display: none;
   flex-direction: column;
   overflow: hidden;
   padding-bottom: 0.5rem;
 }
 
-.tab-view--active:has(> .swipe-carousel) {
+.tab-view--active:has(> .swipe-carousel),
+.tab-view--active:has(> .shop-panel) {
   display: flex;
 }
 
-.tab-view > .swipe-carousel {
+.tab-view > .swipe-carousel,
+.tab-view > .shop-panel {
   flex: 1;
   min-height: 0;
 }
@@ -1235,6 +1239,11 @@ body {
   border-color: rgba(91, 156, 245, 0.3);
 }
 
+.vendor-card--maxed {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 1px rgba(255, 176, 32, 0.2);
+}
+
 /* Agent statuses */
 .agent-card--compacted,
 .agent-card--compacting {
@@ -1664,6 +1673,34 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
+}
+
+.shop-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.shop-maxed-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.75rem 1rem 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.shop-maxed-toggle__count {
+  color: var(--warning);
+  font-family: var(--font-mono);
+}
+
+.shop-panel > .swipe-carousel {
+  flex: 1;
+  min-height: 0;
 }
 
 .projects-panel .project-card {
