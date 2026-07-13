@@ -737,21 +737,32 @@ export function pickCodingTask(project: Project, agentId: string, agents: Agent[
   return available[0] ?? null
 }
 
+/** The review agent actively working a PR, if any (first busy match in roster order). */
+export function activeReviewerForTask(task: Task, agents: Agent[]): Agent | undefined {
+  return agents.find(
+    (a) =>
+      a.job === 'review' &&
+      a.projectId === task.projectId &&
+      a.taskId === task.id &&
+      agentIsBusy(a),
+  )
+}
+
 export function pickReviewTask(project: Project, agentId: string, agents: Agent[]): Task | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'review', agentId)
   const self = agents.find((a) => a.id === agentId)
 
-  if (self?.taskId) {
-    const current = project.tasks.find(
-      (t) => t.id === self.taskId && t.status === 'pr_ready' && !t.reviewed,
-    )
-    if (current) return current
-  }
+  const own = self?.taskId
+    ? project.tasks.find(
+        (t) => t.id === self.taskId && t.status === 'pr_ready' && !t.reviewed,
+      )
+    : undefined
+  if (own && activeReviewerForTask(own, agents)?.id === agentId) return own
 
   return (
-    project.tasks.find(
-      (t) => t.status === 'pr_ready' && !t.reviewed && !claimed.has(t.id),
-    ) ?? null
+    project.tasks.find((t) => {
+      if (t.status !== 'pr_ready' || t.reviewed) return false
+      return !activeReviewerForTask(t, agents)
+    }) ?? null
   )
 }
 

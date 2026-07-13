@@ -1013,6 +1013,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               const task = pickReviewTask(project, agent.id, nextAgents)
               if (!task) {
                 agent.status = 'idle'
+                agent.taskId = null
+                agent.jobProgress = 0
                 nextAgents[agentIdx] = agent
                 continue
               }
