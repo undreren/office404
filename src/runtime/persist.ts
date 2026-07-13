@@ -110,23 +110,52 @@ export function partializeSave(state: GameState): PersistedSave {
   }
 }
 
-export function loadPersistedState(): GameState | null {
+export const SAVE_EXPORT_PREFIX = 'o404:v'
+
+export function parsePersistedSave(raw: unknown): GameState | null {
   try {
-    const raw = localStorage.getItem(SAVE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as PersistedSave | { state?: GameState; version?: number }
+    const parsed = raw as PersistedSave | { state?: GameState; version?: number }
     if ('meta' in parsed && parsed.state) {
       const version = parsed.version ?? SAVE_VERSION
       if (version > SAVE_VERSION) return null
       const state = version < SAVE_VERSION ? migrateState(parsed.state, version) : parsed.state
       return normalizeLoadedState({ ...state, meta: parsed.meta ?? createDefaultMeta() })
     }
-    // legacy v7 blob
     const legacy = parsed as { state?: GameState; version?: number }
     if (!legacy.state) return null
     const version = legacy.version ?? 6
     const migrated = migrateState(legacy.state, version)
     return normalizeLoadedState(migrated)
+  } catch {
+    return null
+  }
+}
+
+export function encodeSaveExport(state: GameState): string {
+  const json = JSON.stringify(partializeSave(state))
+  const base64 = btoa(unescape(encodeURIComponent(json)))
+  return `${SAVE_EXPORT_PREFIX}${SAVE_VERSION}:${base64}`
+}
+
+export function decodeSaveImport(code: string): GameState | null {
+  const trimmed = code.trim()
+  if (!trimmed) return null
+  const payload = trimmed.startsWith(SAVE_EXPORT_PREFIX)
+    ? trimmed.slice(SAVE_EXPORT_PREFIX.length).replace(/^\d+:/, '')
+    : trimmed
+  try {
+    const json = decodeURIComponent(escape(atob(payload)))
+    return parsePersistedSave(JSON.parse(json))
+  } catch {
+    return null
+  }
+}
+
+export function loadPersistedState(): GameState | null {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY)
+    if (!raw) return null
+    return parsePersistedSave(JSON.parse(raw))
   } catch {
     return null
   }

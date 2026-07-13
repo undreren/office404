@@ -3,6 +3,7 @@ import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
 import type { Task } from '../game/types'
 import { useGameState } from '../runtime/GameRuntime'
+import { SaveBackupPanel } from './SaveBackupPanel'
 
 const EVENT_ICONS: Record<string, string> = {
   crash: '💥',
@@ -83,6 +84,8 @@ export function StatusPanel() {
           </ul>
         </>
       )}
+
+      <SaveBackupPanel />
 
       <h3 className="status-panel__section">Incident log</h3>
       <p className="hint">Where productivity goes to file a missing persons report.</p>

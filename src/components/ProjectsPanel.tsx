@@ -34,7 +34,7 @@ import {
 } from '../game/messages'
 import {
   agentCapacity,
-  canStaffAdditionalAgent,
+  canStaffRoleOnProject,
   isReadyToDeliver,
   projectProgressPct,
 } from '../game/selectors'
@@ -476,7 +476,6 @@ function ProjectCard({ project }: { project: Project }) {
   const { selectedTaskId, agents, vibingCourses, vibingCourseTiers } = state
   const dispatchAt = useGameDispatchAt()
 
-  const canStaff = canStaffAdditionalAgent(state)
   const conductorUnlocked = hasConductorCourse(vibingCourses)
   const agentsPerTask = maxAgentsPerTask(bestOfNTier(vibingCourseTiers))
   const { used: rosterUsed, max: rosterMax } = agentCapacity(state)
@@ -486,8 +485,8 @@ function ProjectCard({ project }: { project: Project }) {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
   }
 
-  function roleCanAdd(_job: AgentJob): boolean {
-    return canStaff
+  function roleCanAdd(job: AgentJob): boolean {
+    return canStaffRoleOnProject(state, project.id, job)
   }
 
   const synced = syncTestScope(project)
