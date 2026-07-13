@@ -3,7 +3,8 @@ import { repairStaleCodingAssignments } from '../game/projects'
 import { createDefaultMeta } from '../game/meta'
 import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
-import { createInitialState } from '../game/simulation/gameLogic'
+import { createInitialState, syncAutomationAgents } from '../game/simulation/gameLogic'
+import { ctxFrom } from '../game/simulation/simCtx'
 
 const SAVE_VERSION = 11
 
@@ -27,13 +28,18 @@ function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
 }
 
 function normalizeLoadedState(state: GameState): GameState {
-  return {
-    ...state,
-    seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
-    seenCompactionIntro: state.seenCompactionIntro ?? false,
-    fineTuneTiers: state.fineTuneTiers ?? {},
-    projects: repairStaleCodingAssignments(state.projects, state.agents),
-  }
+  const ctx = ctxFrom(state)
+  const synced = syncAutomationAgents(
+    {
+      ...state,
+      seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
+      seenCompactionIntro: state.seenCompactionIntro ?? false,
+      fineTuneTiers: state.fineTuneTiers ?? {},
+      projects: repairStaleCodingAssignments(state.projects, state.agents),
+    },
+    ctx,
+  )
+  return synced
 }
 
 function migrateV7State(old: Record<string, unknown>): GameState {

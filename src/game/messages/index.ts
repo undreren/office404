@@ -23,6 +23,7 @@ import {
   resetGame,
   retire,
   selectTask,
+  setAutomationAgentActive,
   toggleConductor,
   upgradeApartment,
   upgradeModelTier,
@@ -136,6 +137,10 @@ export function acknowledgeStoryIntroMsg(at: number): GameMessage {
 
 export function acknowledgeTutorialStepMsg(at: number, step: number): GameMessage {
   return { at, apply: (state) => acknowledgeTutorialStep(state, step, at) }
+}
+
+export function setAutomationAgentActiveMsg(at: number, agentId: string, active: boolean): GameMessage {
+  return { at, apply: (state) => setAutomationAgentActive(state, agentId, active, at) }
 }
 
 export function acknowledgeCompactionIntroMsg(at: number): GameMessage {

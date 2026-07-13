@@ -98,6 +98,8 @@ export interface Agent {
   uptime: number
   /** Automation agents only — not spawned workers */
   isAutomation?: boolean
+  /** Permanent role for automation agents (survives benching when job is null) */
+  automationJob?: AgentJob
 }
 
 export interface Requirement {

@@ -23,6 +23,7 @@ import {
 import { HOUSING_CONFIG } from './housing'
 import { FINE_TUNE_BONUS } from './models'
 import type { MetaProgress } from './meta'
+import { getHallucinationLevel } from './meta'
 import { codeHallucinationParamMultiplier, effectiveModelParams, maxClientProjectSlots } from './prestige'
 import type { Agent, AgentJob, FineTuneRole, GameState, Project, Task } from './types'
 import type { Rng } from './rng'
@@ -325,10 +326,16 @@ export function agentWorkProgressPct(
 }
 
 export function formatAgentDutyLabel(
-  agent: Pick<Agent, 'job' | 'status' | 'taskId' | 'projectId'>,
+  agent: Pick<Agent, 'job' | 'status' | 'taskId' | 'projectId' | 'isAutomation' | 'automationJob'>,
   projectClientName: string | undefined,
   taskTitle: string | undefined,
 ): string {
+  if (agent.isAutomation && agent.automationJob) {
+    return automationAgentDutyLabel(
+      agent.automationJob as AutomationAgentJob,
+      agent.job === agent.automationJob,
+    )
+  }
   if (!agent.job) return 'Idle'
   const client = projectClientName ?? 'project'
   if (agent.status === 'idle') return `Idle (${agentRoleLabel(agent.job)}): ${client}`
@@ -416,8 +423,49 @@ export function getAgentParameters(
   return base
 }
 
+export const AUTOMATION_AGENT_JOBS = [
+  'procurement',
+  'sales',
+  'marketing',
+  'customer',
+  'accounting',
+  'project_manager',
+] as const satisfies readonly AgentJob[]
+
+export type AutomationAgentJob = (typeof AUTOMATION_AGENT_JOBS)[number]
+
 export function agentIsAutomationJob(job: AgentJob): boolean {
-  return ['procurement', 'sales', 'marketing', 'customer', 'accounting', 'project_manager'].includes(job)
+  return (AUTOMATION_AGENT_JOBS as readonly string[]).includes(job)
+}
+
+export function isAutomationAgentUnlocked(
+  state: Pick<GameState, 'vibingCourses' | 'meta'>,
+  job: AutomationAgentJob,
+): boolean {
+  if (state.vibingCourses.includes(job)) return true
+  return getHallucinationLevel(state.meta, job) > 0
+}
+
+export function hasActiveAutomationAgent(agents: Agent[], job: AutomationAgentJob): boolean {
+  return agents.some((a) => a.isAutomation && a.automationJob === job && a.job === job)
+}
+
+export function automationAgentDutyLabel(job: AutomationAgentJob, active: boolean): string {
+  if (!active) return `Benched (${agentRoleLabel(job)} agent)`
+  switch (job) {
+    case 'procurement':
+      return 'Procuring upgrades'
+    case 'sales':
+      return 'Closing leads'
+    case 'marketing':
+      return 'Marketing funnel crimes'
+    case 'customer':
+      return 'Customer psychosis ops'
+    case 'accounting':
+      return 'Creative accounting'
+    case 'project_manager':
+      return 'Portfolio ceremonies'
+  }
 }
 
 export function hasFineTune(
