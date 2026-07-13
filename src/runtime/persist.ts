@@ -3,10 +3,18 @@ import { repairStaleCodingAssignments } from '../game/projects'
 import { createDefaultMeta } from '../game/meta'
 import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
-import { createInitialState, syncAutomationAgents } from '../game/simulation/gameLogic'
+import { createInitialState, reconcileSpecialistAgents } from '../game/simulation/gameLogic'
 import { ctxFrom } from '../game/simulation/simCtx'
 
-const SAVE_VERSION = 11
+const SAVE_VERSION = 12
+
+function migrateAssignedSpecialistRoles(state: GameState): GameState {
+  if (state.assignedSpecialistRoles) return state
+  const assignedSpecialistRoles = state.agents
+    .filter((a) => a.isAutomation && a.automationJob && a.job === a.automationJob)
+    .map((a) => a.automationJob!)
+  return { ...state, assignedSpecialistRoles }
+}
 
 function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
   const migrated = new Set<GameState['seenTabIntros'][number]>()
@@ -29,14 +37,14 @@ function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
 
 function normalizeLoadedState(state: GameState): GameState {
   const ctx = ctxFrom(state)
-  const synced = syncAutomationAgents(
-    {
+  const synced = reconcileSpecialistAgents(
+    migrateAssignedSpecialistRoles({
       ...state,
       seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
       seenCompactionIntro: state.seenCompactionIntro ?? false,
       fineTuneTiers: state.fineTuneTiers ?? {},
       projects: repairStaleCodingAssignments(state.projects, state.agents),
-    },
+    }),
     ctx,
   )
   return synced
@@ -112,6 +120,9 @@ function migrateState(state: GameState, fromVersion: number): GameState {
       }
     }
     next = { ...next, fineTuneTiers }
+  }
+  if (fromVersion < 12) {
+    next = migrateAssignedSpecialistRoles(next)
   }
   return next
 }
