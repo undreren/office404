@@ -408,6 +408,13 @@ export function hasConductorCourse(vibingCourses: string[]): boolean {
   return vibingCourses.includes('conductor')
 }
 
+export function refinementTier(
+  tiers: Partial<Record<string, number>>,
+  vibingCourses: string[],
+): number {
+  return tiers.refinement ?? (vibingCourses.includes('refinement') ? 1 : 0)
+}
+
 export function bestOfNTier(tiers: Partial<Record<string, number>>): number {
   return tiers.best_of_n ?? 0
 }

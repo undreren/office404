@@ -29,6 +29,7 @@ import {
   projectHasTestWork,
   projectRoleHasWork,
   refineRequirementToTasks,
+  refineTaskToTasks,
   repairStaleCodingAssignments,
   resolvedReviewComments,
   syncTestScope,
@@ -69,6 +70,7 @@ import {
   prQualityAfterComments,
   ramSlotCost,
   refineJobDurationDays,
+  refinementTier,
   reviewJobDurationDays,
   rollBugAtQa,
   storyPointIncrement,
@@ -471,10 +473,17 @@ function staffAgentForRole(
     return { agents: next, agentId: assigned.id, projects }
   }
 
-  const idleIdx = agents.findIndex(
-    (a) => a.job !== null && a.job !== job && a.job !== 'conductor' && !isAgentBusy(a),
-  )
-  if (idleIdx >= 0) {
+  const idleCandidates = agents
+    .map((a, idx) => ({ a, idx }))
+    .filter(({ a }) => a.job !== null && a.job !== job && a.job !== 'conductor' && !isAgentBusy(a))
+  if (idleCandidates.length > 0) {
+    idleCandidates.sort((x, y) => {
+      const xPri = CONDUCTOR_ROLE_PRIORITY.indexOf(x.a.job as StaffJob)
+      const yPri = CONDUCTOR_ROLE_PRIORITY.indexOf(y.a.job as StaffJob)
+      if (xPri !== yPri) return yPri - xPri
+      return y.idx - x.idx
+    })
+    const idleIdx = idleCandidates[0]!.idx
     const next = [...agents]
     const donor = next[idleIdx]!
     const oldJob = donor.job!
@@ -634,6 +643,43 @@ function tryProgressTask(
   return { projects: next, becameDone, becamePrReady }
 }
 
+function conductorRolePriority(role: StaffJob): number {
+  return CONDUCTOR_ROLE_PRIORITY.indexOf(role)
+}
+
+function evictIdleLowerPriorityWorkers(
+  projectId: string,
+  role: StaffJob,
+  workerCap: number,
+  agents: Agent[],
+  projects: Project[],
+): { agents: Agent[]; projects: Project[] } {
+  let nextAgents = agents
+  let nextProjects = projects
+  const rolePri = conductorRolePriority(role)
+  if (rolePri < 0) return { agents: nextAgents, projects: nextProjects }
+
+  const workers = () =>
+    nextAgents.filter((a) => a.projectId === projectId && a.job && a.job !== 'conductor')
+
+  while (workers().length >= workerCap) {
+    const idleLower = workers()
+      .filter((w) => w.status === 'idle' && !isAgentBusy(w) && w.job && w.job !== 'conductor')
+      .filter((w) => conductorRolePriority(w.job as StaffJob) > rolePri)
+      .sort((a, b) => conductorRolePriority(b.job as StaffJob) - conductorRolePriority(a.job as StaffJob))
+
+    const victim = idleLower[0]
+    if (!victim?.job) break
+
+    const result = unassignAgentFromRole(nextAgents, projectId, victim.job, nextProjects)
+    if (!result) break
+    nextAgents = result.agents
+    nextProjects = result.projects
+  }
+
+  return { agents: nextAgents, projects: nextProjects }
+}
+
 function reconcileProjectStaffing(
   ctx: SimCtx,
   state: GameState,
@@ -723,9 +769,26 @@ function reconcileProjectStaffing(
 
       for (const role of CONDUCTOR_ROLE_PRIORITY) {
         const current = projectAgents(project.id, role, nextAgents).length
-        const workersNow = nextAgents.filter(
+        let workersNow = nextAgents.filter(
           (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
         )
+        if (
+          projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
+          (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
+        ) {
+          const evicted = evictIdleLowerPriorityWorkers(
+            project.id,
+            role,
+            workerCap,
+            nextAgents,
+            nextProjects,
+          )
+          nextAgents = evicted.agents
+          nextProjects = evicted.projects
+          workersNow = nextAgents.filter(
+            (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
+          )
+        }
         if (
           workersNow.length < workerCap &&
           projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
@@ -856,6 +919,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   const compactDuration = compactionDurationSec(meta)
   const ctxMult = contextFillMultiplier(vibingCourses)
   const agentsPerTask = maxAgentsPerTask(bestOfNTier(state.vibingCourseTiers))
+  const refineTier = refinementTier(state.vibingCourseTiers, vibingCourses)
   const totalGpus = totalGpuTicks({ ...state, gpuTickPurchases })
 
   gameDay += dayProgress
@@ -1201,13 +1265,30 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
+              const targetId =
+                target.kind === 'requirement' ? target.requirement.id : target.task.id
+              const targetTitle =
+                target.kind === 'requirement' ? target.requirement.title : target.task.title
+              const targetSp =
+                target.kind === 'requirement'
+                  ? target.requirement.storyPoints
+                  : target.task.storyPointsRequired
+              const savedProgress =
+                target.kind === 'requirement'
+                  ? {
+                      refineJobProgress: target.requirement.refineJobProgress,
+                      refineJobDuration: target.requirement.refineJobDuration,
+                    }
+                  : { refineJobProgress: undefined, refineJobDuration: undefined }
+
               agent.status = 'refining'
 
-              if (agent.taskId !== target.id) {
-                agent.taskId = target.id
-                agent.jobProgress = target.refineJobProgress ?? 0
+              if (agent.taskId !== targetId) {
+                agent.taskId = targetId
+                agent.jobProgress = savedProgress.refineJobProgress ?? 0
                 agent.jobDuration =
-                  target.refineJobDuration ?? refineJobDurationDays(target.storyPoints, params)
+                  savedProgress.refineJobDuration ??
+                  refineJobDurationDays(targetSp, params, target.kind === 'task')
                 nextAgents[agentIdx] = agent
               }
 
@@ -1219,31 +1300,42 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
               agent.jobProgress += dayProgress * baseSpeed
               if (agent.jobProgress >= agent.jobDuration) {
-                const newTasks = refineRequirementToTasks(ctx, target)
+                const newTasks =
+                  target.kind === 'requirement'
+                    ? refineRequirementToTasks(ctx, target.requirement, { refinementTier: refineTier })
+                    : refineTaskToTasks(ctx, target.task)
                 const refinedStatus = newTasks.length > 1 ? ('split' as const) : ('refined' as const)
-                nextProjects = nextProjects.map((p) =>
-                  p.id === project.id
-                    ? {
-                        ...p,
-                        requirements: p.requirements.map((r) =>
-                          r.id === target.id
-                            ? {
-                                ...r,
-                                status: refinedStatus,
-                                refineJobProgress: undefined,
-                                refineJobDuration: undefined,
-                              }
-                            : r,
-                        ),
-                        tasks: [...p.tasks, ...newTasks],
-                      }
-                    : p,
-                )
+                nextProjects = nextProjects.map((p) => {
+                  if (p.id !== project.id) return p
+                  if (target.kind === 'requirement') {
+                    return {
+                      ...p,
+                      requirements: p.requirements.map((r) =>
+                        r.id === target.requirement.id
+                          ? {
+                              ...r,
+                              status: refinedStatus,
+                              refineJobProgress: undefined,
+                              refineJobDuration: undefined,
+                            }
+                          : r,
+                      ),
+                      tasks: [...p.tasks, ...newTasks],
+                    }
+                  }
+                  return {
+                    ...p,
+                    tasks: [
+                      ...p.tasks.filter((t) => t.id !== target.task.id),
+                      ...newTasks,
+                    ],
+                  }
+                })
                 if (!selectedTaskId) selectedTaskId = newTasks[0].id
                 const taskSummary =
                   newTasks.length > 1
-                    ? `split "${target.title}" into ${newTasks.length} tasks (${newTasks.map((t) => formatStoryPoints(t.storyPointsRequired)).join(' + ')} SP)`
-                    : `refined "${target.title}" into "${newTasks[0].title}" (${formatStoryPoints(newTasks[0].storyPointsRequired)} SP)`
+                    ? `split "${targetTitle}" into ${newTasks.length} tasks (${newTasks.map((t) => formatStoryPoints(t.storyPointsRequired)).join(' + ')} SP)`
+                    : `refined "${targetTitle}" into "${newTasks[0].title}" (${formatStoryPoints(newTasks[0].storyPointsRequired)} SP)`
                 nextEvents = pushEvent(ctx, meta, nextEvents, 'project', `${agent.name} ${taskSummary}.`, at)
                 agent.jobProgress = 0
                 agent.taskId = null
