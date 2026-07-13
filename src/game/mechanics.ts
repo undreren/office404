@@ -102,7 +102,15 @@ export function pickLeadTotalStoryPoints(rng: Rng, reputation: number): number {
 }
 
 export function countActiveClientProjects(projects: Project[]): number {
-  return projects.filter((p) => p.kind === 'client' && p.status === 'active').length
+  return projects.filter((p) => p.kind === 'client' && p.status === 'active' && !p.isLocked).length
+}
+
+/** PM course tiers only count toward client project slots while the specialist is assigned. */
+export function effectiveVibingPmTiers(
+  state: Pick<GameState, 'assignedSpecialistRoles' | 'vibingCourseTiers'>,
+): number {
+  if (!state.assignedSpecialistRoles.includes('project_manager')) return 0
+  return state.vibingCourseTiers.project_manager ?? 0
 }
 
 /** How many available leads we want — one per empty client project slot. */
