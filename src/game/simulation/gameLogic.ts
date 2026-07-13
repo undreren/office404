@@ -7,6 +7,7 @@ import type {
   MetaProgress,
   Project,
   ProjectRoleCounts,
+  Requirement,
   StaffJob,
   Task,
   TaskStatus,
@@ -178,6 +179,7 @@ export function createInitialState(
 
   if (includeTutorial) {
     const tutorial = createTutorialProject(ctx)
+    tutorial.roleCounts.refine = 1
     projects.push(tutorial)
     const starter = createAgent(ctx)
     starter.job = 'refine'
@@ -306,6 +308,17 @@ function assignAgentToRole(agent: Agent, projectId: string, job: AgentJob): Agen
   }
 }
 
+function updateRequirement(
+  projects: Project[],
+  requirementId: string,
+  updater: (requirement: Requirement) => Requirement,
+): Project[] {
+  return projects.map((p) => ({
+    ...p,
+    requirements: p.requirements.map((r) => (r.id === requirementId ? updater(r) : r)),
+  }))
+}
+
 function unassignAgentFromRole(
   agents: Agent[],
   projectId: string,
@@ -324,6 +337,20 @@ function unassignAgentFromRole(
     nextProjects = updateTask(nextProjects, victim.taskId, (t) => ({
       ...t,
       assignedAgentId: null,
+    }))
+  }
+  if (job === 'refine' && victim.taskId && victim.jobDuration > 0) {
+    nextProjects = updateRequirement(nextProjects, victim.taskId, (r) => ({
+      ...r,
+      refineJobProgress: victim.jobProgress,
+      refineJobDuration: victim.jobDuration,
+    }))
+  }
+  if (job === 'review' && victim.taskId && victim.jobDuration > 0) {
+    nextProjects = updateTask(nextProjects, victim.taskId, (t) => ({
+      ...t,
+      reviewJobProgress: victim.jobProgress,
+      reviewJobDuration: victim.jobDuration,
     }))
   }
 
@@ -646,7 +673,7 @@ function reconcileProjectStaffing(
     if (current > desired) {
       let toRemove = current - desired
       while (toRemove > 0) {
-        const result = unassignAgentFromRole(nextAgents, project.id, role, nextProjects)
+        const result = unassignAgentFromRole(nextAgents, project.id, role, nextProjects, { force: true })
         if (!result) break
         nextAgents = result.agents
         nextProjects = result.projects
@@ -993,8 +1020,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               agent.status = 'reviewing'
               if (agent.taskId !== task.id) {
                 agent.taskId = task.id
-                agent.jobProgress = 0
-                agent.jobDuration = reviewJobDurationDays(task.storyPointsRequired, params)
+                agent.jobProgress = task.reviewJobProgress ?? 0
+                agent.jobDuration =
+                  task.reviewJobDuration ?? reviewJobDurationDays(task.storyPointsRequired, params)
                 nextAgents[agentIdx] = agent
               }
 
@@ -1013,7 +1041,14 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                         ...p,
                         tasks: [
                           ...p.tasks.map((t) =>
-                            t.id === task.id ? { ...t, reviewed: true } : t,
+                            t.id === task.id
+                              ? {
+                                  ...t,
+                                  reviewed: true,
+                                  reviewJobProgress: undefined,
+                                  reviewJobDuration: undefined,
+                                }
+                              : t,
                           ),
                           ...comments,
                         ],
@@ -1062,8 +1097,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
               if (agent.taskId !== target.id) {
                 agent.taskId = target.id
-                agent.jobProgress = 0
-                agent.jobDuration = refineJobDurationDays(target.storyPoints, params)
+                agent.jobProgress = target.refineJobProgress ?? 0
+                agent.jobDuration =
+                  target.refineJobDuration ?? refineJobDurationDays(target.storyPoints, params)
                 nextAgents[agentIdx] = agent
               }
 
@@ -1082,7 +1118,14 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                     ? {
                         ...p,
                         requirements: p.requirements.map((r) =>
-                          r.id === target.id ? { ...r, status: refinedStatus } : r,
+                          r.id === target.id
+                            ? {
+                                ...r,
+                                status: refinedStatus,
+                                refineJobProgress: undefined,
+                                refineJobDuration: undefined,
+                              }
+                            : r,
                         ),
                         tasks: [...p.tasks, ...newTasks],
                       }
@@ -1404,14 +1447,33 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
   if (delta > 0 && !hasStaffableAgent(repaired.agents) && !canSpawnAgent(repaired)) return state
 
   if (delta < 0) {
+    const nextRoleCount = Math.max(0, project.roleCounts[job] + delta)
     const result = unassignAgentFromRole(repaired.agents, projectId, job, repaired.projects, { force: true })
-    if (!result) return state
+    const nextProjects = repaired.projects.map((p) =>
+      p.id === projectId
+        ? { ...p, roleCounts: { ...p.roleCounts, [job]: nextRoleCount } }
+        : p,
+    )
+    if (!result) {
+      return withCtx({
+        ...repaired,
+        projects: nextProjects,
+        events: pushEvent(
+          ctx,
+          repaired.meta,
+          repaired.events,
+          'project',
+          `Reduced ${job} staffing on ${project.clientName} to ${nextRoleCount}.`,
+          at,
+        ),
+      }, ctx, at)
+    }
     return withCtx({
       ...repaired,
       agents: result.agents,
       projects: result.projects.map((p) =>
         p.id === projectId
-          ? { ...p, roleCounts: { ...p.roleCounts, [job]: Math.max(0, p.roleCounts[job] + delta) } }
+          ? { ...p, roleCounts: { ...p.roleCounts, [job]: nextRoleCount } }
           : p,
       ),
       events: pushEvent(ctx, repaired.meta, repaired.events, 'project', `Pulled one ${job} agent off ${project.clientName}.`, at),
