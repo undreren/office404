@@ -1,10 +1,22 @@
-import { LEAD_SPAWN_INTERVAL_DAYS } from '../../constants'
+import { generateLead } from '../../projects'
+import { ctxFrom } from '../../simulation/simCtx'
 import type { GameState } from '../../types'
-import { advanceGameDays } from './advanceGameDays'
 import { initialPlaying } from './initialPlaying'
-import { SEED, T0 } from './testConstants'
+import { SEED } from './testConstants'
 
+/** Post-tutorial state with one available lead (injected for stable tests). */
 export function stateWithAvailableLead(seed: number = SEED): GameState {
-  const state = { ...initialPlaying(seed), tutorialDone: true }
-  return advanceGameDays(state, LEAD_SPAWN_INTERVAL_DAYS, T0 + 1000)
+  const state = {
+    ...initialPlaying(seed),
+    tutorialDone: true,
+    projects: [],
+    agents: [],
+  }
+  const ctx = ctxFrom(state)
+  const lead = generateLead(ctx, state.reputation, state.gameDay)
+  return {
+    ...state,
+    leads: [{ ...lead, daysToExpire: 30 }],
+    leadSpawnCooldown: 999,
+  }
 }

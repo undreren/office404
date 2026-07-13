@@ -4,12 +4,14 @@ import type {
   GameEvent,
   GameState,
   MainTabId,
+  MetaProgress,
   Project,
+  ProjectRoleCounts,
   StaffJob,
   Task,
   TaskStatus,
 } from '../types'
-import { fineTuneId, getModelTier, MODEL_TIERS } from '../models'
+import { contextSizeForLevel, fineTuneId, getModelTier, MODEL_TIERS } from '../models'
 import {
   allReviewCommentsAddressed,
   CONDUCTOR_ROLE_PRIORITY,
@@ -34,61 +36,94 @@ import {
 } from '../projects'
 import { generateAgentName, generatePersonality } from '../personalities'
 import {
-  APARTMENT_CONFIG,
-  COMPACT_DURATION_SEC,
   EXPIRED_LEAD_REP_PENALTY,
-  INITIAL_CASH,
   INITIAL_REPUTATION,
   JUST_MERGE_PR_QUALITY,
   LATE_FEE_PERCENT,
   LATE_REP_PENALTY_BASE,
   LEAD_SPAWN_INTERVAL_DAYS,
-  LOSE_REPUTATION,
-  MAX_ACTIVE_PROJECTS,
   MAX_EVENTS,
   MAX_LEADS,
   ON_TIME_REP_BONUS,
+  PRESTIGE_START_CASH,
+  PROCUREMENT_CASH_FRACTION,
   RENT_INTERVAL_DAYS,
   SECONDS_PER_GAME_DAY,
-  WIN_CASH,
 } from '../constants'
 import {
   agentTickSpeed,
-  canUpgradeModelTier,
   computePrBaseQuality,
   contextFillMultiplier,
   fillAgentContext,
   formatStoryPoints,
   getAgentParameters,
-  getTotalGpus,
-  getTotalRam,
+  gpuTickCost,
   hasConductorCourse,
   hasPromptEngineering,
   jobStatusFor,
   leadSpawnIntervalDays,
+  maxAgentSlotPurchases,
   maxAgents,
+  maxGpuTickPurchases,
   prQualityAfterComments,
+  ramSlotCost,
   refineJobDurationDays,
   reviewJobDurationDays,
   rollBugAtQa,
   storyPointIncrement,
   storyPointProgressPerTick,
   testStoryPointIncrement,
-  usedRam,
+  totalAgentSlots,
+  totalGpuTicks,
 } from '../mechanics'
+import { HOUSING_CONFIG, isSingularityEligible, nextHousingTier } from '../housing'
 import {
-  GPU_UPGRADES,
-  housingMeetsRequirement,
-  RAM_UPGRADES,
-  VIBING_COURSES,
-} from '../upgrades'
+  buyHallucinationUpgrade,
+  canRetire,
+  compactionDurationSec,
+  getHallucinationLevel,
+  hallucinationPointsFromRetirement,
+  maxClientProjectSlots,
+  nextHighestRung,
+  startingCapitalBonus,
+  type HallucinationTrack,
+} from '../prestige'
+import { createDefaultMeta } from '../meta'
+import { mrrOnShip } from '../product'
+import { formatCash } from '../cash'
+import { derangeText, unhingedPrefix, unhingedTier } from '../unhinged'
+import { VIBING_COURSES, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
 
 export type { SimCtx } from './simCtx'
 
-function pushEvent(ctx: SimCtx, events: GameEvent[], type: GameEvent['type'], message: string, at: number): GameEvent[] {
-  const entry: GameEvent = { id: uid(ctx, 'evt'), timestamp: at, type, message }
+type ProjectRole = keyof ProjectRoleCounts
+
+function isProjectRole(job: AgentJob): job is ProjectRole {
+  return (
+    job === 'refine' ||
+    job === 'code' ||
+    job === 'review' ||
+    job === 'test' ||
+    job === 'conductor'
+  )
+}
+
+function eventMessage(ctx: SimCtx, meta: MetaProgress, message: string): string {
+  const tier = unhingedTier(meta.totalHallucinationsEarned)
+  return unhingedPrefix(tier) + derangeText(message, tier, ctx.rng.state)
+}
+
+function pushEvent(
+  ctx: SimCtx,
+  meta: MetaProgress,
+  events: GameEvent[],
+  type: GameEvent['type'],
+  message: string,
+  at: number,
+): GameEvent[] {
+  const entry: GameEvent = { id: uid(ctx, 'evt'), timestamp: at, type, message: eventMessage(ctx, meta, message) }
   return [entry, ...events].slice(0, MAX_EVENTS)
 }
 
@@ -122,48 +157,78 @@ function createAgent(ctx: SimCtx): Agent {
   }
 }
 
-export function createInitialState(at: number, rngSeed?: number): GameState {
+export function createInitialState(
+  at: number,
+  rngSeed?: number,
+  meta: MetaProgress = createDefaultMeta(),
+  options?: { includeTutorial?: boolean },
+): GameState {
   const seed = rngSeed ?? createRngSeed()
+  const includeTutorial =
+    options?.includeTutorial ?? (meta.retirementCount === 0 && meta.singularityCount === 0)
   const ctx = ctxFrom({ nextId: 1, rng: seed, snapshotAt: at } as GameState)
-  const tutorial = createTutorialProject(ctx)
-  const starter = createAgent(ctx)
-  starter.job = 'refine'
-  starter.projectId = tutorial.id
-  starter.status = 'refining'
 
-  const totalRam = 2
-  const totalGpus = 1
+  const agents: Agent[] = []
+  const projects: Project[] = []
+  let tutorialDone = !includeTutorial
+  let cash = PRESTIGE_START_CASH + startingCapitalBonus(meta)
+  let leads = [] as GameState['leads']
+  let leadSpawnCooldown = LEAD_SPAWN_INTERVAL_DAYS
+  let dayZeroMessage = `Day 0. ${formatCash(cash)}. Fresh prestige run. Hallucinations optional.`
+
+  if (includeTutorial) {
+    const tutorial = createTutorialProject(ctx)
+    projects.push(tutorial)
+    const starter = createAgent(ctx)
+    starter.job = 'refine'
+    starter.projectId = tutorial.id
+    starter.status = 'refining'
+    agents.push(starter)
+    cash = 0
+    tutorialDone = false
+    dayZeroMessage = 'Day 0. $0. One agent. One laptop. Infinite audacity.'
+  } else {
+    leads = [generateLead(ctx, INITIAL_REPUTATION, 0)]
+    leadSpawnCooldown = leadSpawnIntervalDays(INITIAL_REPUTATION, 0)
+    dayZeroMessage = `Day 0. ${formatCash(cash)}. No tutorial. One lead on the board.`
+  }
 
   const state: GameState = {
+    meta,
     phase: 'playing',
-    cash: INITIAL_CASH,
+    cash,
     reputation: INITIAL_REPUTATION,
     gameDay: 0,
     rentDueInDays: RENT_INTERVAL_DAYS,
     apartment: 'cardboard',
     apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
-    totalRam,
-    totalGpus,
-    modelTierIndex: 0,
-    purchasedRamUpgrades: [],
-    purchasedGpuUpgrades: [],
+    agentSlotPurchases: 0,
+    gpuTickPurchases: 0,
+    mrr: 0,
+    productFeaturesShipped: 0,
     purchasedFineTunes: [],
     vibingCourses: [],
-    agents: [starter],
-    projects: [tutorial],
-    leads: [],
+    vibingCourseTiers: {},
+    agents,
+    projects,
+    productBacklog: [],
+    leads,
     selectedTaskId: null,
-    tutorialDone: false,
+    tutorialDone,
     seenStoryIntro: false,
     acknowledgedTutorialStep: -1,
     seenTabIntros: [],
-    leadSpawnCooldown: LEAD_SPAWN_INTERVAL_DAYS,
-    events: pushEvent(ctx, [], 'system', 'Day 0. $0. One agent. One laptop. Infinite audacity.', at),
+    leadSpawnCooldown,
+    syntheticLeadCooldown: 4,
+    taxCodeCooldown: 10,
+    events: pushEvent(ctx, meta, [], 'system', dayZeroMessage, at),
     stats: {
       projectsCompleted: 0,
       tasksMerged: 0,
-      agentsDeployed: 1,
+      agentsDeployed: agents.length,
       compactionsSurvived: 0,
+      productsShipped: 0,
+      syntheticLeadsAccepted: 0,
     },
     snapshotAt: at,
     rng: ctx.rng.state,
@@ -187,16 +252,16 @@ function updateTask(projects: Project[], taskId: string, updater: (t: Task) => T
   }))
 }
 
-function agentParamsFor(state: Pick<GameState, 'modelTierIndex' | 'purchasedFineTunes'>, job: AgentJob | null): number {
-  return getAgentParameters(state.modelTierIndex, state.purchasedFineTunes, job)
+function agentParamsFor(
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes'>,
+  job: AgentJob | null,
+): number {
+  const modelTierIndex = getHallucinationLevel(state.meta, 'model')
+  return getAgentParameters(state.meta, state.purchasedFineTunes, job, modelTierIndex)
 }
 
 function canSpawnAgent(state: GameState): boolean {
-  const ram = getTotalRam(state)
-  const cap = maxAgents(ram, state.modelTierIndex)
-  if (state.agents.length >= cap) return false
-  const nextUsed = usedRam(state.agents.length + 1, state.modelTierIndex)
-  return nextUsed <= ram
+  return state.agents.length < maxAgents(state)
 }
 
 function isAgentBusy(agent: Agent): boolean {
@@ -240,20 +305,6 @@ function assignAgentToRole(agent: Agent, projectId: string, job: AgentJob): Agen
           ? 'conducting'
           : 'idle',
   }
-}
-
-function clearAgentAssignmentsOnProjects(projects: Project[]): Project[] {
-  return projects.map((p) => ({
-    ...p,
-    tasks: p.tasks.map((t) => {
-      if (!t.assignedAgentId) return t
-      return {
-        ...t,
-        assignedAgentId: null,
-        status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
-      }
-    }),
-  }))
 }
 
 function unassignAgentFromRole(
@@ -329,7 +380,7 @@ function staffAgentForRole(
     const assigned = assignAgentToRole(donor, projectId, job)
     next[idleIdx] = assigned
     nextProjects = nextProjects.map((p) =>
-      p.id === oldProjectId
+      p.id === oldProjectId && isProjectRole(oldJob)
         ? { ...p, roleCounts: { ...p.roleCounts, [oldJob]: Math.max(0, p.roleCounts[oldJob] - 1) } }
         : p,
     )
@@ -351,7 +402,7 @@ function hasStaffableAgent(agents: Agent[]): boolean {
 function mergeTaskOnProject(
   projects: Project[],
   taskId: string,
-  state: Pick<GameState, 'modelTierIndex' | 'purchasedFineTunes' | 'vibingCourses'>,
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'vibingCourses'>,
   reviewed: boolean,
 ): { projects: Project[]; eventMessage: string } | null {
   const found = findTask(projects, taskId)
@@ -413,7 +464,7 @@ function mergeTaskOnProject(
 function tryAutoMergeReviewedPr(
   projects: Project[],
   parentTaskId: string,
-  state: Pick<GameState, 'modelTierIndex' | 'purchasedFineTunes' | 'vibingCourses'>,
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'vibingCourses'>,
 ): { projects: Project[]; eventMessage: string | null } {
   const found = findTask(projects, parentTaskId)
   if (!found || found.task.status !== 'pr_ready' || !found.task.reviewed) {
@@ -522,8 +573,9 @@ function reconcileProjectStaffing(
       if (
         w.job &&
         w.job !== 'conductor' &&
+        isProjectRole(w.job) &&
         w.status === 'idle' &&
-        !projectRoleHasWork(syncedProject(), w.job, w.id, nextAgents)
+        !projectRoleHasWork(syncedProject(), w.job as StaffJob, w.id, nextAgents)
       ) {
         const result = unassignAgentFromRole(nextAgents, project.id, w.job, nextProjects)
         if (result) {
@@ -588,7 +640,7 @@ function reconcileProjectStaffing(
     return { agents: nextAgents, projects: nextProjects }
   }
 
-  for (const role of ['refine', 'code', 'review', 'test', 'conductor'] as AgentJob[]) {
+  for (const role of ['refine', 'code', 'review', 'test', 'conductor'] as const) {
     const desired = syncedProject().roleCounts[role]
     const current = projectAgents(project.id, role, nextAgents).length
 
@@ -642,154 +694,211 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   const ctx = ctxFrom(state)
   if (state.phase !== 'playing') return state
 
-                    const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
-          let {
-            cash,
-            reputation,
-            gameDay,
-            rentDueInDays,
-            apartmentLeaseRemaining,
-            agents,
-            projects,
-            leads,
-            events,
-            stats,
-            leadSpawnCooldown,
-            selectedTaskId,
-            modelTierIndex,
-            vibingCourses,
-          } = {
-            ...state,
-            projects: repairStaleCodingAssignments(state.projects, state.agents),
-          }
+  const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
+  let {
+    cash,
+    reputation,
+    gameDay,
+    rentDueInDays,
+    apartmentLeaseRemaining,
+    agents,
+    projects,
+    leads,
+    events,
+    stats,
+    leadSpawnCooldown,
+    selectedTaskId,
+    vibingCourses,
+    mrr,
+    agentSlotPurchases,
+    gpuTickPurchases,
+    meta,
+  } = {
+    ...state,
+    projects: repairStaleCodingAssignments(state.projects, state.agents),
+  }
 
-          let nextAgents = agents.map((a) => ({ ...a }))
-          let nextProjects = projects.map((p) => ({
-            ...p,
-            requirements: p.requirements.map((r) => ({ ...r })),
-            tasks: p.tasks.map((t) => ({ ...t })),
-          }))
-          let nextLeads = leads.map((l) => ({ ...l }))
-          let nextEvents = [...events]
-          let nextStats = { ...stats }
-          let phase: GameState['phase'] = state.phase
+  let nextAgents = agents.map((a) => ({ ...a }))
+  let nextProjects = projects.map((p) => ({
+    ...p,
+    requirements: p.requirements.map((r) => ({ ...r })),
+    tasks: p.tasks.map((t) => ({ ...t })),
+  }))
+  let nextLeads = leads.map((l) => ({ ...l }))
+  let nextEvents = [...events]
+  let nextStats = { ...stats }
+  const phase: GameState['phase'] = state.phase
 
-          const totalRam = getTotalRam(state)
-          const totalGpus = getTotalGpus(state)
-          const model = getModelTier(modelTierIndex)!
-          const ctxMult = contextFillMultiplier(vibingCourses)
+  const modelTierIndex = getHallucinationLevel(meta, 'model')
+  const model = getModelTier(modelTierIndex)!
+  const contextSize = contextSizeForLevel(model.contextSize, getHallucinationLevel(meta, 'context'))
+  const contextTokens = contextSize * 1000
+  const compactDuration = compactionDurationSec(meta)
+  const ctxMult = contextFillMultiplier(vibingCourses)
+  const totalGpus = totalGpuTicks({ ...state, gpuTickPurchases })
 
-          gameDay += dayProgress
-          rentDueInDays -= dayProgress
-          apartmentLeaseRemaining -= dayProgress
-          leadSpawnCooldown -= dayProgress
+  gameDay += dayProgress
+  rentDueInDays -= dayProgress
+  apartmentLeaseRemaining -= dayProgress
+  leadSpawnCooldown -= dayProgress
+  cash += mrr * dayProgress
 
-          if (rentDueInDays <= 0) {
-            const rent = APARTMENT_CONFIG[state.apartment].rent
-            cash -= rent
-            rentDueInDays += RENT_INTERVAL_DAYS
-            nextEvents = pushEvent(ctx, nextEvents, 'system', `Rent due: -$${rent}. Landlord sends a heart emoji.`, at)
-          }
+  if (rentDueInDays <= 0) {
+    const rent = HOUSING_CONFIG[state.apartment].rent
+    cash -= rent
+    rentDueInDays += RENT_INTERVAL_DAYS
+    nextEvents = pushEvent(
+      ctx,
+      meta,
+      nextEvents,
+      'system',
+      `Rent due: -${formatCash(rent)}. Landlord sends a heart emoji.`,
+      at,
+    )
+  }
 
-          if (
-            state.tutorialDone &&
-            leadSpawnCooldown <= 0 &&
-            nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS
-          ) {
-            nextLeads = [generateLead(ctx, reputation, gameDay), ...nextLeads]
-            leadSpawnCooldown = leadSpawnIntervalDays(reputation, gameDay)
-            nextEvents = pushEvent(ctx, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
-          }
+  if (vibingCourses.includes('procurement')) {
+    const budget = cash * PROCUREMENT_CASH_FRACTION
+    const slotCost = ramSlotCost(agentSlotPurchases)
+    const tickCost = gpuTickCost(gpuTickPurchases)
+    const maxSlots = maxAgentSlotPurchases(state.apartment)
+    const maxTicks = maxGpuTickPurchases(state.apartment)
+    if (agentSlotPurchases < maxSlots && slotCost <= budget && cash >= slotCost) {
+      cash -= slotCost
+      agentSlotPurchases += 1
+      nextEvents = pushEvent(
+        ctx,
+        meta,
+        nextEvents,
+        'milestone',
+        `Procurement auto-bought +1 agent slot for ${formatCash(slotCost)}.`,
+        at,
+      )
+    } else if (gpuTickPurchases < maxTicks && tickCost <= budget && cash >= tickCost) {
+      cash -= tickCost
+      gpuTickPurchases += 1
+      nextEvents = pushEvent(
+        ctx,
+        meta,
+        nextEvents,
+        'milestone',
+        `Procurement auto-bought +1 GPU tick for ${formatCash(tickCost)}.`,
+        at,
+      )
+    }
+  }
 
-          for (const lead of nextLeads) {
-            if (lead.status === 'available') {
-              lead.daysToExpire -= dayProgress
-              if (lead.daysToExpire <= 0) {
-                lead.status = 'expired'
-                reputation = Math.max(0, reputation - EXPIRED_LEAD_REP_PENALTY)
-                nextEvents = pushEvent(
-                  ctx,
-                  nextEvents,
-                  'lead',
-                  `${lead.clientName} ghosted you. Reputation -${EXPIRED_LEAD_REP_PENALTY}.`,
-                  at,
-                )
-              }
-            }
-          }
+  if (
+    state.tutorialDone &&
+    leadSpawnCooldown <= 0 &&
+    nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS
+  ) {
+    nextLeads = [generateLead(ctx, reputation, gameDay), ...nextLeads]
+    leadSpawnCooldown = leadSpawnIntervalDays(reputation, gameDay)
+    nextEvents = pushEvent(ctx, meta, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
+  }
 
-          for (const project of nextProjects) {
-            if (project.status !== 'active') continue
-            project.daysRemaining -= dayProgress
+  for (const lead of nextLeads) {
+    if (lead.status === 'available') {
+      lead.daysToExpire -= dayProgress
+      if (lead.daysToExpire <= 0) {
+        lead.status = 'expired'
+        reputation = Math.max(0, reputation - EXPIRED_LEAD_REP_PENALTY)
+        nextEvents = pushEvent(
+          ctx,
+          meta,
+          nextEvents,
+          'lead',
+          `${lead.clientName} ghosted you. Reputation -${EXPIRED_LEAD_REP_PENALTY}.`,
+          at,
+        )
+      }
+    }
+  }
 
-            if (project.daysRemaining <= 0 && !project.tasks.every((t) => t.status === 'merged')) {
-              project.lateCount += 1
-              project.daysRemaining += Math.round(project.durationDays * 0.35)
-              const fee = Math.round(project.payment * LATE_FEE_PERCENT * project.lateCount)
-              project.payment = Math.max(0, project.payment - fee)
-              const repHit = Math.round(LATE_REP_PENALTY_BASE * project.repPenaltyMultiplier * project.lateCount)
-              reputation = Math.max(0, reputation - repHit)
-              project.repPenaltyMultiplier += 0.25
-              nextEvents = pushEvent(
-                ctx,
-                nextEvents,
-                'project',
-                `${project.clientName}: LATE. -$${fee} fee, -${repHit} rep. Extension granted. Suffering continues.`,
-                at,
-              )
-            }
-          }
+  for (const project of nextProjects) {
+    if (project.status !== 'active') continue
+    project.daysRemaining -= dayProgress
 
-          for (const project of nextProjects.filter((p) => p.status === 'active')) {
-            const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects)
-            nextAgents = reconciled.agents
-            nextProjects = reconciled.projects
-          }
+    if (project.daysRemaining <= 0 && !project.tasks.every((t) => t.status === 'merged')) {
+      project.lateCount += 1
+      project.daysRemaining += Math.round(project.durationDays * 0.35)
+      const fee = Math.round(project.payment * LATE_FEE_PERCENT * project.lateCount)
+      project.payment = Math.max(0, project.payment - fee)
+      const repHit = Math.round(LATE_REP_PENALTY_BASE * project.repPenaltyMultiplier * project.lateCount)
+      reputation = Math.max(0, reputation - repHit)
+      project.repPenaltyMultiplier += 0.25
+      nextEvents = pushEvent(
+        ctx,
+        meta,
+        nextEvents,
+        'project',
+        `${project.clientName}: LATE. -${formatCash(fee)} fee, -${repHit} rep. Extension granted. Suffering continues.`,
+        at,
+      )
+    }
+  }
 
-          const baseSpeedGlobal = agentTickSpeed(nextAgents, totalGpus)
+  for (const project of nextProjects.filter((p) => p.status === 'active')) {
+    const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects)
+    nextAgents = reconciled.agents
+    nextProjects = reconciled.projects
+  }
 
-          for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
-            let agent = nextAgents[agentIdx]
-            if (agent.status === 'compacting') {
-              agent.compactingRemainingSec = Math.max(0, agent.compactingRemainingSec - deltaSec)
-              if (agent.compactingRemainingSec > 0) {
-                nextAgents[agentIdx] = agent
-                continue
-              }
-              agent = finishCompaction(agent)
-              nextAgents[agentIdx] = agent
-              nextEvents = pushEvent(ctx, nextEvents, 'crash', `${agent.name} context compacted. Back on task.`, at)
-            }
-          }
+  const baseSpeedGlobal = agentTickSpeed(nextAgents, totalGpus)
 
-          for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
-            let agent = nextAgents[agentIdx]
-            if (!agent.job || agent.job === 'conductor') continue
-            if (agent.status === 'compacting' || agent.status === 'compacted' || agent.status === 'crashed') {
-              continue
-            }
+  for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
+    let agent = nextAgents[agentIdx]
+    if (agent.status === 'compacting') {
+      agent.compactingRemainingSec = Math.max(0, agent.compactingRemainingSec - deltaSec)
+      if (agent.compactingRemainingSec > 0) {
+        nextAgents[agentIdx] = agent
+        continue
+      }
+      agent = finishCompaction(agent)
+      nextAgents[agentIdx] = agent
+      nextEvents = pushEvent(ctx, meta, nextEvents, 'crash', `${agent.name} rebooted. Back on task.`, at)
+    }
+  }
 
-            const baseSpeed = baseSpeedGlobal
-            if (baseSpeed <= 0) continue
+  for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
+    let agent = nextAgents[agentIdx]
+    if (!agent.job || agent.job === 'conductor') continue
+    if (agent.status === 'compacting' || agent.status === 'compacted' || agent.status === 'crashed') {
+      continue
+    }
 
-            agent.uptime += dayProgress
-            const params = agentParamsFor(state, agent.job)
+    const baseSpeed = baseSpeedGlobal
+    if (baseSpeed <= 0) continue
 
-            const overflow = () => {
-              agent.status = 'compacting'
-              agent.compactingRemainingSec = COMPACT_DURATION_SEC
-              agent.contextUsed = model.contextSize * 1000
-              nextStats.compactionsSurvived += 1
-              nextEvents = pushEvent(
-                ctx,
-                nextEvents,
-                'crash',
-                `${agent.name} context full — auto-compacting (${COMPACT_DURATION_SEC}s)...`,
-                at,
-              )
-            }
+    agent.uptime += dayProgress
+    const params = agentParamsFor(state, agent.job)
 
-            if (agent.job === 'code' && agent.projectId) {
+    const overflow = () => {
+      if (agent.job === 'code' && agent.taskId) {
+        const taskId = agent.taskId
+        nextProjects = updateTask(nextProjects, taskId, (t) => ({
+          ...t,
+          assignedAgentId: null,
+          status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
+        }))
+        agent.taskId = null
+      }
+      agent.status = 'compacting'
+      agent.compactingRemainingSec = compactDuration
+      agent.contextUsed = contextTokens
+      nextStats.compactionsSurvived += 1
+      nextEvents = pushEvent(
+        ctx,
+        meta,
+        nextEvents,
+        'crash',
+        `${agent.name} context full — rebooting (${compactDuration}s)...`,
+        at,
+      )
+    }
+
+    if (agent.job === 'code' && agent.projectId) {
               const project = nextProjects.find((p) => p.id === agent.projectId)
               if (!project || project.status !== 'active') {
                 Object.assign(agent, clearAgentJob(agent))
@@ -820,8 +929,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               }
 
               agent.status = 'working'
-              fillAgentContext(agent, model.contextSize, baseSpeed, deltaSec, ctxMult)
-              if (agent.contextUsed >= model.contextSize * 1000) {
+              fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
+              if (agent.contextUsed >= contextTokens) {
                 overflow()
                 continue
               }
@@ -840,6 +949,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 agent.taskId = null
                 nextEvents = pushEvent(
                   ctx,
+                  meta,
                   nextEvents,
                   'project',
                   `${agent.name} finished "${taskRef.task.title}". PR opened — ready for review.`,
@@ -850,6 +960,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 const parentId = taskRef.task.parentTaskId
                 nextEvents = pushEvent(
                   ctx,
+                  meta,
                   nextEvents,
                   'project',
                   `${agent.name} addressed review comment: "${taskRef.task.title}".`,
@@ -871,7 +982,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                   const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, state)
                   nextProjects = autoMerge.projects
                   if (autoMerge.eventMessage) {
-                    nextEvents = pushEvent(ctx, nextEvents, 'project', autoMerge.eventMessage, at)
+                    nextEvents = pushEvent(ctx, meta, nextEvents, 'project', autoMerge.eventMessage, at)
                     nextStats.tasksMerged += 1
                   }
                 }
@@ -905,8 +1016,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 nextAgents[agentIdx] = agent
               }
 
-              fillAgentContext(agent, model.contextSize, baseSpeed, deltaSec, ctxMult)
-              if (agent.contextUsed >= model.contextSize * 1000) {
+              fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
+              if (agent.contextUsed >= contextTokens) {
                 overflow()
                 continue
               }
@@ -935,6 +1046,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                     : ''
                 nextEvents = pushEvent(
                   ctx,
+                  meta,
                   nextEvents,
                   'project',
                   `${agent.name} reviewed "${task.title}". PR quality base: ${Math.round(task.prQualityStaging)}%.${commentNote}`,
@@ -944,7 +1056,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 const autoMerge = tryAutoMergeReviewedPr(nextProjects, task.id, state)
                 nextProjects = autoMerge.projects
                 if (autoMerge.eventMessage) {
-                  nextEvents = pushEvent(ctx, nextEvents, 'project', autoMerge.eventMessage, at)
+                  nextEvents = pushEvent(ctx, meta, nextEvents, 'project', autoMerge.eventMessage, at)
                   nextStats.tasksMerged += 1
                 }
               }
@@ -973,8 +1085,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 nextAgents[agentIdx] = agent
               }
 
-              fillAgentContext(agent, model.contextSize, baseSpeed, deltaSec, ctxMult)
-              if (agent.contextUsed >= model.contextSize * 1000) {
+              fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
+              if (agent.contextUsed >= contextTokens) {
                 overflow()
                 continue
               }
@@ -999,7 +1111,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                   newTasks.length > 1
                     ? `split "${target.title}" into ${newTasks.length} tasks (${newTasks.map((t) => formatStoryPoints(t.storyPointsRequired)).join(' + ')} SP)`
                     : `refined "${target.title}" into "${newTasks[0].title}" (${formatStoryPoints(newTasks[0].storyPointsRequired)} SP)`
-                nextEvents = pushEvent(ctx, nextEvents, 'project', `${agent.name} ${taskSummary}.`, at)
+                nextEvents = pushEvent(ctx, meta, nextEvents, 'project', `${agent.name} ${taskSummary}.`, at)
                 agent.jobProgress = 0
                 agent.taskId = null
               }
@@ -1032,8 +1144,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 agent.taskId = testTask.id
               }
 
-              fillAgentContext(agent, model.contextSize, baseSpeed, deltaSec, ctxMult)
-              if (agent.contextUsed >= model.contextSize * 1000) {
+              fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
+              if (agent.contextUsed >= contextTokens) {
                 overflow()
                 continue
               }
@@ -1073,17 +1185,19 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                     tasks: updatedProject.tasks.concat(fixTask),
                     totalStoryPoints: updatedProject.totalStoryPoints + fixTask.storyPointsRequired,
                   }
-                  nextEvents = pushEvent(
-                    ctx,
-                    nextEvents,
+                nextEvents = pushEvent(
+                  ctx,
+                  meta,
+                  nextEvents,
                     'project',
                     `${agent.name} found a bug in "${testTask.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened. PR was ${Math.round(testTask.prQuality ?? 0)}% clean.`,
                     at,
                   )
                 } else if (taskFullyTested) {
-                  nextEvents = pushEvent(
-                    ctx,
-                    nextEvents,
+                nextEvents = pushEvent(
+                  ctx,
+                  meta,
+                  nextEvents,
                     'project',
                     `${agent.name} finished QA on "${testTask.title}". Clean at ${Math.round(testTask.prQuality ?? 0)}%.`,
                     at,
@@ -1096,14 +1210,6 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
             }
 
             nextAgents[agentIdx] = agent
-          }
-
-          if (cash >= WIN_CASH) {
-            phase = 'won'
-            nextEvents = pushEvent(ctx, nextEvents, 'milestone', '$10M cash. Retire. You win.', at)
-          } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
-            phase = 'lost'
-            nextEvents = pushEvent(ctx, nextEvents, 'system', 'No reputation. No clients. Cardboard box acquired. Game over.', at)
           }
 
           return withCtx({
@@ -1121,8 +1227,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     leadSpawnCooldown,
     selectedTaskId,
     phase,
-    totalRam,
-    totalGpus,
+    mrr,
+    agentSlotPurchases,
+    gpuTickPurchases,
     tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
   }, ctx, at)
 }
@@ -1139,7 +1246,7 @@ export function mergePr(state: GameState, taskId: string, at: number): GameState
     ...state,
     projects: result.projects,
     stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-    events: pushEvent(ctx, state.events, 'project', result.eventMessage, at),
+    events: pushEvent(ctx, state.meta, state.events, 'project', result.eventMessage, at),
   }, ctx, at)
 }
 
@@ -1151,7 +1258,7 @@ export function justMergePr(state: GameState, taskId: string, at: number): GameS
     ...state,
     projects: result.projects,
     stats: { ...state.stats, tasksMerged: state.stats.tasksMerged + 1 },
-    events: pushEvent(ctx, state.events, 'project', result.eventMessage, at),
+    events: pushEvent(ctx, state.meta, state.events, 'project', result.eventMessage, at),
   }, ctx, at)
 }
 
@@ -1160,18 +1267,25 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const lead = state.leads.find((l) => l.id === leadId)
   if (!lead || lead.status !== 'available') return state
   if (state.reputation < lead.repRequired) return state
-  if (state.projects.length >= MAX_ACTIVE_PROJECTS) return state
+  const clientProjects = state.projects.filter((p) => p.kind === 'client' && p.status === 'active')
+  const maxSlots = maxClientProjectSlots(state.meta, state.vibingCourseTiers.project_manager ?? 0)
+  if (clientProjects.length >= maxSlots) return state
 
   const project = createProjectFromLead(ctx, lead, state.gameDay)
   const daysWaited = Math.max(0, Math.floor(state.gameDay - (lead.spawnedGameDay ?? state.gameDay)))
   const waitNote =
     daysWaited > 0 ? ` (${daysWaited}d wait shaved ${daysWaited}d off deadline)` : ''
+  const syntheticAccepted = lead.source === 'synthetic'
   return withCtx({
     ...state,
     projects: [...state.projects, project],
     leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
+    stats: syntheticAccepted
+      ? { ...state.stats, syntheticLeadsAccepted: state.stats.syntheticLeadsAccepted + 1 }
+      : state.stats,
     events: pushEvent(
       ctx,
+      state.meta,
       state.events,
       'lead',
       `Accepted ${lead.clientName}. ${project.durationDays}d to deliver.${waitNote}`,
@@ -1185,7 +1299,7 @@ export function rejectLead(state: GameState, leadId: string, at: number): GameSt
   return withCtx({
     ...state,
     leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'rejected' as const } : l)),
-    events: pushEvent(ctx, state.events, 'lead', 'Lead rejected. Professional boundaries (for now).', at),
+    events: pushEvent(ctx, state.meta, state.events, 'lead', 'Lead rejected. Professional boundaries (for now).', at),
   }, ctx, at)
 }
 
@@ -1199,38 +1313,53 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   const payment = project.payment
   const onTime = project.lateCount === 0
   const qualityBonus = Math.round(synced.deliveryQuality / 25)
-  const reputation = state.reputation + (onTime ? ON_TIME_REP_BONUS + qualityBonus : 1)
+  const reputation = Math.max(0, state.reputation + (onTime ? ON_TIME_REP_BONUS + qualityBonus : 1))
 
-  const nextProjects = state.projects.filter((p) => p.id !== projectId)
-  const nextAgents = state.agents.filter((a) => a.projectId !== projectId)
+  const duplicateId = project.duplicateProjectId
+  const removedIds = new Set([projectId, ...(duplicateId ? [duplicateId] : [])])
+  const nextProjects = state.projects.filter((p) => !removedIds.has(p.id))
+  const nextAgents = state.agents.filter((a) => !a.projectId || !removedIds.has(a.projectId))
 
   let nextEvents = state.events
-  const finalCash = state.cash + payment
-  if (project.isTutorial && !state.tutorialDone) {
+  let cash = state.cash
+  let mrr = state.mrr
+  let productFeaturesShipped = state.productFeaturesShipped
+  let stats = { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 }
+
+  if (project.kind === 'product') {
+    const mrrGain = mrrOnShip(project.totalStoryPoints, productFeaturesShipped, state.apartment)
+    mrr += mrrGain
+    productFeaturesShipped += 1
+    stats = { ...stats, productsShipped: stats.productsShipped + 1 }
     nextEvents = pushEvent(
       ctx,
+      state.meta,
+      nextEvents,
+      'product',
+      `Shipped product feature! +${formatCash(mrrGain)}/day MRR. Monolith grows.`,
+      at,
+    )
+  } else if (project.isTutorial && !state.tutorialDone) {
+    cash += payment
+    nextEvents = pushEvent(
+      ctx,
+      state.meta,
       nextEvents,
       'milestone',
-      `Tutorial complete! +$${payment}. Upgrade housing — unlock real hardware.`,
+      `Tutorial complete! +${formatCash(payment)}. Upgrade housing — unlock real hardware.`,
       at,
     )
   } else {
+    cash += payment
+    const dupNote = duplicateId ? ' PM duplicate cleared too.' : ''
     nextEvents = pushEvent(
       ctx,
+      state.meta,
       nextEvents,
       'milestone',
-      `Shipped ${project.clientName}! +$${payment}${onTime ? ' (on time!)' : ''}. Avg PR quality ${Math.round(synced.deliveryQuality)}%.`,
+      `Shipped ${project.clientName}! +${formatCash(payment)}${onTime ? ' (on time!)' : ''}. Avg PR quality ${Math.round(synced.deliveryQuality)}%.${dupNote}`,
       at,
     )
-  }
-
-  let phase = state.phase
-  if (finalCash >= WIN_CASH) {
-    phase = 'won'
-    nextEvents = pushEvent(ctx, nextEvents, 'milestone', '$10M cash. Retire. You win.', at)
-  } else if (reputation <= LOSE_REPUTATION && nextProjects.length === 0) {
-    phase = 'lost'
-    nextEvents = pushEvent(ctx, nextEvents, 'system', 'No reputation. No clients. Game over.', at)
   }
 
   const tutorialJustCompleted = project.isTutorial && !state.tutorialDone
@@ -1241,25 +1370,34 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   if (tutorialJustCompleted) {
     nextLeads = [generateLead(ctx, reputation, state.gameDay)]
     nextLeadSpawnCooldown = leadSpawnIntervalDays(reputation, state.gameDay)
-    nextEvents = pushEvent(ctx, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
+    nextEvents = pushEvent(
+      ctx,
+      state.meta,
+      nextEvents,
+      'lead',
+      'New client lead appeared. They want it yesterday.',
+      at,
+    )
   }
 
   return withCtx({
     ...state,
-    cash: finalCash,
+    cash,
     reputation,
+    mrr,
+    productFeaturesShipped,
     projects: nextProjects,
     agents: nextAgents,
     leads: nextLeads,
     leadSpawnCooldown: nextLeadSpawnCooldown,
-    stats: { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 },
+    stats,
     events: nextEvents,
-    phase,
     tutorialDone,
   }, ctx, at)
 }
 
 export function adjustRoleCount(state: GameState, projectId: string, job: AgentJob, delta: number, at: number): GameState {
+  if (!isProjectRole(job)) return state
   const ctx = ctxFrom(state)
   const repaired = {
     ...state,
@@ -1281,7 +1419,7 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
           ? { ...p, roleCounts: { ...p.roleCounts, [job]: Math.max(0, p.roleCounts[job] + delta) } }
           : p,
       ),
-      events: pushEvent(ctx, repaired.events, 'project', `Pulled one ${job} agent off ${project.clientName}.`, at),
+      events: pushEvent(ctx, repaired.meta, repaired.events, 'project', `Pulled one ${job} agent off ${project.clientName}.`, at),
     }, ctx, at)
   }
 
@@ -1302,7 +1440,7 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
       ...state.stats,
       agentsDeployed: Math.max(state.stats.agentsDeployed, nextAgents.length),
     },
-    events: pushEvent(ctx, state.events, 'project', `Staffed +1 ${job} on ${project.clientName}.`, at),
+    events: pushEvent(ctx, state.meta, state.events, 'project', `Staffed +1 ${job} on ${project.clientName}.`, at),
   }, ctx, at)
 }
 
@@ -1337,62 +1475,52 @@ export function toggleConductor(state: GameState, projectId: string, enabled: bo
   }
 }
 
-export function buyRamUpgrade(state: GameState, upgradeId: string, at: number): GameState {
+export function buyAgentSlot(state: GameState, at: number): GameState {
   const ctx = ctxFrom(state)
-  const upgrade = RAM_UPGRADES.find((u) => u.id === upgradeId)
-  if (!upgrade || state.purchasedRamUpgrades.includes(upgradeId)) return state
-  if (!housingMeetsRequirement(state.apartment, upgrade.housingRequired)) return state
-  if (state.cash < upgrade.cost) return state
+  const max = maxAgentSlotPurchases(state.apartment)
+  if (state.agentSlotPurchases >= max) return state
+  const cost = ramSlotCost(state.agentSlotPurchases)
+  if (state.cash < cost) return state
 
-  const purchasedRamUpgrades = [...state.purchasedRamUpgrades, upgradeId]
   return withCtx({
     ...state,
-    cash: state.cash - upgrade.cost,
-    purchasedRamUpgrades,
-    totalRam: getTotalRam({ purchasedRamUpgrades }),
-    events: pushEvent(ctx, state.events, 'milestone', `Installed ${upgrade.label}. ${upgrade.tagline}`, at),
+    cash: state.cash - cost,
+    agentSlotPurchases: state.agentSlotPurchases + 1,
+    events: pushEvent(
+      ctx,
+      state.meta,
+      state.events,
+      'milestone',
+      `Bought +1 agent slot for ${formatCash(cost)}. HR pretends this is normal.`,
+      at,
+    ),
   }, ctx, at)
 }
 
-export function buyGpuUpgrade(state: GameState, upgradeId: string, at: number): GameState {
+export function buyGpuTick(state: GameState, at: number): GameState {
   const ctx = ctxFrom(state)
-  const upgrade = GPU_UPGRADES.find((u) => u.id === upgradeId)
-  if (!upgrade || state.purchasedGpuUpgrades.includes(upgradeId)) return state
-  if (!housingMeetsRequirement(state.apartment, upgrade.housingRequired)) return state
-  if (state.cash < upgrade.cost) return state
+  const max = maxGpuTickPurchases(state.apartment)
+  if (state.gpuTickPurchases >= max) return state
+  const cost = gpuTickCost(state.gpuTickPurchases)
+  if (state.cash < cost) return state
 
-  const purchasedGpuUpgrades = [...state.purchasedGpuUpgrades, upgradeId]
   return withCtx({
     ...state,
-    cash: state.cash - upgrade.cost,
-    purchasedGpuUpgrades,
-    totalGpus: getTotalGpus({ purchasedGpuUpgrades }),
-    events: pushEvent(ctx, state.events, 'milestone', `Installed ${upgrade.label}. ${upgrade.tagline}`, at),
+    cash: state.cash - cost,
+    gpuTickPurchases: state.gpuTickPurchases + 1,
+    events: pushEvent(
+      ctx,
+      state.meta,
+      state.events,
+      'milestone',
+      `Bought +1 GPU tick for ${formatCash(cost)}. Fans spin. Morale does not.`,
+      at,
+    ),
   }, ctx, at)
 }
 
-export function upgradeModelTier(state: GameState, at: number): GameState {
-  const ctx = ctxFrom(state)
-  const nextTier = state.modelTierIndex + 1
-  const next = getModelTier(nextTier)
-  if (!next) return state
-  if (state.cash < next.upgradeCost) return state
-  if (!canUpgradeModelTier(getTotalRam(state), state.modelTierIndex)) return state
-
-  const despawned = state.agents.length
-  const upgradeMessage =
-    despawned > 0
-      ? `Upgraded to ${next.displayName}. ${next.tagline} ${despawned} agent${despawned === 1 ? '' : 's'} despawned — redeploy on the new tier.`
-      : `Upgraded to ${next.displayName}. ${next.tagline}`
-
-  return withCtx({
-    ...state,
-    cash: state.cash - next.upgradeCost,
-    modelTierIndex: nextTier,
-    agents: [],
-    projects: clearAgentAssignmentsOnProjects(state.projects),
-    events: pushEvent(ctx, state.events, 'milestone', upgradeMessage, at),
-  }, ctx, at)
+export function upgradeModelTier(state: GameState, _at: number): GameState {
+  return state
 }
 
 export function buyFineTune(state: GameState, fineTuneIdArg: string, at: number): GameState {
@@ -1402,31 +1530,48 @@ export function buyFineTune(state: GameState, fineTuneIdArg: string, at: number)
   const tierMatch = fineTuneIdArg.match(/^tune-(\d+)-/)
   if (!tierMatch) return state
   const tier = Number(tierMatch[1])
-  if (tier > state.modelTierIndex) return state
+  const modelTierIndex = getHallucinationLevel(state.meta, 'model')
+  if (tier > modelTierIndex) return state
 
   return withCtx({
     ...state,
     cash: state.cash - 90,
     purchasedFineTunes: [...state.purchasedFineTunes, fineTuneIdArg],
-    events: pushEvent(ctx, state.events, 'milestone', `Fine-tune purchased: ${fineTuneIdArg}.`, at),
+    events: pushEvent(ctx, state.meta, state.events, 'milestone', `Fine-tune purchased: ${fineTuneIdArg}.`, at),
   }, ctx, at)
 }
 
 export function buyVibingCourse(state: GameState, courseId: string, at: number): GameState {
   const ctx = ctxFrom(state)
   const course = VIBING_COURSES.find((c) => c.id === courseId)
-  if (!course || state.vibingCourses.includes(courseId)) return state
-  if (state.cash < course.cost) return state
+  if (!course) return state
+
+  const currentTier =
+    state.vibingCourseTiers[courseId] ?? (state.vibingCourses.includes(courseId) ? 1 : 0)
+  const maxTier = course.maxTier ?? 1
+  if (currentTier >= maxTier) return state
+
+  const cost = vibingCourseCost(course, currentTier)
+  if (state.cash < cost) return state
+
+  const newTier = currentTier + 1
+  const vibingCourseTiers = { ...state.vibingCourseTiers, [courseId]: newTier }
+  const vibingCourses = state.vibingCourses.includes(courseId)
+    ? state.vibingCourses
+    : [...state.vibingCourses, courseId]
+  const tierNote = maxTier > 1 ? ` (tier ${newTier}/${maxTier})` : ''
 
   return withCtx({
     ...state,
-    cash: state.cash - course.cost,
-    vibingCourses: [...state.vibingCourses, courseId],
+    cash: state.cash - cost,
+    vibingCourses,
+    vibingCourseTiers,
     events: pushEvent(
       ctx,
+      state.meta,
       state.events,
       'milestone',
-      `Enrolled in ${course.label}: "${course.tagline}"`,
+      `Enrolled in ${course.label}${tierNote}: "${course.tagline}"`,
       at,
     ),
   }, ctx, at)
@@ -1434,11 +1579,9 @@ export function buyVibingCourse(state: GameState, courseId: string, at: number):
 
 export function upgradeApartment(state: GameState, at: number): GameState {
   const ctx = ctxFrom(state)
-  const tiers = ['cardboard', 'shared_1br', 'studio', 'loft', 'penthouse'] as const
-  const idx = tiers.indexOf(state.apartment)
-  if (idx < 0 || idx >= tiers.length - 1) return state
-  const next = tiers[idx + 1]
-  const cost = APARTMENT_CONFIG[next].upgradeCost
+  const next = nextHousingTier(state.apartment)
+  if (!next) return state
+  const cost = HOUSING_CONFIG[next].upgradeCost
   if (state.cash < cost) return state
 
   return withCtx({
@@ -1449,22 +1592,62 @@ export function upgradeApartment(state: GameState, at: number): GameState {
     rentDueInDays: RENT_INTERVAL_DAYS,
     events: pushEvent(
       ctx,
+      state.meta,
       state.events,
       'milestone',
-      `Moved to ${APARTMENT_CONFIG[next].label}. New hardware tiers unlocked.`,
+      `Moved to ${HOUSING_CONFIG[next].label}. New hardware tiers unlocked.`,
       at,
     ),
   }, ctx, at)
 }
 
 export function retire(state: GameState, at: number): GameState {
-  if (state.phase !== 'playing' || state.cash < WIN_CASH) return state
+  if (state.phase !== 'playing' || !canRetire(state.cash, state.meta.retirementCount)) return state
+
+  const points = hallucinationPointsFromRetirement(state.cash, state.meta.highestRungEver)
+  const newMeta: MetaProgress = {
+    ...state.meta,
+    hallucinationPoints: state.meta.hallucinationPoints + points,
+    totalHallucinationsEarned: state.meta.totalHallucinationsEarned + points,
+    highestRungEver: nextHighestRung(state.cash, state.meta.highestRungEver),
+    retirementCount: state.meta.retirementCount + 1,
+  }
+
+  return createInitialState(at, state.rng, newMeta, { includeTutorial: false })
+}
+
+export function prestigeHallucinationBuy(
+  state: GameState,
+  track: HallucinationTrack,
+  at: number,
+): GameState {
   const ctx = ctxFrom(state)
+  const newMeta = buyHallucinationUpgrade(state.meta, track)
+  if (!newMeta) return state
+  const level = getHallucinationLevel(newMeta, track)
   return withCtx({
     ...state,
-    phase: 'won',
-    events: pushEvent(ctx, state.events, 'milestone', '$10M cash. Retire. You win.', at),
+    meta: newMeta,
+    events: pushEvent(
+      ctx,
+      state.meta,
+      state.events,
+      'hallucination',
+      `Hallucination upgrade: ${track} → level ${level}.`,
+      at,
+    ),
   }, ctx, at)
+}
+
+export function acceptSingularity(state: GameState, at: number): GameState {
+  const customerLevel = getHallucinationLevel(state.meta, 'customer')
+  if (!isSingularityEligible(state.apartment, customerLevel)) return state
+
+  const newMeta = createDefaultMeta()
+  newMeta.singularityCount = state.meta.singularityCount + 1
+  newMeta.totalHallucinationsEarned = state.meta.totalHallucinationsEarned
+
+  return createInitialState(at, state.rng, newMeta, { includeTutorial: true })
 }
 
 export function resetGame(at: number, rngSeed?: number): GameState {
@@ -1486,14 +1669,12 @@ export function acknowledgeTutorialStep(state: GameState, step: number, at: numb
   return { ...state, acknowledgedTutorialStep: step, snapshotAt: at }
 }
 
-export function getNetWorth(state: Pick<GameState, 'cash'>): number {
-  return state.cash
+export function getNetWorth(state: Pick<GameState, 'cash' | 'mrr'>): number {
+  return state.cash + state.mrr * 30
 }
 
-export function getNextApartment(state: Pick<GameState, 'apartment'>): string | null {
-  const tiers = ['cardboard', 'shared_1br', 'studio', 'loft', 'penthouse'] as const
-  const idx = tiers.indexOf(state.apartment)
-  return idx < tiers.length - 1 ? tiers[idx + 1] : null
+export function getNextApartment(state: Pick<GameState, 'apartment'>): import('../types').ApartmentTier | null {
+  return nextHousingTier(state.apartment)
 }
 
 export function projectProgressPct(project: Project): number {
@@ -1518,7 +1699,7 @@ export function isReadyToDeliver(project: Project): boolean {
 }
 
 export function modelSpPerTick(
-  state: Pick<GameState, 'modelTierIndex' | 'purchasedFineTunes' | 'gameDay'>,
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'gameDay'>,
 ): number {
   const params = agentParamsFor(state, 'code')
   return storyPointProgressPerTick(params, state.gameDay)
@@ -1528,14 +1709,17 @@ export function canStaffAdditionalAgent(state: GameState): boolean {
   return hasStaffableAgent(state.agents) || canSpawnAgent(state)
 }
 
-export function agentCapacity(state: GameState): { used: number; max: number; totalRam: number; totalGpus: number } {
-  const totalRam = getTotalRam(state)
-  const totalGpus = getTotalGpus(state)
+export function agentCapacity(state: GameState): {
+  used: number
+  max: number
+  agentSlots: number
+  gpuTicks: number
+} {
   return {
     used: state.agents.length,
-    max: maxAgents(totalRam, state.modelTierIndex),
-    totalRam,
-    totalGpus,
+    max: maxAgents(state),
+    agentSlots: totalAgentSlots(state),
+    gpuTicks: totalGpuTicks(state),
   }
 }
 

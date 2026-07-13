@@ -118,7 +118,7 @@ export function stateWithDeliverableProject(
     testStoryPointsCompleted: 2,
     totalStoryPoints: 2,
     status: 'active' as const,
-    requirements: [{ id: reqId, projectId, title: 'Req', storyPoints: 2, status: 'refined' as const }],
+    requirements: [{ id: reqId, projectId, title: 'Req', storyPoints: 2, status: 'refined' as const, refinePassesUsed: 0 }],
     tasks: [
       {
         id: taskId,
@@ -142,6 +142,7 @@ export function stateWithDeliverableProject(
         isReviewComment: false,
         reviewed: true,
         testStoryPointsEarned: 2,
+        refinePassesRemaining: 0,
       },
     ],
     isTutorial: false,
@@ -149,6 +150,9 @@ export function stateWithDeliverableProject(
     repPenaltyMultiplier: 1,
     crewCap: 4,
     roleCounts: { refine: 0, code: 0, review: 0, test: 0, conductor: 0 },
+    kind: 'client' as const,
+    duplicateProjectId: null,
+    mrrContribution: 0,
     useConductor: false,
   }
 

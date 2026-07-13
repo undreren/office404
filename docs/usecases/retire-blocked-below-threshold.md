@@ -1,7 +1,7 @@
 # Retire blocked below threshold
 
 ## Given
-Cash below `WIN_CASH`.
+Cash below `personalRetirementThreshold(retirementCount)`.
 
 ## When
 The player tries to retire.

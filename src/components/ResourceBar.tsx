@@ -1,7 +1,10 @@
-import { APARTMENT_CONFIG, WIN_CASH } from '../game/constants'
+import { formatCash } from '../game/cash'
+import { HOUSING_CONFIG } from '../game/housing'
 import { formatGameClock } from '../game/mechanics'
+import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
-import { agentCapacity, getNetWorth } from '../game/selectors'
+import { personalRetirementThreshold } from '../game/prestige'
+import { agentCapacity } from '../game/selectors'
 import { useGamePaused, useGameState } from '../runtime/GameRuntime'
 import { NewGameButton } from './NewGameButton'
 
@@ -12,24 +15,26 @@ type ResourceBarProps = {
 export function ResourceBar({ compact = false }: ResourceBarProps) {
   const state = useGameState()
   const { paused } = useGamePaused()
-  const { cash, reputation, gameDay, rentDueInDays, apartment } = state
+  const { cash, reputation, gameDay, rentDueInDays, apartment, mrr, meta } = state
 
-  const { used, max, totalRam, totalGpus } = agentCapacity(state)
-  const model = MODEL_TIERS[state.modelTierIndex]
-  const netWorth = getNetWorth(state)
-  const winPct = Math.min(100, (netWorth / WIN_CASH) * 100)
-  const rentAmount = APARTMENT_CONFIG[apartment].rent
+  const { used, max, agentSlots, gpuTicks } = agentCapacity(state)
+  const modelLevel = getHallucinationLevel(meta, 'model')
+  const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
+  const retireThreshold = personalRetirementThreshold(meta.retirementCount)
+  const retirePct = Math.min(100, (cash / retireThreshold) * 100)
+  const housing = HOUSING_CONFIG[apartment]
+  const rentAmount = housing.rent
   const compactSummary = compact
     ? [
-        `Cash $${Math.floor(cash)}`,
-        `net worth $${Math.floor(netWorth).toLocaleString()} of $10M goal`,
+        `Cash ${formatCash(cash)}`,
+        `retire ${formatCash(cash)} of ${formatCash(retireThreshold)}`,
+        `MRR ${formatCash(mrr)}/day`,
         `reputation ${Math.floor(reputation)}`,
-        `home ${APARTMENT_CONFIG[apartment].label}`,
+        `home ${housing.label}`,
         `agents ${used}/${max}`,
-        `${totalRam} GB RAM`,
-        `${totalGpus} GPU`,
+        `${agentSlots} slots · ${gpuTicks} GPU ticks`,
         `model ${model.displayName}`,
-        `rent $${rentAmount} due in ${Math.ceil(rentDueInDays)} days`,
+        `rent ${formatCash(rentAmount)} due in ${Math.ceil(rentDueInDays)} days`,
         paused ? 'paused' : null,
       ]
         .filter(Boolean)
@@ -52,41 +57,42 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
       </div>
 
       <div className="resource-grid" role="region" aria-label={compactSummary ?? 'Resources'}>
-        <div className="resource" aria-label={`Cash: $${Math.floor(cash)}`}>
+        <div className="resource" aria-label={`Cash: ${formatCash(cash)}`}>
           <label>Cash</label>
-          <span className="value">${Math.floor(cash)}</span>
+          <span className="value">{formatCash(cash)}</span>
         </div>
 
         <div
           className="resource"
-          aria-label={`Retire goal: $${Math.floor(netWorth).toLocaleString()} of $10M (${Math.floor(winPct)}%)`}
+          aria-label={`Retire goal: ${formatCash(cash)} of ${formatCash(retireThreshold)} (${Math.floor(retirePct)}%)`}
         >
           <label>Retire Goal</label>
           <div className="meter">
-            <div className="meter__fill meter__fill--code" style={{ width: `${winPct}%` }} />
+            <div className="meter__fill meter__fill--code" style={{ width: `${retirePct}%` }} />
           </div>
-          <span>${Math.floor(netWorth).toLocaleString()} / $10M</span>
+          <span>
+            {formatCash(cash)} / {formatCash(retireThreshold)}
+          </span>
         </div>
 
         {!compact && (
           <>
+            <div className="resource resource--inline" aria-label={`MRR: ${formatCash(mrr)} per day`}>
+              <label>MRR</label>
+              <span className="value value--sm">{formatCash(mrr)}/d</span>
+            </div>
+
             <div className="resource resource--inline" aria-label={`Reputation: ${Math.floor(reputation)}`}>
               <label>Rep</label>
               <span className="value">{Math.floor(reputation)}</span>
             </div>
 
-            <div
-              className="resource resource--inline"
-              aria-label={`Home: ${APARTMENT_CONFIG[apartment].label}`}
-            >
+            <div className="resource resource--inline" aria-label={`Home: ${housing.label}`}>
               <label>Home</label>
-              <span className="value value--sm">{APARTMENT_CONFIG[apartment].label}</span>
+              <span className="value value--sm">{housing.label}</span>
             </div>
 
-            <div
-              className="resource resource--inline"
-              aria-label={`Agents: ${used} of ${max} staffed`}
-            >
+            <div className="resource resource--inline" aria-label={`Agents: ${used} of ${max} staffed`}>
               <label>Agents</label>
               <span className="value value--sm">
                 {used}/{max}
@@ -95,11 +101,11 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
 
             <div
               className="resource resource--inline"
-              aria-label={`RAM ${totalRam} GB, ${totalGpus} GPU`}
+              aria-label={`${agentSlots} agent slots, ${gpuTicks} GPU ticks`}
             >
-              <label>RAM / GPU</label>
+              <label>Slots / GPU</label>
               <span className="value value--sm">
-                {totalRam} GB · {totalGpus} GPU
+                {agentSlots} · {gpuTicks} tick{gpuTicks === 1 ? '' : 's'}
               </span>
             </div>
 
@@ -110,11 +116,11 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
 
             <div
               className="resource resource--inline"
-              aria-label={`Rent: $${rentAmount} due in ${Math.ceil(rentDueInDays)} days`}
+              aria-label={`Rent: ${formatCash(rentAmount)} due in ${Math.ceil(rentDueInDays)} days`}
             >
               <label>Rent</label>
               <span className={`value value--sm ${rentDueInDays < 5 ? 'text-danger' : ''}`}>
-                ${rentAmount} in {Math.ceil(rentDueInDays)}d
+                {formatCash(rentAmount)} in {Math.ceil(rentDueInDays)}d
               </span>
             </div>
           </>

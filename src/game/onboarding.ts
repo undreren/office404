@@ -9,9 +9,9 @@ export const STORY_INTRO_COPY = {
   title: 'Welcome to Office 404',
   body: `The Singularity happened on a Tuesday. Nobody noticed — the models were busy hallucinating a better Tuesday.
 
-You woke up with a cardboard box for an office, one GPU, and a freelance LLC called Office 404 (Intelligence Not Found; invoices very much found). Your AI agents burn tokens you can't afford, compact their brains mid-sentence, and somehow still ship faster than you.
+You woke up with a cardboard box for an office, one agent slot, and a freelance LLC called Office 404 (Intelligence Not Found; invoices very much found). Your uncle swears the tutorial gig is "exposure." Your AI agents burn tokens you can't afford, compact their brains mid-sentence, and somehow still ship faster than you.
 
-Clients want "AI-powered synergy" yesterday. Rent wants $40 tomorrow. Your mission: finish the tutorial gig below, unlock real leads, upgrade your life from cardboard to CUDA palace, and retire at $10M before your reputation flatlines.
+Clients want "AI-powered synergy" yesterday. Rent wants $40 tomorrow. Ship Uncle's neighbor app, unlock real leads, climb the housing ladder, and retire for hallucination points — prestige currency for upgrades that were never in the roadmap.
 
 No pressure. Infinite audacity.`,
 }
@@ -44,7 +44,7 @@ export const TAB_INTRO_COPY: Record<
   },
   shop: {
     title: 'Shop',
-    body: 'Upgrade housing to unlock hardware tiers, buy RAM and GPUs, fine-tune models, and take vibing courses. Cash is real. Regret is optional.',
+    body: 'Upgrade housing to unlock agent slots and GPU ticks, buy fine-tunes, and take vibing courses. Model tiers come from Hallucinations — retirement grants points.',
   },
   agents: {
     title: 'Agents',
@@ -57,6 +57,14 @@ export const TAB_INTRO_COPY: Record<
   leads: {
     title: 'Leads',
     body: 'New business opportunities. Accept to add a project, reject to stay sane, or ignore until they expire and your reputation takes a hit.',
+  },
+  product: {
+    title: 'Product',
+    body: 'In-house features that print MRR. Unlocked via hallucinations after you have suffered enough client work.',
+  },
+  hallucinations: {
+    title: 'Hallucinations',
+    body: 'Prestige shop. Retire at the cash threshold to earn points, then spend them on model tiers, context, automation agents, and other crimes against the backlog.',
   },
 }
 

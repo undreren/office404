@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { buyAgentSlotMsg, stateChanged } from '../messages'
+import { upgradeModelTierMsg, stateChanged } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
-import { stateWithApartment } from './_helpers/stateWithApartment'
 import { stateWithCash } from './_helpers/stateWithCash'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { T0 } from './_helpers/testConstants'
 
-describe('purchase-blocked-insufficient-cash', () => {
+describe('upgrade-model-tier-no-op', () => {
   it('matches use case invariants', () => {
-    const before = stateWithCash(stateWithApartment(initialPlaying(), 'shared_1br'), 10)
+    const before = stateWithCash(initialPlaying(), 200)
+    expect(before.agents.length).toBeGreaterThan(0)
 
-    const after = dispatchChain(before, [buyAgentSlotMsg(T0 + 1000)])
+    const after = dispatchChain(before, [upgradeModelTierMsg(T0 + 1000)])
 
     expect(stateChanged(before, after)).toBe(false)
+    expect(after.agents).toHaveLength(before.agents.length)
   })
 })

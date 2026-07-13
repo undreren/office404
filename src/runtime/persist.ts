@@ -1,16 +1,46 @@
 import { SAVE_KEY } from '../game/constants'
 import { repairStaleCodingAssignments } from '../game/projects'
-import type { GameState } from '../game/types'
+import { createDefaultMeta } from '../game/meta'
+import type { GameState, PersistedSave } from '../game/types'
+import { MODEL_TIERS } from '../game/models'
+import { createInitialState } from '../game/simulation/gameLogic'
 
-const SAVE_VERSION = 6
-
-export type PersistedState = Omit<GameState, never>
+const SAVE_VERSION = 8
 
 function normalizeLoadedState(state: GameState): GameState {
   return {
     ...state,
     projects: repairStaleCodingAssignments(state.projects, state.agents),
   }
+}
+
+function migrateV7State(old: Record<string, unknown>): GameState {
+  const at = (old.snapshotAt as number) ?? Date.now()
+  const fresh = createInitialState(at, old.rng as number | undefined, createDefaultMeta(), {
+    includeTutorial: !(old.tutorialDone as boolean),
+  })
+  return {
+    ...fresh,
+    ...old,
+    meta: createDefaultMeta(),
+    phase: 'playing',
+    agentSlotPurchases: Math.max(0, ((old.agents as unknown[])?.length ?? 1) - 1),
+    gpuTickPurchases: 0,
+    mrr: 0,
+    productFeaturesShipped: 0,
+    productBacklog: [],
+    vibingCourseTiers: {},
+    syntheticLeadCooldown: 4,
+    taxCodeCooldown: 10,
+    stats: {
+      projectsCompleted: (old.stats as GameState['stats'])?.projectsCompleted ?? 0,
+      tasksMerged: (old.stats as GameState['stats'])?.tasksMerged ?? 0,
+      agentsDeployed: (old.stats as GameState['stats'])?.agentsDeployed ?? 1,
+      compactionsSurvived: (old.stats as GameState['stats'])?.compactionsSurvived ?? 0,
+      productsShipped: 0,
+      syntheticLeadsAccepted: 0,
+    },
+  } as GameState
 }
 
 function migrateState(state: GameState, fromVersion: number): GameState {
@@ -23,44 +53,22 @@ function migrateState(state: GameState, fromVersion: number): GameState {
     }
   }
   if (fromVersion < 6) {
-    next = {
-      ...next,
-      seenStoryIntro: next.seenStoryIntro ?? true,
-    }
+    next = { ...next, seenStoryIntro: next.seenStoryIntro ?? true }
+  }
+  if (fromVersion < 8) {
+    next = migrateV7State(next as unknown as Record<string, unknown>)
   }
   return next
 }
 
-export function partializeState(state: GameState): PersistedState {
+export function partializeSave(state: GameState): PersistedSave {
   return {
-    phase: state.phase,
-    cash: state.cash,
-    reputation: state.reputation,
-    gameDay: state.gameDay,
-    rentDueInDays: state.rentDueInDays,
-    apartment: state.apartment,
-    apartmentLeaseRemaining: state.apartmentLeaseRemaining,
-    totalRam: state.totalRam,
-    totalGpus: state.totalGpus,
-    modelTierIndex: state.modelTierIndex,
-    purchasedRamUpgrades: state.purchasedRamUpgrades,
-    purchasedGpuUpgrades: state.purchasedGpuUpgrades,
-    purchasedFineTunes: state.purchasedFineTunes,
-    vibingCourses: state.vibingCourses,
-    agents: state.agents,
-    projects: state.projects,
-    leads: state.leads,
-    selectedTaskId: state.selectedTaskId,
-    tutorialDone: state.tutorialDone,
-    seenStoryIntro: state.seenStoryIntro,
-    acknowledgedTutorialStep: state.acknowledgedTutorialStep,
-    seenTabIntros: state.seenTabIntros,
-    leadSpawnCooldown: state.leadSpawnCooldown,
-    events: state.events,
-    stats: state.stats,
-    snapshotAt: state.snapshotAt,
-    rng: state.rng,
-    nextId: state.nextId,
+    version: SAVE_VERSION,
+    meta: state.meta,
+    state: {
+      ...state,
+      projects: repairStaleCodingAssignments(state.projects, state.agents),
+    },
   }
 }
 
@@ -68,24 +76,30 @@ export function loadPersistedState(): GameState | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as { state?: GameState; version?: number }
-    if (!parsed.state) return null
-    const version = parsed.version ?? 4
-    if (version > SAVE_VERSION) return null
-    if (version < SAVE_VERSION) {
-      return normalizeLoadedState(migrateState(parsed.state, version))
+    const parsed = JSON.parse(raw) as PersistedSave | { state?: GameState; version?: number }
+    if ('meta' in parsed && parsed.state) {
+      const version = parsed.version ?? SAVE_VERSION
+      if (version > SAVE_VERSION) return null
+      const state = version < SAVE_VERSION ? migrateState(parsed.state, version) : parsed.state
+      return normalizeLoadedState({ ...state, meta: parsed.meta ?? createDefaultMeta() })
     }
-    return normalizeLoadedState(parsed.state)
+    // legacy v7 blob
+    const legacy = parsed as { state?: GameState; version?: number }
+    if (!legacy.state) return null
+    const version = legacy.version ?? 6
+    const migrated = migrateState(legacy.state, version)
+    return normalizeLoadedState(migrated)
   } catch {
     return null
   }
 }
 
 export function savePersistedState(state: GameState): void {
-  const payload = { state: partializeState(state), version: SAVE_VERSION }
-  localStorage.setItem(SAVE_KEY, JSON.stringify(payload))
+  localStorage.setItem(SAVE_KEY, JSON.stringify(partializeSave(state)))
 }
 
 export function injectPersistedState(state: GameState): void {
   savePersistedState(state)
 }
+
+export { SAVE_VERSION, MODEL_TIERS }

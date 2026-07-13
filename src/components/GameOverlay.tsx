@@ -1,38 +1,26 @@
-import { resetGameMsg } from '../game/messages'
+import { acceptSingularityMsg } from '../game/messages'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
 export function GameOverlay() {
   const { phase } = useGameState()
   const dispatchAt = useGameDispatchAt()
 
-  if (phase === 'playing') return null
+  if (phase !== 'singularity') return null
 
   return (
-    <div className="game-overlay" role="dialog" aria-label={phase === 'won' ? 'You retired' : 'Game over'}>
+    <div className="game-overlay" role="dialog" aria-label="Singularity achieved">
       <div className="game-overlay__card">
-        {phase === 'won' && (
-          <>
-            <h2>You Retired!</h2>
-            <p aria-label="$10M net worth achieved. You sold the server farm and moved somewhere with no Slack.">
-              $10M net worth achieved. You sold the server farm and moved somewhere with no Slack.
-            </p>
-          </>
-        )}
-        {phase === 'lost' && (
-          <>
-            <h2>Cardboard Box Acquired</h2>
-            <p aria-label="No reputation. No clients. The agents would keep working, but nobody's paying.">
-              No reputation. No clients. The agents would keep working, but nobody&apos;s paying.
-            </p>
-          </>
-        )}
+        <h2>Singularity</h2>
+        <p aria-label="Dyson sphere online. Customer hallucinations maxed. Reality is now a backlog item.">
+          Dyson sphere online. Customer hallucinations maxed. Reality is now a backlog item.
+        </p>
         <button
           type="button"
           className="btn btn--sprint"
-          aria-label="Start over"
-          onClick={() => dispatchAt(resetGameMsg)}
+          aria-label="Accept singularity and start a new cycle"
+          onClick={() => dispatchAt(acceptSingularityMsg)}
         >
-          Start Over
+          Accept Singularity
         </button>
       </div>
     </div>

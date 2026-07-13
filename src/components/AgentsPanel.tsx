@@ -1,11 +1,13 @@
 import { agentContextDisplayPct, formatAgentDutyLabel } from '../game/mechanics'
+import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
 import type { Task } from '../game/types'
 import { useGameState } from '../runtime/GameRuntime'
 
 export function AgentsPanel() {
-  const { agents, projects, modelTierIndex } = useGameState()
-  const model = MODEL_TIERS[modelTierIndex]
+  const { agents, projects, meta } = useGameState()
+  const modelLevel = getHallucinationLevel(meta, 'model')
+  const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
 
   function findTask(taskId: string | null): Task | null {
     if (!taskId) return null
