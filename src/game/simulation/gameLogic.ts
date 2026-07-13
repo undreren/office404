@@ -60,12 +60,12 @@ import {
   computePrBaseQuality,
   conductorTier,
   contextFillMultiplier,
-  countActiveClientProjects,
   countAssignedPmAgents,
   countPmRoleAssignments,
   fillAgentContext,
   formatStoryPoints,
   getAgentParameters,
+  hasOpenClientProjectSlot,
   getFineTuneLevel,
   gpuTickCost,
   hasActiveAutomationAgent,
@@ -2086,8 +2086,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const lead = state.leads.find((l) => l.id === leadId)
   if (!lead || lead.status !== 'available') return state
   if (state.reputation < lead.repRequired) return state
-  const maxSlots = maxClientProjectSlots(state.meta, countAssignedPmAgents(state.agents))
-  if (countActiveClientProjects(state.projects) >= maxSlots) return state
+  if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects)) return state
 
   const project = createProjectFromLead(
     ctx,
@@ -2252,6 +2251,7 @@ function salesAutoAcceptSources(meta: MetaProgress): Set<'real' | 'synthetic'> {
 }
 
 function findAutoAcceptableLead(state: GameState): string | null {
+  if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects)) return null
   const sources = salesAutoAcceptSources(state.meta)
   const lead = state.leads.find(
     (l) => l.status === 'available' && sources.has(l.source) && state.reputation >= l.repRequired,
