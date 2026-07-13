@@ -140,6 +140,9 @@ export interface Task {
   reviewJobDuration?: number
   /** Refinement splits remaining for this task */
   refinePassesRemaining?: number
+  /** Saved refine progress when no refiner is staffed on this task */
+  refineJobProgress?: number
+  refineJobDuration?: number
 }
 
 export interface Project {

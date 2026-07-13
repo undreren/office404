@@ -582,16 +582,44 @@ export function refineRequirementToTasks(
   ]
 }
 
-export function canRefineTask(task: Task): boolean {
+export function taskNeedsRefinement(task: Task): boolean {
   return (
     (task.refinePassesRemaining ?? 0) > 0 &&
     !task.isBugFix &&
     !task.isReviewComment &&
     (task.status === 'open' || task.status === 'in_progress') &&
-    task.storyPointsEarned === 0 &&
+    task.storyPointsEarned === 0
+  )
+}
+
+export function canRefineTask(task: Task): boolean {
+  return (
+    taskNeedsRefinement(task) &&
     task.storyPointsRequired >= 2 &&
     splitStoryPoints(task.storyPointsRequired) !== null
   )
+}
+
+export function taskRefineProgressPct(
+  task: Task,
+  project: Project,
+  agents: Agent[],
+): number | null {
+  if (!taskNeedsRefinement(task)) return null
+  const refiner = agents.find(
+    (a) =>
+      a.job === 'refine' &&
+      a.projectId === project.id &&
+      a.taskId === task.id &&
+      a.jobDuration > 0,
+  )
+  if (refiner) {
+    return Math.min(100, (refiner.jobProgress / refiner.jobDuration) * 100)
+  }
+  if (task.refineJobDuration && task.refineJobDuration > 0) {
+    return Math.min(100, ((task.refineJobProgress ?? 0) / task.refineJobDuration) * 100)
+  }
+  return 0
 }
 
 export function refineTaskToTasks(ctx: SimCtx, task: Task): Task[] {
@@ -682,6 +710,10 @@ export function taskLifecycleProgressPct(
     return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
   }
 
+  if (taskNeedsRefinement(task)) {
+    return taskRefineProgressPct(task, project, agents) ?? 0
+  }
+
   if (task.status === 'open' || task.status === 'in_progress') {
     return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
   }
@@ -710,6 +742,7 @@ export function taskLifecycleProgressPct(
 }
 
 export function taskLifecycleLabel(task: Task, project: Project): string {
+  if (taskNeedsRefinement(task)) return 'refining'
   if (task.status === 'open' || task.status === 'in_progress') return 'coding'
   if (task.status === 'pr_ready') {
     const comments = reviewCommentsOnTask(project, task.id)
@@ -855,14 +888,17 @@ export function pickCodingTask(
   const ownByAssignment = project.tasks.find(
     (t) =>
       t.assignedAgentId === agentId &&
-      (t.status === 'open' || t.status === 'in_progress'),
+      (t.status === 'open' || t.status === 'in_progress') &&
+      !taskNeedsRefinement(t),
   )
   if (ownByAssignment) return ownByAssignment
 
   const ownByTaskId = self?.taskId
     ? project.tasks.find(
         (t) =>
-          t.id === self.taskId && (t.status === 'open' || t.status === 'in_progress'),
+          t.id === self.taskId &&
+          (t.status === 'open' || t.status === 'in_progress') &&
+          !taskNeedsRefinement(t),
       )
     : undefined
   if (ownByTaskId) return ownByTaskId
@@ -884,6 +920,7 @@ export function pickCodingTask(
       (t) =>
         !t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
+        !taskNeedsRefinement(t) &&
         !isCodingTaskAtCapacity(t, agents, maxPerTask) &&
         !claimed.has(t.id) &&
         t.storyPointsEarned < t.storyPointsRequired,

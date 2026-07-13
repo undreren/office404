@@ -425,11 +425,21 @@ function unassignAgentFromRole(
     }))
   }
   if (job === 'refine' && victim.taskId && victim.jobDuration > 0) {
-    nextProjects = updateRequirement(nextProjects, victim.taskId, (r) => ({
-      ...r,
-      refineJobProgress: victim.jobProgress,
-      refineJobDuration: victim.jobDuration,
-    }))
+    const project = projects.find((p) => p.id === projectId)
+    const isRequirement = project?.requirements.some((r) => r.id === victim.taskId)
+    if (isRequirement) {
+      nextProjects = updateRequirement(nextProjects, victim.taskId, (r) => ({
+        ...r,
+        refineJobProgress: victim.jobProgress,
+        refineJobDuration: victim.jobDuration,
+      }))
+    } else {
+      nextProjects = updateTask(nextProjects, victim.taskId, (t) => ({
+        ...t,
+        refineJobProgress: victim.jobProgress,
+        refineJobDuration: victim.jobDuration,
+      }))
+    }
   }
   if (job === 'review' && victim.taskId && victim.jobDuration > 0) {
     nextProjects = updateTask(nextProjects, victim.taskId, (t) => ({
@@ -1279,7 +1289,10 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                       refineJobProgress: target.requirement.refineJobProgress,
                       refineJobDuration: target.requirement.refineJobDuration,
                     }
-                  : { refineJobProgress: undefined, refineJobDuration: undefined }
+                  : {
+                      refineJobProgress: target.task.refineJobProgress,
+                      refineJobDuration: target.task.refineJobDuration,
+                    }
 
               agent.status = 'refining'
 
