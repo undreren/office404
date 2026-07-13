@@ -572,11 +572,12 @@ export function refineRequirementToTasks(
     return tasksFromSplit(ctx, requirement.projectId, requirement.title, sp, requirement.id, null, 0)
   }
 
+  const refinePassesRemaining = refinementTierLevel
   const [title] = pickSubtaskTitles(ctx.rng, requirement.title, 1)
   return [
     {
       ...createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id),
-      refinePassesRemaining: 0,
+      refinePassesRemaining,
     },
   ]
 }
