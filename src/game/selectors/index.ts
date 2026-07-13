@@ -1,6 +1,7 @@
 export {
   agentCapacity,
   canStaffAdditionalAgent,
+  canStaffRoleOnProject,
   getNetWorth,
   getNextApartment,
   isReadyToDeliver,

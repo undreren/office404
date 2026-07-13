@@ -3,6 +3,8 @@ import { SAVE_KEY } from '../game/constants'
 import { createDefaultMeta } from '../game/meta'
 import { createInitialState } from '../game/simulation/gameLogic'
 import {
+  decodeSaveImport,
+  encodeSaveExport,
   loadPersistedState,
   partializeSave,
   SAVE_VERSION,
@@ -75,5 +77,29 @@ describe('persist', () => {
     const saved = partializeSave(state)
     expect(saved.version).toBe(SAVE_VERSION)
     expect(saved.meta.retirementCount).toBe(0)
+  })
+
+  it('round-trips base64 export with events', () => {
+    const state = createInitialState(1000, 42)
+    state.events = [
+      {
+        id: 'evt-1',
+        timestamp: 1000,
+        type: 'system',
+        message: 'Day zero. The cardboard box has Wi-Fi.',
+      },
+    ]
+    const code = encodeSaveExport(state)
+    expect(code.startsWith('o404:v')).toBe(true)
+    const loaded = decodeSaveImport(code)
+    expect(loaded).not.toBeNull()
+    expect(loaded!.cash).toBe(state.cash)
+    expect(loaded!.events).toEqual(state.events)
+    expect(loaded!.meta).toEqual(state.meta)
+  })
+
+  it('rejects invalid import codes', () => {
+    expect(decodeSaveImport('')).toBeNull()
+    expect(decodeSaveImport('not-valid-base64!!!')).toBeNull()
   })
 })

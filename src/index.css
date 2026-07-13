@@ -1403,6 +1403,43 @@ body {
   margin-bottom: 0.35rem;
 }
 
+.save-backup {
+  margin-top: 0.5rem;
+}
+
+.save-backup__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.save-backup__copied {
+  margin: 0;
+}
+
+.save-backup__import-label {
+  display: block;
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.save-backup__code {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--text);
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+
 /* Bottom navigation */
 .bottom-nav {
   flex-shrink: 0;

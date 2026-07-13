@@ -802,7 +802,37 @@ function reconcileProjectStaffing(
     }
   }
 
+  nextProjects = clampRoleCountsToStaffed(project.id, nextAgents, nextProjects)
   return { agents: nextAgents, projects: nextProjects }
+}
+
+function clampRoleCountsToStaffed(
+  projectId: string,
+  agents: Agent[],
+  projects: Project[],
+): Project[] {
+  return projects.map((p) => {
+    if (p.id !== projectId) return p
+    const counts = { ...p.roleCounts }
+    for (const role of ['refine', 'code', 'review', 'test', 'conductor'] as const) {
+      const actual = projectAgents(projectId, role, agents).length
+      if (counts[role] > actual) counts[role] = actual
+    }
+    return { ...p, roleCounts: counts }
+  })
+}
+
+export function canStaffRoleOnProject(state: GameState, _projectId: string, job: AgentJob): boolean {
+  if (!isProjectRole(job)) return false
+  if (canSpawnAgent(state)) return true
+  if (state.agents.some((a) => a.job === null)) return true
+  return state.agents.some(
+    (a) =>
+      a.job !== null &&
+      a.job !== job &&
+      a.job !== 'conductor' &&
+      isAgentStaffable(a),
+  )
 }
 
 
@@ -1588,7 +1618,7 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
   const project = repaired.projects.find((p) => p.id === projectId)
   if (!project) return state
 
-  if (delta > 0 && !hasStaffableAgent(repaired.agents) && !canSpawnAgent(repaired)) return state
+  if (delta > 0 && !canStaffRoleOnProject(repaired, projectId, job)) return state
 
   if (delta < 0) {
     const nextRoleCount = Math.max(0, project.roleCounts[job] + delta)
@@ -1642,11 +1672,12 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
     conductorTick,
   )
   const nextAgents = reconciled.agents
+  const nextProjectsClamped = clampRoleCountsToStaffed(projectId, nextAgents, reconciled.projects)
 
   return withCtx({
     ...repaired,
     agents: nextAgents,
-    projects: reconciled.projects,
+    projects: nextProjectsClamped,
     stats: {
       ...(conductorTick?.stats ?? state.stats),
       agentsDeployed: Math.max(state.stats.agentsDeployed, nextAgents.length),

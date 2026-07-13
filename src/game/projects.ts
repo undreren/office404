@@ -709,7 +709,7 @@ export function taskLifecycleProgressPct(
     return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
   }
 
-  if (taskNeedsRefinement(task)) {
+  if (canRefineTask(task)) {
     return taskRefineProgressPct(task, project, agents) ?? 0
   }
 
@@ -741,7 +741,7 @@ export function taskLifecycleProgressPct(
 }
 
 export function taskLifecycleLabel(task: Task, project: Project): string {
-  if (taskNeedsRefinement(task)) return 'refining'
+  if (canRefineTask(task)) return 'refining'
   if (task.status === 'open' || task.status === 'in_progress') return 'coding'
   if (task.status === 'pr_ready') {
     const comments = reviewCommentsOnTask(project, task.id)
@@ -888,7 +888,7 @@ export function pickCodingTask(
     (t) =>
       t.assignedAgentId === agentId &&
       (t.status === 'open' || t.status === 'in_progress') &&
-      !taskNeedsRefinement(t),
+      !canRefineTask(t),
   )
   if (ownByAssignment) return ownByAssignment
 
@@ -897,7 +897,7 @@ export function pickCodingTask(
         (t) =>
           t.id === self.taskId &&
           (t.status === 'open' || t.status === 'in_progress') &&
-          !taskNeedsRefinement(t),
+          !canRefineTask(t),
       )
     : undefined
   if (ownByTaskId) return ownByTaskId
@@ -919,7 +919,7 @@ export function pickCodingTask(
       (t) =>
         !t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
-        !taskNeedsRefinement(t) &&
+        !canRefineTask(t) &&
         !isCodingTaskAtCapacity(t, agents, maxPerTask) &&
         !claimed.has(t.id) &&
         t.storyPointsEarned < t.storyPointsRequired,
