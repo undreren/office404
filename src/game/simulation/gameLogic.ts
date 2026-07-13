@@ -332,7 +332,7 @@ export function applyOfflineProgress(
     remaining -= chunk
   }
 
-  const ctx = ctxFrom(state)
+  const ctx = ctxFrom(advanced)
   const awayMinutes = Math.floor(capped / 60)
   const awayLabel =
     awayMinutes >= 60
@@ -453,8 +453,10 @@ export function createInitialState(
 
 function findTask(projects: Project[], taskId: string): { project: Project; task: Task } | null {
   for (const project of projects) {
-    const task = project.tasks.find((t) => t.id === taskId)
-    if (task) return { project, task }
+    const matches = project.tasks.filter((t) => t.id === taskId)
+    if (matches.length === 0) continue
+    const task = matches.find((t) => !t.isReviewComment) ?? matches[0]!
+    return { project, task }
   }
   return null
 }
@@ -824,7 +826,7 @@ function mergeTaskOnProject(
     const updatedTasks = p.tasks
       .filter((t) => !(t.isReviewComment && t.parentTaskId === taskId))
       .map((t) =>
-        t.id === taskId
+        t.id === taskId && !t.isReviewComment
           ? {
               ...t,
               status: 'merged' as const,
@@ -862,6 +864,28 @@ function tryAutoMergeReviewedPr(
   const result = mergeTaskOnProject(projects, parentTaskId, state, true)
   if (!result) return { projects, eventMessage: null }
   return { projects: result.projects, eventMessage: result.eventMessage }
+}
+
+function sweepAutoMergeReviewedPrs(
+  projects: Project[],
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers' | 'vibingCourses'>,
+): { projects: Project[]; eventMessages: string[] } {
+  let nextProjects = projects
+  const eventMessages: string[] = []
+
+  for (const project of nextProjects) {
+    if (project.status !== 'active') continue
+    const candidates = project.tasks.filter(
+      (t) => !t.isReviewComment && t.status === 'pr_ready' && t.reviewed,
+    )
+    for (const task of candidates) {
+      const result = tryAutoMergeReviewedPr(nextProjects, task.id, state)
+      nextProjects = result.projects
+      if (result.eventMessage) eventMessages.push(result.eventMessage)
+    }
+  }
+
+  return { projects: nextProjects, eventMessages }
 }
 
 function tryProgressTask(
@@ -1714,6 +1738,13 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
             nextAgents[agentIdx] = agent
           }
+
+  const autoMergeSweep = sweepAutoMergeReviewedPrs(nextProjects, state)
+  nextProjects = autoMergeSweep.projects
+  for (const message of autoMergeSweep.eventMessages) {
+    nextStats.tasksMerged += 1
+    nextEvents = pushEvent(ctx, meta, nextEvents, 'project', message, at)
+  }
 
   let tickState = withCtx({
     ...state,

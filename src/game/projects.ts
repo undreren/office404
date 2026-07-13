@@ -1,4 +1,4 @@
-import type { Agent, AgentJob, Lead, LeadSource, Project, ProjectKind, Requirement, StaffJob, Task } from './types'
+import type { Agent, AgentJob, GameState, Lead, LeadSource, Project, ProjectKind, Requirement, StaffJob, Task } from './types'
 import { MIN_PROJECT_DAYS, TUTORIAL_PAYMENT, MAX_CLIENT_TASK_SP } from './constants'
 import { pickJokeClient } from './clients'
 import {
@@ -12,7 +12,7 @@ import {
   reviewCommentSpawnCount,
 } from './mechanics'
 import { pickBugDescription, pickSubtaskTitles } from './refinementContent'
-import { type SimCtx, uid } from './simulation/simCtx'
+import { type SimCtx, ctxFrom, uid } from './simulation/simCtx'
 
 export type { SimCtx } from './simulation/simCtx'
 
@@ -962,6 +962,43 @@ export function repairStaleCodingAssignments(projects: Project[], _agents: Agent
       task.assignedAgentId ? { ...task, assignedAgentId: null } : task,
     ),
   }))
+}
+
+/** Reassign duplicate task ids (offline catch-up used to roll back nextId). */
+export function repairDuplicateTaskIds(state: GameState): GameState {
+  const ctx = ctxFrom(state)
+
+  const projects = state.projects.map((project) => {
+    const canonical = new Map<string, number>()
+    const tasks = [...project.tasks]
+
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i]!
+      const prevIdx = canonical.get(task.id)
+      if (prevIdx === undefined) {
+        canonical.set(task.id, i)
+        continue
+      }
+
+      const prev = tasks[prevIdx]!
+      if (task.isReviewComment && !prev.isReviewComment) {
+        tasks[i] = { ...task, id: uid(ctx, 'task') }
+        continue
+      }
+      if (!task.isReviewComment && prev.isReviewComment) {
+        tasks[prevIdx] = { ...prev, id: uid(ctx, 'task') }
+        canonical.set(tasks[prevIdx]!.id, prevIdx)
+        canonical.set(task.id, i)
+        continue
+      }
+
+      tasks[i] = { ...task, id: uid(ctx, 'task') }
+    }
+
+    return { ...project, tasks }
+  })
+
+  return { ...state, projects, nextId: ctx.ids.nextId }
 }
 
 export function pickCodingTask(
