@@ -910,10 +910,9 @@ function reconcileProjectStaffing(
   const agentsPerTask = maxAgentsPerTask(bestOfNTier(state.vibingCourseTiers))
 
   const syncedProject = () => nextProjects.find((p) => p.id === project.id) ?? project
+  let hadWorkerReassignment = false
   const noteWorkerReassignment = () => {
-    if (conductorTick) {
-      nextAgents = gainConductorContextOnReassignment(nextAgents, project.id, conductorTick)
-    }
+    hadWorkerReassignment = true
   }
 
   if (project.useConductor && hasConductorCourse(state.vibingCourses)) {
@@ -997,6 +996,9 @@ function reconcileProjectStaffing(
           }
         }
       }
+    }
+    if (hadWorkerReassignment && conductorTick) {
+      nextAgents = gainConductorContextOnReassignment(nextAgents, project.id, conductorTick)
     }
     return { agents: nextAgents, projects: nextProjects }
   }
