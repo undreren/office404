@@ -1,61 +1,38 @@
 import { describe, expect, it } from 'vitest'
 import {
-  assignAutomationAgentMsg,
   buyAgentSlotMsg,
   buyVibingCourseMsg,
-  setAutomationAgentActiveMsg,
   stateChanged,
   timeElapsed,
+  toggleSpecialistRoleMsg,
 } from '../messages'
 import { agentCapacity } from '../simulation/gameLogic'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { stateWithCash } from './_helpers/stateWithCash'
 import { T0 } from './_helpers/testConstants'
-import type { Agent, GameState } from '../types'
+import type { GameState } from '../types'
 
 describe('automation-agent-slots', () => {
-  it('spawns an automation agent that occupies a roster slot when capacity allows', () => {
+  it('does not spawn a specialist when a course unlocks — player assigns via checkbox', () => {
     const before = stateWithCash(initialPlaying(), 500)
     const withSlot = dispatchChain(before, [buyAgentSlotMsg(T0 + 500)])
-    const slotsBefore = agentCapacity(withSlot)
 
     const state = dispatchChain(withSlot, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
 
-    expect(state.agents.some((a) => a.isAutomation && a.automationJob === 'marketing')).toBe(true)
-    expect(agentCapacity(state).used).toBe(slotsBefore.used + 1)
-  })
-
-  it('defers specialist spawn when the roster is full at unlock', () => {
-    const before = stateWithCash(initialPlaying(), 350)
-
-    const state = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
-
     expect(state.agents.some((a) => a.isAutomation && a.automationJob === 'marketing')).toBe(false)
-    expect(agentCapacity(state).used).toBe(agentCapacity(before).used)
+    expect(state.assignedSpecialistRoles).not.toContain('marketing')
+    expect(agentCapacity(state).used).toBe(1)
   })
 
-  it('materializes a deferred specialist when a new roster slot opens', () => {
+  it('assigns a specialist agent when the role is toggled on and roster space exists', () => {
     const before = stateWithCash(initialPlaying(), 500)
-    const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
-    expect(unlocked.agents.some((a) => a.automationJob === 'marketing')).toBe(false)
+    const withSlot = dispatchChain(before, [buyAgentSlotMsg(T0 + 500)])
+    const unlocked = dispatchChain(withSlot, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
 
-    const withSlot = dispatchChain(unlocked, [buyAgentSlotMsg(T0 + 1500)])
+    const assigned = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 2000, 'marketing', true)])
 
-    expect(withSlot.agents.some((a) => a.isAutomation && a.automationJob === 'marketing')).toBe(true)
-    expect(agentCapacity(withSlot).used).toBe(2)
-  })
-
-  it('assigns a deferred specialist from the status action when roster space is available', () => {
-    const before = stateWithCash(initialPlaying(), 350)
-    const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
-    const spareCapacity: GameState = {
-      ...unlocked,
-      agentSlotPurchases: 1,
-    }
-
-    const assigned = dispatchChain(spareCapacity, [assignAutomationAgentMsg(T0 + 2000, 'marketing')])
-
+    expect(assigned.assignedSpecialistRoles).toContain('marketing')
     expect(assigned.agents.some((a) => a.isAutomation && a.automationJob === 'marketing')).toBe(true)
     expect(agentCapacity(assigned).used).toBe(2)
   })
@@ -64,47 +41,52 @@ describe('automation-agent-slots', () => {
     const before = stateWithCash(initialPlaying(), 350)
     const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
 
-    const blocked = dispatchChain(unlocked, [assignAutomationAgentMsg(T0 + 2000, 'marketing')])
+    const blocked = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 2000, 'marketing', true)])
 
     expect(stateChanged(unlocked, blocked)).toBe(false)
+    expect(blocked.assignedSpecialistRoles).not.toContain('marketing')
   })
 
-  it('benches an automation agent from the status action without freeing the roster slot', () => {
+  it('removes the agent and frees the roster slot when a specialist role is toggled off', () => {
     const before = stateWithCash(initialPlaying(), 500)
     const withSlot = dispatchChain(before, [buyAgentSlotMsg(T0 + 500)])
-    const withMarketing = dispatchChain(withSlot, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
-    const marketingAgent = withMarketing.agents.find((a) => a.automationJob === 'marketing')!
-    const usedBefore = agentCapacity(withMarketing).used
+    const unlocked = dispatchChain(withSlot, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
+    const assigned = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 2000, 'marketing', true)])
+    const usedBefore = agentCapacity(assigned).used
 
-    const benched = dispatchChain(withMarketing, [
-      setAutomationAgentActiveMsg(T0 + 2000, marketingAgent.id, false),
-    ])
-    const benchedAgent = benched.agents.find((a) => a.id === marketingAgent.id)!
+    const unassigned = dispatchChain(assigned, [toggleSpecialistRoleMsg(T0 + 3000, 'marketing', false)])
 
-    expect(benchedAgent.job).toBeNull()
-    expect(agentCapacity(benched).used).toBe(usedBefore)
+    expect(unassigned.assignedSpecialistRoles).not.toContain('marketing')
+    expect(unassigned.agents.some((a) => a.automationJob === 'marketing')).toBe(false)
+    expect(agentCapacity(unassigned).used).toBe(usedBefore - 1)
   })
 
-  it('does not let conductor pull a benched automation agent onto project work', () => {
+  it('materializes an assigned specialist when a new roster slot opens', () => {
+    const before = stateWithCash(initialPlaying(), 500)
+    const withSlot = dispatchChain(before, [buyAgentSlotMsg(T0 + 500)])
+    const unlocked = dispatchChain(withSlot, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
+    const assigned = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 2000, 'marketing', true)])
+    expect(assigned.agents.some((a) => a.automationJob === 'marketing')).toBe(true)
+
+    const unassigned = dispatchChain(assigned, [toggleSpecialistRoleMsg(T0 + 2500, 'marketing', false)])
+    const withSecondSlot = dispatchChain(unassigned, [buyAgentSlotMsg(T0 + 3000)])
+    const reassigned = dispatchChain(withSecondSlot, [
+      toggleSpecialistRoleMsg(T0 + 3500, 'marketing', true),
+    ])
+
+    expect(reassigned.agents.some((a) => a.isAutomation && a.automationJob === 'marketing')).toBe(true)
+    expect(agentCapacity(reassigned).used).toBe(2)
+  })
+
+  it('does not let conductor pull an unassigned specialist onto project work', () => {
     const base = initialPlaying()
     const project = base.projects[0]!
     const template = base.agents[0]!
-    const marketingAgent: Agent = {
-      ...template,
-      id: 'marketing-1',
-      isAutomation: true,
-      automationJob: 'marketing',
-      job: null,
-      projectId: null,
-      status: 'idle',
-      taskId: null,
-      contextUsed: 0,
-      compactingRemainingSec: 0,
-    }
 
     const before: GameState = {
       ...base,
       vibingCourses: ['conductor', 'marketing'],
+      assignedSpecialistRoles: [],
       projects: [
         {
           ...project,
@@ -123,28 +105,28 @@ describe('automation-agent-slots', () => {
           contextUsed: 0,
           compactingRemainingSec: 0,
         },
-        marketingAgent,
       ],
     }
 
     const state = dispatchChain(before, [timeElapsed(T0 + 1000, 1)])
 
-    expect(state.agents.find((a) => a.id === marketingAgent.id)?.job).toBeNull()
+    expect(state.agents.some((a) => a.isAutomation)).toBe(false)
     expect(state.agents.some((a) => a.projectId === project.id && a.job === 'refine')).toBe(false)
   })
 
-  it('pauses procurement automation when the procurement agent is benched', () => {
+  it('pauses procurement automation when the procurement specialist is unassigned', () => {
     const before = stateWithCash(initialPlaying(), 5000)
     const withSlot = dispatchChain(before, [buyAgentSlotMsg(T0 + 500)])
-    const withProcurement = dispatchChain(withSlot, [buyVibingCourseMsg(T0 + 1000, 'procurement')])
-    const procurementAgent = withProcurement.agents.find((a) => a.automationJob === 'procurement')!
-    const slotsBefore = withProcurement.agentSlotPurchases
+    const unlocked = dispatchChain(withSlot, [buyVibingCourseMsg(T0 + 1000, 'procurement')])
+    const assigned = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 1500, 'procurement', true)])
+    const slotsBefore = assigned.agentSlotPurchases
 
-    const benched = dispatchChain(withProcurement, [
-      setAutomationAgentActiveMsg(T0 + 2000, procurementAgent.id, false),
+    const unassigned = dispatchChain(assigned, [
+      toggleSpecialistRoleMsg(T0 + 2000, 'procurement', false),
       timeElapsed(T0 + 3000, 60),
     ])
 
-    expect(benched.agentSlotPurchases).toBe(slotsBefore)
+    expect(unassigned.agents.some((a) => a.automationJob === 'procurement')).toBe(false)
+    expect(unassigned.agentSlotPurchases).toBe(slotsBefore)
   })
 })

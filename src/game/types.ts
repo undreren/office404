@@ -229,6 +229,8 @@ export interface GameState {
   vibingCourses: string[]
   /** Per-course tier for multi-level vibing (e.g. refinement, PM) */
   vibingCourseTiers: Partial<Record<string, number>>
+  /** Specialist automation roles the player has assigned (each uses one roster slot). */
+  assignedSpecialistRoles: AgentJob[]
   agents: Agent[]
   projects: Project[]
   productBacklog: ProductBacklogItem[]

@@ -53,7 +53,6 @@ import {
 import {
   agentRoleLabel,
   agentTickSpeed,
-  AUTOMATION_AGENT_JOBS,
   bestOfNTier,
   clientLeadPipelineTarget,
   computePrBaseQuality,
@@ -183,46 +182,98 @@ function createAutomationAgent(ctx: SimCtx, automationJob: AutomationAgentJob): 
   return agent
 }
 
-export function syncAutomationAgents(state: GameState, ctx: SimCtx): GameState {
-  let agents = [...state.agents]
-  let spawned = 0
+export function reconcileSpecialistAgents(state: GameState, ctx: SimCtx): GameState {
+  const assigned = state.assignedSpecialistRoles.filter((job) =>
+    isAutomationAgentUnlocked(state, job as AutomationAgentJob),
+  ) as AutomationAgentJob[]
 
-  for (const job of AUTOMATION_AGENT_JOBS) {
-    if (!isAutomationAgentUnlocked(state, job)) continue
+  let agents = state.agents.filter((a) => {
+    if (!a.isAutomation || !a.automationJob) return true
+    return assigned.includes(a.automationJob as AutomationAgentJob)
+  })
+
+  let spawned = 0
+  for (const job of assigned) {
     const exists = agents.some((a) => a.isAutomation && a.automationJob === job)
     if (exists) continue
-    if (agents.length >= maxAgents({ ...state, agents })) break
+    if (agents.length >= maxAgents({ ...state, agents })) continue
     agents.push(createAutomationAgent(ctx, job))
     spawned += 1
   }
 
-  if (spawned === 0) return state
+  const rolesChanged = assigned.length !== state.assignedSpecialistRoles.length
+  const agentsChanged = agents.length !== state.agents.length
+  if (!rolesChanged && !agentsChanged && spawned === 0) return state
+
   return {
     ...state,
+    assignedSpecialistRoles: assigned,
     agents,
-    stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + spawned },
+    stats:
+      spawned > 0
+        ? { ...state.stats, agentsDeployed: state.stats.agentsDeployed + spawned }
+        : state.stats,
   }
 }
 
-export function assignAutomationAgent(
+/** @deprecated Use reconcileSpecialistAgents */
+export const syncAutomationAgents = reconcileSpecialistAgents
+
+export function toggleSpecialistRole(
   state: GameState,
   job: AutomationAgentJob,
+  enabled: boolean,
   at: number,
 ): GameState {
   if (!isAutomationAgentUnlocked(state, job)) return state
 
-  const existing = state.agents.find((a) => a.isAutomation && a.automationJob === job)
-  if (existing) {
-    return setAutomationAgentActive(state, existing.id, true, at)
+  const isAssigned = state.assignedSpecialistRoles.includes(job)
+  if (enabled === isAssigned) return state
+
+  const ctx = ctxFrom(state)
+  const label = agentRoleLabel(job)
+
+  if (!enabled) {
+    const nextAgents = state.agents.filter((a) => !(a.isAutomation && a.automationJob === job))
+    return withCtx(
+      {
+        ...state,
+        assignedSpecialistRoles: state.assignedSpecialistRoles.filter((role) => role !== job),
+        agents: nextAgents,
+        events: pushEvent(
+          ctx,
+          state.meta,
+          state.events,
+          'system',
+          `${label} specialist unassigned — roster slot freed.`,
+          at,
+        ),
+      },
+      ctx,
+      at,
+    )
+  }
+
+  if (state.agents.some((a) => a.isAutomation && a.automationJob === job)) {
+    return withCtx(
+      {
+        ...state,
+        assignedSpecialistRoles: state.assignedSpecialistRoles.includes(job)
+          ? state.assignedSpecialistRoles
+          : [...state.assignedSpecialistRoles, job],
+      },
+      ctx,
+      at,
+    )
   }
 
   if (state.agents.length >= maxAgents(state)) return state
 
-  const ctx = ctxFrom(state)
   const agent = createAutomationAgent(ctx, job)
   return withCtx(
     {
       ...state,
+      assignedSpecialistRoles: [...state.assignedSpecialistRoles, job],
       agents: [...state.agents, agent],
       stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
       events: pushEvent(
@@ -230,61 +281,9 @@ export function assignAutomationAgent(
         state.meta,
         state.events,
         'system',
-        `${agent.name} (${agentRoleLabel(job)}) assigned to specialist duty.`,
+        `${agent.name} (${label}) assigned to specialist duty.`,
         at,
       ),
-    },
-    ctx,
-    at,
-  )
-}
-
-export function setAutomationAgentActive(
-  state: GameState,
-  agentId: string,
-  active: boolean,
-  at: number,
-): GameState {
-  const agent = state.agents.find((a) => a.id === agentId)
-  if (!agent?.isAutomation || !agent.automationJob) return state
-  if (active === (agent.job === agent.automationJob)) return state
-
-  const ctx = ctxFrom(state)
-  const automationJob = agent.automationJob
-  const nextAgents = state.agents.map((a) => {
-    if (a.id !== agentId) return a
-    if (active) {
-      return {
-        ...a,
-        job: automationJob,
-        projectId: null,
-        taskId: null,
-        jobProgress: 0,
-        jobDuration: 0,
-        status: jobStatusFor(automationJob),
-      }
-    }
-    return {
-      ...a,
-      job: null,
-      projectId: null,
-      taskId: null,
-      jobProgress: 0,
-      jobDuration: 0,
-      status: 'idle' as const,
-    } satisfies Agent
-  })
-
-  const label = agentRoleLabel(automationJob)
-  const message = active
-    ? `${agent.name} (${label}) back on automation duty.`
-    : `${agent.name} (${label}) benched — automation paused.`
-
-  return withCtx(
-    {
-      ...state,
-      agents: nextAgents,
-      events: pushEvent(ctx, state.meta, state.events, 'system', message, at),
     },
     ctx,
     at,
@@ -343,6 +342,7 @@ export function createInitialState(
     fineTuneTiers: {},
     vibingCourses: [],
     vibingCourseTiers: {},
+    assignedSpecialistRoles: [],
     agents,
     projects,
     productBacklog: [],

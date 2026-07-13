@@ -11,7 +11,6 @@ import {
   acknowledgeTutorialStep,
   adjustRoleCount,
   advanceTime,
-  assignAutomationAgent,
   buyAgentSlot,
   buyFineTune,
   buyGpuTick,
@@ -25,7 +24,7 @@ import {
   resetGame,
   retire,
   selectTask,
-  setAutomationAgentActive,
+  toggleSpecialistRole,
   toggleConductor,
   upgradeApartment,
   upgradeModelTier,
@@ -141,12 +140,8 @@ export function acknowledgeTutorialStepMsg(at: number, step: number): GameMessag
   return { at, apply: (state) => acknowledgeTutorialStep(state, step, at) }
 }
 
-export function assignAutomationAgentMsg(at: number, job: AutomationAgentJob): GameMessage {
-  return { at, apply: (state) => assignAutomationAgent(state, job, at) }
-}
-
-export function setAutomationAgentActiveMsg(at: number, agentId: string, active: boolean): GameMessage {
-  return { at, apply: (state) => setAutomationAgentActive(state, agentId, active, at) }
+export function toggleSpecialistRoleMsg(at: number, job: AutomationAgentJob, enabled: boolean): GameMessage {
+  return { at, apply: (state) => toggleSpecialistRole(state, job, enabled, at) }
 }
 
 export function acknowledgeCompactionIntroMsg(at: number): GameMessage {

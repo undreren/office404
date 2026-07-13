@@ -330,10 +330,7 @@ export function formatAgentDutyLabel(
   taskTitle: string | undefined,
 ): string {
   if (agent.isAutomation && agent.automationJob) {
-    return automationAgentDutyLabel(
-      agent.automationJob as AutomationAgentJob,
-      agent.job === agent.automationJob,
-    )
+    return automationAgentDutyLabel(agent.automationJob as AutomationAgentJob)
   }
   if (!agent.job) return 'Idle'
   const client = projectClientName ?? 'project'
@@ -455,8 +452,7 @@ export function hasActiveAutomationAgent(agents: Agent[], job: AutomationAgentJo
   return agents.some((a) => a.isAutomation && a.automationJob === job && a.job === job)
 }
 
-export function automationAgentDutyLabel(job: AutomationAgentJob, active: boolean): string {
-  if (!active) return `Benched (${agentRoleLabel(job)} agent)`
+export function automationAgentDutyLabel(job: AutomationAgentJob): string {
   switch (job) {
     case 'procurement':
       return 'Procuring upgrades'

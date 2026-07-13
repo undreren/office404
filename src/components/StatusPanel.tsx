@@ -9,7 +9,7 @@ import {
 import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
 import type { Agent, Project, Task } from '../game/types'
-import { assignAutomationAgentMsg, setAutomationAgentActiveMsg } from '../game/messages'
+import { toggleSpecialistRoleMsg } from '../game/messages'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { SaveBackupPanel } from './SaveBackupPanel'
 
@@ -38,22 +38,16 @@ function AgentMiniCard({
   duty,
   fill,
   isCompacting,
-  onAutomationToggle,
 }: {
   agent: Agent
   duty: string
   fill: number
   isCompacting: boolean
-  onAutomationToggle?: (active: boolean) => void
 }) {
-  const isAutomation = agent.isAutomation && agent.automationJob
-  const automationActive = isAutomation && agent.job === agent.automationJob
-  const automationJob = agent.automationJob
-
   const agentSummary = [
     agent.name,
     duty,
-    isAutomation ? null : `${Math.floor(fill)}% context`,
+    `${Math.floor(fill)}% context`,
     isCompacting ? 'compacting' : null,
   ]
     .filter(Boolean)
@@ -66,70 +60,69 @@ function AgentMiniCard({
     >
       <span className="agent-mini-card__name">{agent.name}</span>
       <span className="agent-mini-card__duty">{duty}</span>
-      {!isAutomation && (
-        <span
-          className={`agent-mini-card__ctx${isCompacting ? ' agent-mini-card__ctx--draining' : ''}`}
-        >
-          {Math.floor(fill)}% ctx
-        </span>
-      )}
-      {isAutomation && automationJob && onAutomationToggle && (
-        <button
-          type="button"
-          className="btn btn--small agent-mini-card__bench"
-          data-testid={
-            automationActive
-              ? `status-bench-automation-${automationJob}`
-              : `status-activate-automation-${automationJob}`
-          }
-          aria-label={
-            automationActive
-              ? `Bench ${agentRoleLabel(automationJob)} agent ${agent.name}`
-              : `Activate ${agentRoleLabel(automationJob)} agent ${agent.name}`
-          }
-          onClick={() => onAutomationToggle(!automationActive)}
-        >
-          {automationActive ? 'Bench' : 'Activate'}
-        </button>
-      )}
+      <span
+        className={`agent-mini-card__ctx${isCompacting ? ' agent-mini-card__ctx--draining' : ''}`}
+      >
+        {Math.floor(fill)}% ctx
+      </span>
     </li>
   )
 }
 
 function SpecialistRoleRow({
   job,
+  assigned,
   rosterFull,
-  onAssign,
+  agent,
+  modelContextSize,
+  projects,
+  onToggle,
 }: {
   job: AutomationAgentJob
+  assigned: boolean
   rosterFull: boolean
-  onAssign: () => void
+  agent: Agent | undefined
+  modelContextSize: number
+  projects: Project[]
+  onToggle: (enabled: boolean) => void
 }) {
   const label = agentRoleLabel(job)
+  const disableAssign = !assigned && rosterFull
+
   return (
-    <li
-      className="agent-mini-card agent-mini-card--unassigned"
-      aria-label={`${label} specialist unassigned${rosterFull ? ', roster full' : ''}`}
-    >
-      <span className="agent-mini-card__name">{label}</span>
-      <span className="agent-mini-card__duty">Unassigned — uses one roster slot</span>
-      <button
-        type="button"
-        className="btn btn--small agent-mini-card__bench"
-        data-testid={`status-assign-automation-${job}`}
-        aria-label={`Assign ${label} specialist${rosterFull ? ', roster full' : ''}`}
-        disabled={rosterFull}
-        onClick={onAssign}
-      >
-        Assign
-      </button>
+    <li className="specialist-role-row">
+      <label className="crew-label specialist-role-row__label">
+        <input
+          type="checkbox"
+          checked={assigned}
+          disabled={disableAssign}
+          data-testid={`status-specialist-${job}`}
+          aria-label={`${label} specialist${assigned ? ', assigned' : disableAssign ? ', roster full' : ', unassigned'}`}
+          onChange={(e) => onToggle(e.target.checked)}
+        />{' '}
+        {label}
+      </label>
+      {agent && (
+        <ul className="agent-mini-list agent-mini-list--inline">
+          <AgentMiniCard
+            agent={agent}
+            duty={formatAgentDutyLabel(
+              agent,
+              projects.find((p) => p.id === agent.projectId)?.clientName,
+              findTask(projects, agent.taskId)?.title,
+            )}
+            fill={agentContextDisplayPct(agent, modelContextSize)}
+            isCompacting={agent.status === 'compacting'}
+          />
+        </ul>
+      )}
     </li>
   )
 }
 
 export function StatusPanel() {
   const state = useGameState()
-  const { agents, projects, meta, events, vibingCourses } = state
+  const { agents, projects, meta, events, vibingCourses, assignedSpecialistRoles } = state
   const dispatchAt = useGameDispatchAt()
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
@@ -146,47 +139,27 @@ export function StatusPanel() {
 
       {specialistJobs.length > 0 && (
         <>
-          <h3 className="status-panel__section">Specialist agents</h3>
+          <h3 className="status-panel__section">Specialist roles</h3>
           <p className="hint">
-            Prestige unlocks and vibing courses. Each specialist uses a roster slot ({agents.length}/
-            {rosterMax}).
+            Toggle to assign an agent to each role. Unassigned roles use no roster slot (
+            {agents.length}/{rosterMax}).
           </p>
           <div className="status-panel__specialist-box">
-            <ul className="agent-mini-list">
-              {specialistJobs.map((job) => {
-                const agent = agents.find((a) => a.isAutomation && a.automationJob === job)
-                if (!agent) {
-                  return (
-                    <SpecialistRoleRow
-                      key={job}
-                      job={job}
-                      rosterFull={rosterFull}
-                      onAssign={() =>
-                        dispatchAt((at) => assignAutomationAgentMsg(at, job))
-                      }
-                    />
-                  )
-                }
-
-                const project = projects.find((p) => p.id === agent.projectId)
-                const task = findTask(projects, agent.taskId)
-                const fill = agentContextDisplayPct(agent, model.contextSize)
-                const duty = formatAgentDutyLabel(agent, project?.clientName, task?.title)
-                const isCompacting = agent.status === 'compacting'
-
-                return (
-                  <AgentMiniCard
-                    key={agent.id}
-                    agent={agent}
-                    duty={duty}
-                    fill={fill}
-                    isCompacting={isCompacting}
-                    onAutomationToggle={(active) =>
-                      dispatchAt((at) => setAutomationAgentActiveMsg(at, agent.id, active))
-                    }
-                  />
-                )
-              })}
+            <ul className="specialist-role-list">
+              {specialistJobs.map((job) => (
+                <SpecialistRoleRow
+                  key={job}
+                  job={job}
+                  assigned={assignedSpecialistRoles.includes(job)}
+                  rosterFull={rosterFull}
+                  agent={agents.find((a) => a.isAutomation && a.automationJob === job)}
+                  modelContextSize={model.contextSize}
+                  projects={projects}
+                  onToggle={(enabled) =>
+                    dispatchAt((at) => toggleSpecialistRoleMsg(at, job, enabled))
+                  }
+                />
+              ))}
             </ul>
           </div>
         </>
