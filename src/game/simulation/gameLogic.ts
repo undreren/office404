@@ -196,22 +196,30 @@ export function reconcileSpecialistAgents(state: GameState, ctx: SimCtx): GameSt
   })
 
   let spawned = 0
+  let projects = state.projects
   for (const job of assigned) {
     const exists = agents.some((a) => a.isAutomation && a.automationJob === job)
     if (exists) continue
-    if (agents.length >= maxAgents({ ...state, agents })) continue
+    if (agents.length >= maxAgents({ ...state, agents })) {
+      const yeeted = yeetProjectAgentForRosterSlot(agents, projects)
+      if (!yeeted) continue
+      agents = yeeted.agents
+      projects = yeeted.projects
+    }
     agents.push(createAutomationAgent(ctx, job))
     spawned += 1
   }
 
   const rolesChanged = assigned.length !== state.assignedSpecialistRoles.length
   const agentsChanged = agents.length !== state.agents.length
-  if (!rolesChanged && !agentsChanged && spawned === 0) return state
+  const projectsChanged = projects !== state.projects
+  if (!rolesChanged && !agentsChanged && !projectsChanged && spawned === 0) return state
 
   return {
     ...state,
     assignedSpecialistRoles: assigned,
     agents,
+    projects,
     stats:
       spawned > 0
         ? { ...state.stats, agentsDeployed: state.stats.agentsDeployed + spawned }
@@ -270,21 +278,33 @@ export function toggleSpecialistRole(
     )
   }
 
-  if (state.agents.length >= maxAgents(state)) return state
+  let agents = state.agents
+  let projects = state.projects
+  let yeetNote = ''
+
+  if (agents.length >= maxAgents(state)) {
+    const yeeted = yeetProjectAgentForRosterSlot(agents, projects)
+    if (!yeeted) return state
+    agents = yeeted.agents
+    projects = yeeted.projects
+    const project = projects.find((p) => p.id === yeeted.yeeted.projectId)
+    yeetNote = ` Yeeted ${yeeted.yeeted.name} off ${project?.clientName ?? 'a project'} for roster space.`
+  }
 
   const agent = createAutomationAgent(ctx, job)
   return withCtx(
     {
       ...state,
       assignedSpecialistRoles: [...state.assignedSpecialistRoles, job],
-      agents: [...state.agents, agent],
+      agents: [...agents, agent],
+      projects,
       stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
       events: pushEvent(
         ctx,
         state.meta,
         state.events,
         'system',
-        `${agent.name} (${label}) assigned to specialist duty.`,
+        `${agent.name} (${label}) assigned to specialist duty.${yeetNote}`,
         at,
       ),
     },
@@ -589,6 +609,57 @@ function updateRequirement(
     ...p,
     requirements: p.requirements.map((r) => (r.id === requirementId ? updater(r) : r)),
   }))
+}
+
+const YEET_ROLE_ORDER: AgentJob[] = ['test', 'review', 'code', 'refine', 'conductor']
+
+function pickProjectAgentToYeet(agents: Agent[]): Agent | null {
+  const candidates = agents.filter(
+    (a) => !a.isAutomation && a.projectId && a.job && isProjectRole(a.job),
+  )
+  if (candidates.length === 0) return null
+
+  const roleRank = new Map(YEET_ROLE_ORDER.map((job, index) => [job, index]))
+
+  candidates.sort((a, b) => {
+    const busyA = isAgentBusy(a) ? 1 : 0
+    const busyB = isAgentBusy(b) ? 1 : 0
+    if (busyA !== busyB) return busyA - busyB
+    const rankA = roleRank.get(a.job!) ?? YEET_ROLE_ORDER.length
+    const rankB = roleRank.get(b.job!) ?? YEET_ROLE_ORDER.length
+    return rankA - rankB
+  })
+
+  return candidates[0]!
+}
+
+function yeetProjectAgentForRosterSlot(
+  agents: Agent[],
+  projects: Project[],
+): { agents: Agent[]; projects: Project[]; yeeted: Agent } | null {
+  const victim = pickProjectAgentToYeet(agents)
+  if (!victim?.projectId || !victim.job || !isProjectRole(victim.job)) return null
+
+  const projectId = victim.projectId
+  const job = victim.job
+  const unassigned = unassignAgentFromRole(agents, projectId, job, projects, { force: true })
+  if (!unassigned) return null
+
+  const nextAgents = unassigned.agents.filter((a) => a.id !== victim.id)
+  let nextProjects = unassigned.projects.map((p) =>
+    p.id === projectId
+      ? {
+          ...p,
+          roleCounts: {
+            ...p.roleCounts,
+            [job]: Math.max(0, p.roleCounts[job] - 1),
+          },
+        }
+      : p,
+  )
+  nextProjects = clampRoleCountsToStaffed(projectId, nextAgents, nextProjects)
+
+  return { agents: nextAgents, projects: nextProjects, yeeted: victim }
 }
 
 function unassignAgentFromRole(

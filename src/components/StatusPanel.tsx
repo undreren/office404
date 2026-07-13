@@ -73,6 +73,7 @@ function SpecialistRoleRow({
   job,
   assigned,
   rosterFull,
+  canYeetForSlot,
   agent,
   modelContextSize,
   projects,
@@ -81,13 +82,14 @@ function SpecialistRoleRow({
   job: AutomationAgentJob
   assigned: boolean
   rosterFull: boolean
+  canYeetForSlot: boolean
   agent: Agent | undefined
   modelContextSize: number
   projects: Project[]
   onToggle: (enabled: boolean) => void
 }) {
   const label = agentRoleLabel(job)
-  const disableAssign = !assigned && rosterFull
+  const disableAssign = !assigned && rosterFull && !canYeetForSlot
   const autoManaged = job === 'offline'
 
   return (
@@ -139,6 +141,7 @@ export function StatusPanel() {
   const regularAgents = agents.filter((agent) => !agent.isAutomation)
   const rosterMax = maxAgents(state)
   const rosterFull = agents.length >= rosterMax
+  const canYeetForSlot = agents.some((a) => !a.isAutomation && a.projectId && a.job)
 
   return (
     <section className="panel status-panel">
@@ -160,6 +163,7 @@ export function StatusPanel() {
                   job={job}
                   assigned={assignedSpecialistRoles.includes(job)}
                   rosterFull={rosterFull}
+                  canYeetForSlot={canYeetForSlot}
                   agent={agents.find((a) => a.isAutomation && a.automationJob === job)}
                   modelContextSize={model.contextSize}
                   projects={projects}

@@ -37,13 +37,43 @@ describe('automation-agent-slots', () => {
     expect(agentCapacity(assigned).used).toBe(2)
   })
 
-  it('blocks assigning a specialist when the roster is full', () => {
+  it('yeets a project agent when assigning a specialist on a full roster', () => {
     const before = stateWithCash(initialPlaying(), 350)
     const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
+    const project = unlocked.projects[0]!
 
-    const blocked = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 2000, 'marketing', true)])
+    const assigned = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 2000, 'marketing', true)])
 
-    expect(stateChanged(unlocked, blocked)).toBe(false)
+    expect(assigned.assignedSpecialistRoles).toContain('marketing')
+    expect(assigned.agents.some((a) => a.isAutomation && a.automationJob === 'marketing')).toBe(true)
+    expect(assigned.agents.some((a) => a.projectId === project.id && a.job === 'refine')).toBe(false)
+    expect(assigned.projects[0]!.roleCounts.refine).toBe(0)
+    expect(agentCapacity(assigned).used).toBe(1)
+  })
+
+  it('blocks assigning a specialist when the roster is full and no project agents can be yeeted', () => {
+    const before = stateWithCash(initialPlaying(), 350)
+    const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
+    const onlyAgent = unlocked.agents[0]!
+    const automationOnly: GameState = {
+      ...unlocked,
+      agents: [
+        {
+          ...onlyAgent,
+          isAutomation: true,
+          automationJob: 'procurement',
+          job: 'procurement',
+          projectId: null,
+          status: 'idle',
+        },
+      ],
+      assignedSpecialistRoles: ['procurement'],
+      vibingCourses: [...unlocked.vibingCourses, 'procurement'],
+    }
+
+    const blocked = dispatchChain(automationOnly, [toggleSpecialistRoleMsg(T0 + 2000, 'marketing', true)])
+
+    expect(stateChanged(automationOnly, blocked)).toBe(false)
     expect(blocked.assignedSpecialistRoles).not.toContain('marketing')
   })
 
