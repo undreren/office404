@@ -88,20 +88,28 @@ function SpecialistRoleRow({
 }) {
   const label = agentRoleLabel(job)
   const disableAssign = !assigned && rosterFull
+  const autoManaged = job === 'offline'
 
   return (
     <li className="specialist-role-row">
-      <label className="crew-label specialist-role-row__label">
-        <input
-          type="checkbox"
-          checked={assigned}
-          disabled={disableAssign}
-          data-testid={`status-specialist-${job}`}
-          aria-label={`${label} specialist${assigned ? ', assigned' : disableAssign ? ', roster full' : ', unassigned'}`}
-          onChange={(e) => onToggle(e.target.checked)}
-        />{' '}
-        {label}
-      </label>
+      {autoManaged ? (
+        <span className="crew-label specialist-role-row__label">
+          {label}{' '}
+          <span className="hint">(auto while away)</span>
+        </span>
+      ) : (
+        <label className="crew-label specialist-role-row__label">
+          <input
+            type="checkbox"
+            checked={assigned}
+            disabled={disableAssign}
+            data-testid={`status-specialist-${job}`}
+            aria-label={`${label} specialist${assigned ? ', assigned' : disableAssign ? ', roster full' : ', unassigned'}`}
+            onChange={(e) => onToggle(e.target.checked)}
+          />{' '}
+          {label}
+        </label>
+      )}
       {agent && (
         <ul className="agent-mini-list agent-mini-list--inline">
           <AgentMiniCard

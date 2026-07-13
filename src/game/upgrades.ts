@@ -98,6 +98,14 @@ export const VIBING_COURSES: VibingCourse[] = [
     description: '+1 max agent on the same task per tier. Coders, reviewers, refiners, and testers can pile on.',
     maxTier: BEST_OF_N_MAX_TIER,
   },
+  {
+    id: 'offline',
+    label: 'Offline Agent',
+    tagline: 'Special relativity, time can be hallucinated.',
+    cost: 1000,
+    description:
+      'Game advances while you are away (up to 8 hours). Specialist auto-assigns when the tab is hidden.',
+  },
 ]
 
 export function vibingCourseCost(course: VibingCourse, tier: number): number {

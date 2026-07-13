@@ -58,3 +58,8 @@ export const PRESTIGE_START_CASH = 200
 
 export const REP_ZERO_PAY_MULT = 0.5
 export const REP_ZERO_MAX_TASK_SP = 3
+
+/** Max real seconds simulated when returning with the Offline Agent course. */
+export const MAX_OFFLINE_SECONDS = 8 * 60 * 60
+/** Ignore sub-threshold gaps so tab flips do not spam catch-up. */
+export const MIN_OFFLINE_APPLY_SEC = 5

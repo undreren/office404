@@ -273,6 +273,8 @@ export function jobStatusFor(job: Agent['job']): Agent['status'] {
       return 'accounting'
     case 'project_manager':
       return 'managing'
+    case 'offline':
+      return 'offline'
     default:
       return 'idle'
   }
@@ -302,6 +304,8 @@ export function agentRoleLabel(job: AgentJob): string {
       return 'Accounting'
     case 'project_manager':
       return 'Project Manager'
+    case 'offline':
+      return 'Offline'
   }
 }
 
@@ -426,6 +430,7 @@ export const AUTOMATION_AGENT_JOBS = [
   'customer',
   'accounting',
   'project_manager',
+  'offline',
 ] as const satisfies readonly AgentJob[]
 
 export type AutomationAgentJob = (typeof AUTOMATION_AGENT_JOBS)[number]
@@ -466,6 +471,8 @@ export function automationAgentDutyLabel(job: AutomationAgentJob): string {
       return 'Creative accounting'
     case 'project_manager':
       return 'Portfolio ceremonies'
+    case 'offline':
+      return 'Hallucinating elapsed time'
   }
 }
 
@@ -500,6 +507,10 @@ export function hasConductorCourse(vibingCourses: string[]): boolean {
 
 export function hasAutoConductorCourse(vibingCourses: string[]): boolean {
   return vibingCourses.includes('auto_conductor')
+}
+
+export function hasOfflineCourse(vibingCourses: string[]): boolean {
+  return vibingCourses.includes('offline')
 }
 
 export function refinementTier(

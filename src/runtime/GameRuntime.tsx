@@ -11,7 +11,7 @@ import {
 import { TICK_INTERVAL_MS } from '../game/constants'
 import { dispatch } from '../game/engine/dispatch'
 import type { GameMessage } from '../game/engine/Message'
-import { hydrateFromSave, newGame, resetGameMsg, stateChanged, timeElapsed } from '../game/messages'
+import { hydrateFromSave, newGame, resetGameMsg, returnFromHiddenMsg, stateChanged, syncOfflineSpecialistMsg, timeElapsed } from '../game/messages'
 import { createRngSeed } from '../game/rng'
 import type { GameState } from '../game/types'
 import { createInitialState } from '../game/simulation/gameLogic'
@@ -39,6 +39,10 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GameState | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [tabHidden, setTabHidden] = useState(() =>
+    typeof document !== 'undefined' ? document.hidden : false,
+  )
+  const hiddenAtRef = useRef<number | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -78,13 +82,41 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
+    if (!hydrated || !state) return
+
+    const onVisibility = () => {
+      const at = Date.now()
+      const hidden = document.hidden
+      setTabHidden(hidden)
+
+      if (!state.vibingCourses.includes('offline')) return
+
+      if (hidden) {
+        hiddenAtRef.current = at
+        dispatchMsg(syncOfflineSpecialistMsg(at, true))
+        return
+      }
+
+      const since = hiddenAtRef.current
+      hiddenAtRef.current = null
+      const elapsedSec = since ? (at - since) / 1000 : 0
+      dispatchMsg(returnFromHiddenMsg(at, elapsedSec))
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [hydrated, dispatchMsg, state])
+
+  useEffect(() => {
     if (!hydrated || !state || paused) return
+    if (state.vibingCourses.includes('offline') && tabHidden) return
+
     const interval = setInterval(() => {
       const at = Date.now()
       dispatchMsg(timeElapsed(at, TICK_INTERVAL_MS / 1000))
     }, TICK_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [hydrated, dispatchMsg, state, paused])
+  }, [hydrated, dispatchMsg, state, paused, tabHidden])
 
   useEffect(() => {
     if (!hydrated || !state) return
