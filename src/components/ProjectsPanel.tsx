@@ -1,7 +1,7 @@
 import {
   agentContextDisplayPct,
-  agentIsBusy,
   bestOfNTier,
+  countRosterIdleAgents,
   formatAgentProjectViewDutyLabel,
   formatStoryPoints,
   hasConductorCourse,
@@ -72,10 +72,6 @@ function staffingAgentLabelPlural(job: AgentJob, count: number): string {
   if (count === 1) return label
   if (job === 'conductor') return 'conductors'
   return `${label}s`
-}
-
-function countIdleAgents(agents: Agent[]): number {
-  return agents.filter((agent) => !agent.isAutomation && !agentIsBusy(agent)).length
 }
 
 function staffingAddHint(
@@ -462,7 +458,7 @@ function ProjectCard({ project }: { project: Project }) {
   const conductorUnlocked = hasConductorCourse(vibingCourses)
   const agentsPerTask = maxAgentsPerTask(bestOfNTier(vibingCourseTiers))
   const { used: rosterUsed, max: rosterMax } = agentCapacity(state)
-  const idleAgents = countIdleAgents(agents)
+  const idleAgents = countRosterIdleAgents(agents)
 
   function projectAgents(projectId: string, job: AgentJob) {
     return agents.filter((a) => a.job === job && a.projectId === projectId)
