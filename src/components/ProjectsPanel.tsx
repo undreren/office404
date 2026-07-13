@@ -1,12 +1,14 @@
 import {
+  agentContextDisplayPct,
   agentIsBusy,
-  agentWorkProgressPct,
   bestOfNTier,
   formatAgentDutyLabel,
   formatStoryPoints,
   hasConductorCourse,
   maxAgentsPerTask,
 } from '../game/mechanics'
+import { getHallucinationLevel } from '../game/meta'
+import { MODEL_TIERS } from '../game/models'
 import {
   allImplementationMerged,
   requirementRefineProgressPct,
@@ -351,28 +353,33 @@ function RequirementBlock({
 }
 
 function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
+  const { meta } = useGameState()
+  const modelLevel = getHallucinationLevel(meta, 'model')
+  const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
   const task = agent.taskId ? project.tasks.find((t) => t.id === agent.taskId) : undefined
   const duty = formatAgentDutyLabel(agent, project.clientName, task?.title)
-  const progress = agentWorkProgressPct(agent, task ?? null)
+  const fill = agentContextDisplayPct(agent, model.contextSize)
+  const isCompacting = agent.status === 'compacting'
 
-  const agentSummary =
-    progress !== null
-      ? `${agent.name}: ${duty}, ${Math.floor(progress)}%`
-      : `${agent.name}: ${duty}`
+  const agentSummary = [
+    agent.name,
+    duty,
+    `${Math.floor(fill)}% context`,
+    isCompacting ? 'compacting' : null,
+  ]
+    .filter(Boolean)
+    .join(', ')
 
   return (
-    <div className="crew-agent-row" aria-label={agentSummary}>
+    <div
+      className={`crew-agent-row${isCompacting ? ' crew-agent-row--compacting' : ''}`}
+      aria-label={agentSummary}
+    >
       <span className="crew-agent-name">{agent.name}</span>
-      {progress !== null ? (
-        <>
-          <div className="meter meter--sm crew-agent-meter">
-            <div className="meter__fill meter__fill--code" style={{ width: `${progress}%` }} />
-          </div>
-          <span className="crew-agent-progress">{Math.floor(progress)}%</span>
-        </>
-      ) : (
-        <span className="crew-agent-duty">{duty}</span>
-      )}
+      <span className="crew-agent-duty">{duty}</span>
+      <span className={`crew-agent-ctx${isCompacting ? ' crew-agent-ctx--draining' : ''}`}>
+        {Math.floor(fill)}% ctx
+      </span>
     </div>
   )
 }

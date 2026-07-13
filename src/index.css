@@ -1014,7 +1014,6 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .crew-agent-name {
@@ -1023,24 +1022,30 @@ body {
   min-width: 4.5rem;
 }
 
-.crew-agent-meter {
-  flex: 1;
-  min-width: 3rem;
-  margin-top: 0;
-}
-
-.crew-agent-progress {
-  font-size: 0.65rem;
-  font-family: var(--font-mono);
-  color: var(--text-dim);
-  min-width: 2rem;
-  text-align: right;
-}
-
 .crew-agent-duty {
   font-size: 0.65rem;
   color: var(--text-dim);
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crew-agent-ctx {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.crew-agent-row--compacting .crew-agent-name {
+  color: color-mix(in srgb, var(--warning) 70%, var(--text-dim));
+}
+
+.crew-agent-ctx--draining {
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
 }
 
 .task-item {
