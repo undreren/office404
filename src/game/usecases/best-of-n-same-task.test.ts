@@ -169,14 +169,14 @@ describe('best-of-n-same-task', () => {
     expect(dispatchReviewTask({ ...project, tasks: [task] }, 'rev-2', agents, 2, slots2)).toEqual(task)
   })
 
-  it('purchases Best-of-N up to nine tiers with exponential cost', () => {
+  it('purchases Best-of-N up to four tiers with exponential cost', () => {
     const course = VIBING_COURSES.find((c) => c.id === BEST_OF_N_COURSE_ID)!
-    expect(course.maxTier).toBe(9)
+    expect(course.maxTier).toBe(4)
     expect(vibingCourseCost(course, 0)).toBe(400)
     expect(vibingCourseCost(course, 1)).toBe(720)
 
     let state = stateWithCash(initialPlaying(), 50_000)
-    for (let tier = 1; tier <= 9; tier++) {
+    for (let tier = 1; tier <= 4; tier++) {
       const cost = vibingCourseCost(course, tier - 1)
       state = stateWithCash(state, cost)
       state = dispatchChain(state, [buyVibingCourseMsg(T0 + tier * 1000, BEST_OF_N_COURSE_ID)])
@@ -184,7 +184,7 @@ describe('best-of-n-same-task', () => {
     }
 
     const blocked = dispatchChain(state, [buyVibingCourseMsg(T0 + 10_000, BEST_OF_N_COURSE_ID)])
-    expect(blocked.vibingCourseTiers[BEST_OF_N_COURSE_ID]).toBe(9)
+    expect(blocked.vibingCourseTiers[BEST_OF_N_COURSE_ID]).toBe(4)
   })
 })
 

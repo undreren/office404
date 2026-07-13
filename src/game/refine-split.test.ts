@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { refinementAutoSplitChance } from './mechanics'
 import { refineRequirementToTasks } from './projects'
 import { ctxFrom } from './simulation/simCtx'
 import type { GameState, Requirement } from './types'
 import { initialPlaying } from './usecases/_helpers/initialPlaying'
 
 describe('refineRequirementToTasks', () => {
-  it('forces a fibonacci split at refinement tier 2+', () => {
+  it('auto-splits at refinement tier 4 with deterministic rng', () => {
     const state = initialPlaying()
     const project = state.projects[0]!
     const requirement: Requirement = {
@@ -19,12 +20,19 @@ describe('refineRequirementToTasks', () => {
     const ctx = ctxFrom(state as GameState)
 
     const tasks = refineRequirementToTasks(ctx, requirement, {
-      refinementTier: 2,
+      refinementTier: 4,
       forceSplit: true,
     })
 
     expect(tasks).toHaveLength(2)
     expect(tasks[0]!.storyPointsRequired + tasks[1]!.storyPointsRequired).toBe(5)
-    expect(tasks.every((t) => t.refinePassesRemaining === 2)).toBe(true)
+    expect(tasks.every((t) => (t.refinePassesRemaining ?? 0) === 0)).toBe(true)
+  })
+
+  it('adds 25% auto-split chance per refinement tier', () => {
+    expect(refinementAutoSplitChance(0)).toBe(0)
+    expect(refinementAutoSplitChance(1)).toBe(0.25)
+    expect(refinementAutoSplitChance(4)).toBe(1)
+    expect(refinementAutoSplitChance(5)).toBe(1)
   })
 })

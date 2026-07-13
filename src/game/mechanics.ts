@@ -528,11 +528,34 @@ export function refinementTier(
   return tiers.refinement ?? (vibingCourses.includes('refinement') ? 1 : 0)
 }
 
+/** Auto-split chance when refining requirements (25% per tier, capped at 100%). */
+export function refinementAutoSplitChance(refinementTierLevel: number): number {
+  if (refinementTierLevel <= 0) return 0
+  return Math.min(1, refinementTierLevel * 0.25)
+}
+
+export function conductorTier(
+  tiers: Partial<Record<string, number>>,
+  vibingCourses: string[],
+): number {
+  return tiers.conductor ?? (vibingCourses.includes('conductor') ? 1 : 0)
+}
+
+/** Max agents on a conductor project (conductor + workers), starting at 3. */
+export function maxConductorTeamSize(conductorTierLevel: number): number {
+  if (conductorTierLevel <= 0) return 0
+  return 2 + conductorTierLevel
+}
+
+export function projectTeamSize(agents: Agent[], projectId: string): number {
+  return agents.filter((a) => a.projectId === projectId && a.job !== null).length
+}
+
 export function bestOfNTier(tiers: Partial<Record<string, number>>): number {
   return tiers.best_of_n ?? 0
 }
 
-/** Agents that may share one task (1 at tier 0, up to 10 at tier 9). */
+/** Agents that may share one task (1 at tier 0, up to 5 at tier 4). */
 export function maxAgentsPerTask(bestOfTier: number): number {
   return 1 + bestOfTier
 }
