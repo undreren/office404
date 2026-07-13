@@ -114,6 +114,16 @@ export function countAssignedPmAgents(agents: Agent[]): number {
   return agents.filter((a) => a.isAutomation && a.automationJob === 'project_manager').length
 }
 
+/** True when another client gig can be accepted (requires an assigned PM per extra slot). */
+export function hasOpenClientProjectSlot(
+  meta: MetaProgress,
+  agents: Agent[],
+  projects: Project[],
+): boolean {
+  const maxSlots = maxClientProjectSlots(meta, countAssignedPmAgents(agents))
+  return countActiveClientProjects(projects) < maxSlots
+}
+
 /** How many PM specialists the player may assign (course tier, or 1 if hallucination-unlocked). */
 export function maxAssignablePmAgents(
   state: Pick<GameState, 'vibingCourses' | 'vibingCourseTiers' | 'meta'>,
