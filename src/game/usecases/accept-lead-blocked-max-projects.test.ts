@@ -38,7 +38,7 @@ describe('accept-lead-blocked-max-projects', () => {
   it('matches use case invariants', () => {
     const before = stateWithAvailableLead()
     const lead = before.leads.find((l) => l.status === 'available')!
-    const maxSlots = maxClientProjectSlots(before.meta, before.vibingCourseTiers.project_manager ?? 0)
+    const maxSlots = maxClientProjectSlots(before.meta, 0)
     const extras = Array.from({ length: maxSlots }, (_, i) => extraProject(i))
     const patched = { ...before, projects: extras }
 

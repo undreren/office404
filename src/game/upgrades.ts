@@ -61,7 +61,8 @@ export const VIBING_COURSES: VibingCourse[] = [
     label: 'Project Manager',
     tagline: 'Agile ceremonies, but the stand-up is just you crying.',
     cost: 400,
-    description: '+1 client project slot. Deadline warnings. Portfolio smarts.',
+    description:
+      'Assign up to one Project Manager per extra client gig. Deadline warnings. Portfolio smarts.',
     maxTier: 3,
   },
   {

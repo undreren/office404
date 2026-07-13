@@ -61,7 +61,8 @@ import {
   conductorTier,
   contextFillMultiplier,
   countActiveClientProjects,
-  effectiveVibingPmTiers,
+  countAssignedPmAgents,
+  countPmRoleAssignments,
   fillAgentContext,
   formatStoryPoints,
   getAgentParameters,
@@ -77,6 +78,7 @@ import {
   maxAgentSlotPurchases,
   maxAgents,
   maxAgentsPerTask,
+  maxAssignablePmAgents,
   maxConductorTeamSize,
   maxGpuTickPurchases,
   prQualityAfterComments,
@@ -91,6 +93,7 @@ import {
   testStoryPointIncrement,
   totalAgentSlots,
   totalGpuTicks,
+  unlockedAutomationJobs,
   type AutomationAgentJob,
 } from '../mechanics'
 import { HOUSING_CONFIG, isSingularityEligible, nextHousingTier } from '../housing'
@@ -131,8 +134,8 @@ const EMPTY_PROJECT_ROLE_COUNTS: ProjectRoleCounts = {
 }
 
 function enforceClientProjectCap(state: GameState, ctx: SimCtx, at: number): GameState {
-  const pmTiers = effectiveVibingPmTiers(state)
-  const maxSlots = maxClientProjectSlots(state.meta, pmTiers)
+  const assignedPmAgents = countAssignedPmAgents(state.agents)
+  const maxSlots = maxClientProjectSlots(state.meta, assignedPmAgents)
   const lockedNames: string[] = []
   const unlockedNames: string[] = []
   let unlockedCount = 0
@@ -165,7 +168,7 @@ function enforceClientProjectCap(state: GameState, ctx: SimCtx, at: number): Gam
     projects = clampRoleCountsToStaffed(projectId, agents, projects)
   }
 
-  const pipelineTarget = clientLeadPipelineTarget(state.meta, pmTiers, projects)
+  const pipelineTarget = clientLeadPipelineTarget(state.meta, assignedPmAgents, projects)
   const available = state.leads.filter((l) => l.status === 'available')
   const nonAvailable = state.leads.filter((l) => l.status !== 'available')
   const trimmedAvailable = available.slice(0, pipelineTarget)
@@ -265,38 +268,61 @@ function createAutomationAgent(ctx: SimCtx, automationJob: AutomationAgentJob): 
 }
 
 export function reconcileSpecialistAgents(state: GameState, ctx: SimCtx): GameState {
-  const assigned = state.assignedSpecialistRoles.filter((job) =>
-    isAutomationAgentUnlocked(state, job as AutomationAgentJob),
-  ) as AutomationAgentJob[]
+  const unlocked = unlockedAutomationJobs(state)
+  const assignedRoles = state.assignedSpecialistRoles.filter((job) =>
+    unlocked.includes(job as AutomationAgentJob),
+  )
 
   let agents = state.agents.filter((a) => {
     if (!a.isAutomation || !a.automationJob) return true
-    return assigned.includes(a.automationJob as AutomationAgentJob)
+    if (a.automationJob === 'project_manager') {
+      return countPmRoleAssignments(assignedRoles) > 0
+    }
+    return assignedRoles.includes(a.automationJob)
   })
+
+  const requiredPm = countPmRoleAssignments(assignedRoles)
+  let currentPm = countAssignedPmAgents(agents)
+  while (currentPm > requiredPm) {
+    const idx = agents.findIndex((a) => a.isAutomation && a.automationJob === 'project_manager')
+    if (idx < 0) break
+    agents = [...agents.slice(0, idx), ...agents.slice(idx + 1)]
+    currentPm -= 1
+  }
 
   let spawned = 0
   let projects = state.projects
-  for (const job of assigned) {
-    const exists = agents.some((a) => a.isAutomation && a.automationJob === job)
-    if (exists) continue
-    if (agents.length >= maxAgents({ ...state, agents })) {
-      const yeeted = yeetProjectAgentForRosterSlot(agents, projects)
-      if (!yeeted) continue
-      agents = yeeted.agents
-      projects = yeeted.projects
+  for (const job of unlocked) {
+    const required =
+      job === 'project_manager' ? requiredPm : assignedRoles.includes(job) ? 1 : 0
+    let existing = agents.filter((a) => a.isAutomation && a.automationJob === job).length
+    while (existing < required) {
+      if (agents.length >= maxAgents({ ...state, agents })) {
+        const yeeted = yeetProjectAgentForRosterSlot(agents, projects)
+        if (!yeeted) break
+        agents = yeeted.agents
+        projects = yeeted.projects
+      }
+      agents.push(createAutomationAgent(ctx, job))
+      spawned += 1
+      existing += 1
     }
-    agents.push(createAutomationAgent(ctx, job))
-    spawned += 1
   }
 
-  const rolesChanged = assigned.length !== state.assignedSpecialistRoles.length
+  const rolesChanged =
+    countPmRoleAssignments(assignedRoles) !== countPmRoleAssignments(state.assignedSpecialistRoles) ||
+    unlocked.some(
+      (job) =>
+        job !== 'project_manager' &&
+        assignedRoles.includes(job) !== state.assignedSpecialistRoles.includes(job),
+    )
   const agentsChanged = agents.length !== state.agents.length
   const projectsChanged = projects !== state.projects
   if (!rolesChanged && !agentsChanged && !projectsChanged && spawned === 0) return state
 
   return {
     ...state,
-    assignedSpecialistRoles: assigned,
+    assignedSpecialistRoles: assignedRoles,
     agents,
     projects,
     stats:
@@ -317,31 +343,99 @@ export function toggleSpecialistRole(
 ): GameState {
   if (!isAutomationAgentUnlocked(state, job)) return state
 
-  const isAssigned = state.assignedSpecialistRoles.includes(job)
-  if (enabled === isAssigned) return state
-
   const ctx = ctxFrom(state)
   const label = agentRoleLabel(job)
 
-  if (!enabled) {
-    const nextAgents = state.agents.filter((a) => !(a.isAutomation && a.automationJob === job))
+  if (job === 'project_manager') {
+    const assigned = countPmRoleAssignments(state.assignedSpecialistRoles)
+    const maxPm = maxAssignablePmAgents(state)
+    if (enabled && assigned >= maxPm) return state
+    if (!enabled && assigned <= 0) return state
+
+    if (!enabled) {
+      if (assigned <= 0) return state
+      const pmIdx = state.agents.findIndex((a) => a.isAutomation && a.automationJob === 'project_manager')
+      const removedAgent = pmIdx >= 0 ? state.agents[pmIdx]! : null
+      const roleIdx = state.assignedSpecialistRoles.indexOf('project_manager')
+      if (roleIdx < 0 && pmIdx < 0) return state
+      let nextState: GameState = {
+        ...state,
+        assignedSpecialistRoles: [
+          ...state.assignedSpecialistRoles.slice(0, roleIdx),
+          ...state.assignedSpecialistRoles.slice(roleIdx + 1),
+        ],
+        agents:
+          pmIdx >= 0
+            ? [...state.agents.slice(0, pmIdx), ...state.agents.slice(pmIdx + 1)]
+            : state.agents,
+        events: pushEvent(
+          ctx,
+          state.meta,
+          state.events,
+          'system',
+          removedAgent
+            ? `${removedAgent.name} (${label}) unassigned — roster slot freed.`
+            : `${label} specialist unassigned — roster slot freed.`,
+          at,
+        ),
+      }
+      return withCtx(enforceClientProjectCap(nextState, ctx, at), ctx, at)
+    }
+
+    let agents = state.agents
+    let projects = state.projects
+    let yeetNote = ''
+
+    if (agents.length >= maxAgents(state)) {
+      const yeeted = yeetProjectAgentForRosterSlot(agents, projects)
+      if (!yeeted) return state
+      agents = yeeted.agents
+      projects = yeeted.projects
+      const project = projects.find((p) => p.id === yeeted.yeeted.projectId)
+      yeetNote = ` Yeeted ${yeeted.yeeted.name} off ${project?.clientName ?? 'a project'} for roster space.`
+    }
+
+    const agent = createAutomationAgent(ctx, job)
     let nextState: GameState = {
       ...state,
-      assignedSpecialistRoles: state.assignedSpecialistRoles.filter((role) => role !== job),
-      agents: nextAgents,
+      assignedSpecialistRoles: [...state.assignedSpecialistRoles, job],
+      agents: [...agents, agent],
+      projects,
+      stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
       events: pushEvent(
         ctx,
         state.meta,
         state.events,
         'system',
-        `${label} specialist unassigned — roster slot freed.`,
+        `${agent.name} (${label}) assigned to specialist duty.${yeetNote}`,
         at,
       ),
     }
-    if (job === 'project_manager') {
-      nextState = enforceClientProjectCap(nextState, ctx, at)
-    }
-    return withCtx(nextState, ctx, at)
+    return withCtx(enforceClientProjectCap(nextState, ctx, at), ctx, at)
+  }
+
+  const isAssigned = state.assignedSpecialistRoles.includes(job)
+  if (enabled === isAssigned) return state
+
+  if (!enabled) {
+    const nextAgents = state.agents.filter((a) => !(a.isAutomation && a.automationJob === job))
+    return withCtx(
+      {
+        ...state,
+        assignedSpecialistRoles: state.assignedSpecialistRoles.filter((role) => role !== job),
+        agents: nextAgents,
+        events: pushEvent(
+          ctx,
+          state.meta,
+          state.events,
+          'system',
+          `${label} specialist unassigned — roster slot freed.`,
+          at,
+        ),
+      },
+      ctx,
+      at,
+    )
   }
 
   if (state.agents.some((a) => a.isAutomation && a.automationJob === job)) {
@@ -371,25 +465,25 @@ export function toggleSpecialistRole(
   }
 
   const agent = createAutomationAgent(ctx, job)
-  let nextState: GameState = {
-    ...state,
-    assignedSpecialistRoles: [...state.assignedSpecialistRoles, job],
-    agents: [...agents, agent],
-    projects,
-    stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-    events: pushEvent(
-      ctx,
-      state.meta,
-      state.events,
-      'system',
-      `${agent.name} (${label}) assigned to specialist duty.${yeetNote}`,
-      at,
-    ),
-  }
-  if (job === 'project_manager') {
-    nextState = enforceClientProjectCap(nextState, ctx, at)
-  }
-  return withCtx(nextState, ctx, at)
+  return withCtx(
+    {
+      ...state,
+      assignedSpecialistRoles: [...state.assignedSpecialistRoles, job],
+      agents: [...agents, agent],
+      projects,
+      stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
+      events: pushEvent(
+        ctx,
+        state.meta,
+        state.events,
+        'system',
+        `${agent.name} (${label}) assigned to specialist duty.${yeetNote}`,
+        at,
+      ),
+    },
+    ctx,
+    at,
+  )
 }
 
 export function applyOfflineProgress(
@@ -1406,7 +1500,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
   const pipelineTarget = clientLeadPipelineTarget(
     meta,
-    effectiveVibingPmTiers(state),
+    countAssignedPmAgents(state.agents),
     nextProjects,
   )
   if (
@@ -1992,7 +2086,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const lead = state.leads.find((l) => l.id === leadId)
   if (!lead || lead.status !== 'available') return state
   if (state.reputation < lead.repRequired) return state
-  const maxSlots = maxClientProjectSlots(state.meta, effectiveVibingPmTiers(state))
+  const maxSlots = maxClientProjectSlots(state.meta, countAssignedPmAgents(state.agents))
   if (countActiveClientProjects(state.projects) >= maxSlots) return state
 
   const project = createProjectFromLead(
@@ -2118,7 +2212,7 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   } else if (tutorialDone) {
     const pipelineTarget = clientLeadPipelineTarget(
       state.meta,
-      effectiveVibingPmTiers(state),
+      countAssignedPmAgents(state.agents),
       nextProjects,
     )
     if (availableLeadCount(nextLeads) < pipelineTarget) {
