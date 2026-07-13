@@ -59,7 +59,7 @@
   "tutorialDone": true,
   "seenStoryIntro": true,
   "acknowledgedTutorialStep": 2,
-  "seenTabIntros": ["feed", "shop", "agents", "projects", "leads", "hallucinations"],
+  "seenTabIntros": ["status", "shop", "projects", "leads", "hallucinations"],
   "leadSpawnCooldown": 3,
   "syntheticLeadCooldown": 4,
   "taxCodeCooldown": 10,

@@ -1,12 +1,14 @@
 import { useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  COMPACTION_INTRO_COPY,
   STORY_INTRO_COPY,
   TAB_INTRO_COPY,
   TUTORIAL_STEP_COPY,
   TUTORIAL_STEP_COUNT,
 } from '../game/onboarding'
 import {
+  acknowledgeCompactionIntroMsg,
   acknowledgeStoryIntroMsg,
   acknowledgeTabIntroMsg,
   acknowledgeTutorialStepMsg,
@@ -29,13 +31,19 @@ export function OnboardingOverlay() {
   const copy =
     activeModal.kind === 'story'
       ? STORY_INTRO_COPY
-      : activeModal.kind === 'tab'
-        ? TAB_INTRO_COPY[activeModal.tab]
-        : TUTORIAL_STEP_COPY[activeModal.step]
+      : activeModal.kind === 'compaction'
+        ? COMPACTION_INTRO_COPY
+        : activeModal.kind === 'tab'
+          ? TAB_INTRO_COPY[activeModal.tab]
+          : TUTORIAL_STEP_COPY[activeModal.step]
 
   function dismiss() {
     if (activeModal.kind === 'story') {
       dispatchAt((at) => acknowledgeStoryIntroMsg(at))
+      return
+    }
+    if (activeModal.kind === 'compaction') {
+      dispatchAt((at) => acknowledgeCompactionIntroMsg(at))
       return
     }
     if (activeModal.kind === 'tab') {

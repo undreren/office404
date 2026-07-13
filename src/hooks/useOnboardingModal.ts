@@ -8,17 +8,23 @@ export type OnboardingModal =
   | { kind: 'story' }
   | { kind: 'tab'; tab: MainTabId }
   | { kind: 'tutorial'; step: TutorialStep }
+  | { kind: 'compaction' }
 
 function resolveOnboardingModal(
   activeTab: MainTabId,
   seenStoryIntro: boolean,
   seenTabIntros: MainTabId[],
+  seenCompactionIntro: boolean,
+  compactionsSurvived: number,
   tutorialDone: boolean,
   acknowledgedTutorialStep: number,
   tutorialStep: TutorialStep | null,
 ): OnboardingModal | null {
   if (activeTab === 'projects' && !seenStoryIntro) {
     return { kind: 'story' }
+  }
+  if (!seenCompactionIntro && compactionsSurvived > 0) {
+    return { kind: 'compaction' }
   }
   if (!seenTabIntros.includes(activeTab)) {
     return { kind: 'tab', tab: activeTab }
@@ -42,6 +48,8 @@ export function useOnboardingModal(): OnboardingModal | null {
         activeTab,
         state.seenStoryIntro,
         state.seenTabIntros,
+        state.seenCompactionIntro,
+        state.stats.compactionsSurvived,
         state.tutorialDone,
         state.acknowledgedTutorialStep,
         tutorialStep,
@@ -50,6 +58,8 @@ export function useOnboardingModal(): OnboardingModal | null {
       activeTab,
       state.seenStoryIntro,
       state.seenTabIntros,
+      state.seenCompactionIntro,
+      state.stats.compactionsSurvived,
       state.tutorialDone,
       state.acknowledgedTutorialStep,
       tutorialStep,

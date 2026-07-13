@@ -43,7 +43,7 @@ export type LeadSource = 'real' | 'synthetic'
 
 export type GamePhase = 'playing' | 'singularity'
 
-export type MainTabId = 'feed' | 'shop' | 'agents' | 'projects' | 'leads' | 'product' | 'hallucinations'
+export type MainTabId = 'status' | 'shop' | 'projects' | 'leads' | 'product' | 'hallucinations'
 
 export type ApartmentTier =
   | 'cardboard'
@@ -227,6 +227,7 @@ export interface GameState {
   seenStoryIntro: boolean
   acknowledgedTutorialStep: number
   seenTabIntros: MainTabId[]
+  seenCompactionIntro: boolean
   leadSpawnCooldown: number
   syntheticLeadCooldown: number
   taxCodeCooldown: number

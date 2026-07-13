@@ -38,17 +38,13 @@ export const TAB_INTRO_COPY: Record<
   MainTabId,
   { title: string; body: string }
 > = {
-  feed: {
-    title: 'Incident Feed',
-    body: 'Everything that goes wrong (or occasionally right) shows up here — rent, leads, merges, meltdowns. Check it when you need the story so far.',
+  status: {
+    title: 'Status',
+    body: 'Your deployed agents and the incident log live here. Watch context % on each agent — when it hits 100%, they compact (reboot) and sit idle until their brain defrags. Everything else that goes wrong (or occasionally right) shows up in the log below.',
   },
   shop: {
     title: 'Shop',
     body: 'Upgrade housing to unlock agent slots and GPU ticks, buy fine-tunes, and take vibing courses. Model tiers come from Hallucinations — retirement grants points.',
-  },
-  agents: {
-    title: 'Agents',
-    body: 'Your deployed AI workforce. Each agent has a job on a project. They work automatically once staffed — you manage headcount, not keystrokes.',
   },
   projects: {
     title: 'Projects',
@@ -66,6 +62,13 @@ export const TAB_INTRO_COPY: Record<
     title: 'Hallucinations',
     body: 'Prestige shop. Retire at the cash threshold to earn points, then spend them on model tiers, context, automation agents, and other crimes against the backlog.',
   },
+}
+
+export const COMPACTION_INTRO_COPY = {
+  title: 'Context compaction',
+  body: `An agent's context window filled up — their working memory hit the ceiling and the runtime pulled the plug. They drop their current task, go idle for ~30 seconds while context drains, then reboot with a clean slate and pick work back up.
+
+Watch the context % on the Status roster. Prestige upgrades can shrink downtime. Until then: compaction is a feature, not a bug. Probably.`,
 }
 
 export const TUTORIAL_STEP_COPY: Record<TutorialStep, { title: string; body: string }> = {

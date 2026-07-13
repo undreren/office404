@@ -1370,6 +1370,19 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.status-panel__section {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.status-panel .hint {
+  margin-bottom: 0.35rem;
+}
+
 /* Bottom navigation */
 .bottom-nav {
   flex-shrink: 0;

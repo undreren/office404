@@ -218,6 +218,7 @@ export function createInitialState(
     seenStoryIntro: false,
     acknowledgedTutorialStep: -1,
     seenTabIntros: [],
+    seenCompactionIntro: false,
     leadSpawnCooldown,
     syntheticLeadCooldown: 4,
     taxCodeCooldown: 10,
@@ -1667,6 +1668,11 @@ export function acknowledgeStoryIntro(state: GameState, at: number): GameState {
 export function acknowledgeTutorialStep(state: GameState, step: number, at: number): GameState {
   if (step <= state.acknowledgedTutorialStep) return state
   return { ...state, acknowledgedTutorialStep: step, snapshotAt: at }
+}
+
+export function acknowledgeCompactionIntro(state: GameState, at: number): GameState {
+  if (state.seenCompactionIntro) return state
+  return { ...state, seenCompactionIntro: true, snapshotAt: at }
 }
 
 export function getNetWorth(state: Pick<GameState, 'cash' | 'mrr'>): number {
