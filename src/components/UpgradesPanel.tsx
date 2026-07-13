@@ -2,15 +2,16 @@ import type { ReactElement } from 'react'
 import { HOUSING_CONFIG } from '../game/housing'
 import { getHallucinationLevel } from '../game/meta'
 import {
-  FINE_TUNE_COST,
   FINE_TUNE_DESCRIPTIONS,
   FINE_TUNE_LABELS,
+  FINE_TUNE_MAX_TIER,
   FINE_TUNE_ROLES,
   FINE_TUNE_TAGLINES,
+  fineTuneCost,
   fineTuneId,
 } from '../game/models'
 import { formatCash } from '../game/cash'
-import { gpuTickCost, maxAgentSlotPurchases, maxGpuTickPurchases, ramSlotCost } from '../game/mechanics'
+import { getFineTuneLevel, gpuTickCost, maxAgentSlotPurchases, maxGpuTickPurchases, ramSlotCost } from '../game/mechanics'
 import {
   buyAgentSlotMsg,
   buyFineTuneMsg,
@@ -71,7 +72,7 @@ function HousingSection() {
 
 function MetaFaceMarketspaceSection() {
   const state = useGameState()
-  const { cash, apartment, agentSlotPurchases, gpuTickPurchases, purchasedFineTunes, meta } = state
+  const { cash, apartment, agentSlotPurchases, gpuTickPurchases, purchasedFineTunes, fineTuneTiers, meta } = state
   const dispatchPurchase = useGameDispatchPurchase()
   const { agentSlots, gpuTicks } = agentCapacity(state)
   const maxRamPurchases = maxAgentSlotPurchases(apartment)
@@ -131,18 +132,30 @@ function MetaFaceMarketspaceSection() {
         </article>
       </div>
 
-      <h4 className="shop-section__subhead">Fine-tunes (stackable)</h4>
-      <p className="hint">Role-specific tuning for your current prestige model tier. Model tier upgrades live in Hallucinations.</p>
+      <h4 className="shop-section__subhead">Fine-tunes (tiered)</h4>
+      <p className="hint">Role-specific tuning for your current prestige model tier. Each level costs more; model tier upgrades live in Hallucinations.</p>
       <div className="vendor-list">
         {FINE_TUNE_ROLES.map((role) => {
           const id = fineTuneId(modelLevel, role)
-          const owned = purchasedFineTunes.includes(id)
-          const tuneSummary = [FINE_TUNE_LABELS[role], FINE_TUNE_TAGLINES[role], owned ? 'owned' : formatCash(FINE_TUNE_COST)].join(', ')
+          const currentTier = getFineTuneLevel(fineTuneTiers, purchasedFineTunes, id)
+          const maxed = currentTier >= FINE_TUNE_MAX_TIER
+          const cost = fineTuneCost(currentTier)
+          const tuneSummary = [
+            FINE_TUNE_LABELS[role],
+            FINE_TUNE_TAGLINES[role],
+            maxed ? `max tier T${FINE_TUNE_MAX_TIER}` : formatCash(cost),
+          ].join(', ')
 
           return (
             <article key={id} className="vendor-card vendor-card--compact" aria-label={tuneSummary}>
               <header>
-                <h4>{FINE_TUNE_LABELS[role]}</h4>
+                <h4>
+                  {FINE_TUNE_LABELS[role]}
+                  <span className="vendor-tier" aria-label={`Tier ${currentTier} of ${FINE_TUNE_MAX_TIER}`}>
+                    {' '}
+                    · T{currentTier}/{FINE_TUNE_MAX_TIER}
+                  </span>
+                </h4>
               </header>
               <p className="vendor-tagline">&ldquo;{FINE_TUNE_TAGLINES[role]}&rdquo;</p>
               <p className="hint">{FINE_TUNE_DESCRIPTIONS[role]}</p>
@@ -150,14 +163,14 @@ function MetaFaceMarketspaceSection() {
                 type="button"
                 className="btn btn--small"
                 aria-label={
-                  owned
-                    ? `${FINE_TUNE_LABELS[role]} owned`
-                    : `Buy ${FINE_TUNE_LABELS[role]} for ${formatCash(FINE_TUNE_COST)}`
+                  maxed
+                    ? `${FINE_TUNE_LABELS[role]} at max tier`
+                    : `Buy ${FINE_TUNE_LABELS[role]} T${currentTier + 1} for ${formatCash(cost)}`
                 }
-                disabled={owned || cash < FINE_TUNE_COST}
+                disabled={maxed || cash < cost}
                 onClick={() => dispatchPurchase(buyFineTuneMsg(Date.now(), id))}
               >
-                {owned ? 'Owned' : formatCash(FINE_TUNE_COST)}
+                {maxed ? 'Max tier' : formatCash(cost)}
               </button>
             </article>
           )

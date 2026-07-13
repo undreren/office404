@@ -47,7 +47,11 @@ export const MODEL_TIERS: ModelDef[] = [
 ]
 
 export const FINE_TUNE_BONUS = 0.12
-export const FINE_TUNE_COST = 90
+export const FINE_TUNE_BASE_COST = 90
+/** @deprecated Use fineTuneCost() — kept for imports that expect a flat base. */
+export const FINE_TUNE_COST = FINE_TUNE_BASE_COST
+export const FINE_TUNE_COST_MULT = 1.8
+export const FINE_TUNE_MAX_TIER = 4
 
 export const FINE_TUNE_ROLES = ['code', 'review', 'refine', 'test'] as const
 
@@ -66,10 +70,10 @@ export const FINE_TUNE_TAGLINES: Record<(typeof FINE_TUNE_ROLES)[number], string
 }
 
 export const FINE_TUNE_DESCRIPTIONS: Record<(typeof FINE_TUNE_ROLES)[number], string> = {
-  code: '+12% effective parameters on coding tasks for the current model tier.',
-  review: '+12% effective parameters on review tasks for the current model tier.',
-  refine: '+12% effective parameters on refinement tasks for the current model tier.',
-  test: '+12% effective parameters on QA tasks for the current model tier.',
+  code: `+12% effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on coding tasks for the current model tier.`,
+  review: `+12% effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on review tasks for the current model tier.`,
+  refine: `+12% effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on refinement tasks for the current model tier.`,
+  test: `+12% effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on QA tasks for the current model tier.`,
 }
 
 export const MODEL_ID_MIGRATION: Record<string, string> = {
@@ -99,6 +103,10 @@ export function migrateModelId(id: string): string {
 
 export function fineTuneId(tierIndex: number, role: string): string {
   return `tune-${tierIndex}-${role}`
+}
+
+export function fineTuneCost(currentTier: number): number {
+  return Math.round(FINE_TUNE_BASE_COST * Math.pow(FINE_TUNE_COST_MULT, currentTier))
 }
 
 export function contextSizeForLevel(baseContext: number, contextLevel: number): number {

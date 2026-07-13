@@ -222,6 +222,8 @@ export interface GameState {
   mrr: number
   productFeaturesShipped: number
   purchasedFineTunes: string[]
+  /** Per fine-tune id tier for multi-level cash fine-tunes (e.g. tune-0-code). */
+  fineTuneTiers: Partial<Record<string, number>>
   vibingCourses: string[]
   /** Per-course tier for multi-level vibing (e.g. refinement, PM) */
   vibingCourseTiers: Partial<Record<string, number>>

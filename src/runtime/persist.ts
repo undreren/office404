@@ -5,7 +5,7 @@ import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
 import { createInitialState } from '../game/simulation/gameLogic'
 
-const SAVE_VERSION = 10
+const SAVE_VERSION = 11
 
 function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
   const migrated = new Set<GameState['seenTabIntros'][number]>()
@@ -31,6 +31,7 @@ function normalizeLoadedState(state: GameState): GameState {
     ...state,
     seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
     seenCompactionIntro: state.seenCompactionIntro ?? false,
+    fineTuneTiers: state.fineTuneTiers ?? {},
     projects: repairStaleCodingAssignments(state.projects, state.agents),
   }
 }
@@ -51,6 +52,7 @@ function migrateV7State(old: Record<string, unknown>): GameState {
     productFeaturesShipped: 0,
     productBacklog: [],
     vibingCourseTiers: {},
+    fineTuneTiers: {},
     syntheticLeadCooldown: 4,
     taxCodeCooldown: 10,
     stats: {
@@ -95,6 +97,15 @@ function migrateState(state: GameState, fromVersion: number): GameState {
         .filter((lead) => (lead.status as string) !== 'expired')
         .map(({ daysToExpire: _days, ...lead }) => lead),
     }
+  }
+  if (fromVersion < 11) {
+    const fineTuneTiers = { ...next.fineTuneTiers }
+    for (const id of next.purchasedFineTunes) {
+      if (!fineTuneTiers[id]) {
+        fineTuneTiers[id] = 1
+      }
+    }
+    next = { ...next, fineTuneTiers }
   }
   return next
 }

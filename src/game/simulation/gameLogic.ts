@@ -12,7 +12,7 @@ import type {
   Task,
   TaskStatus,
 } from '../types'
-import { contextSizeForLevel, fineTuneId, getModelTier, MODEL_TIERS } from '../models'
+import { contextSizeForLevel, FINE_TUNE_MAX_TIER, fineTuneCost, fineTuneId, getModelTier, MODEL_TIERS } from '../models'
 import {
   allReviewCommentsAddressed,
   CONDUCTOR_ROLE_PRIORITY,
@@ -60,6 +60,7 @@ import {
   fillAgentContext,
   formatStoryPoints,
   getAgentParameters,
+  getFineTuneLevel,
   gpuTickCost,
   hasAutoConductorCourse,
   hasConductorCourse,
@@ -218,6 +219,7 @@ export function createInitialState(
     mrr: 0,
     productFeaturesShipped: 0,
     purchasedFineTunes: [],
+    fineTuneTiers: {},
     vibingCourses: [],
     vibingCourseTiers: {},
     agents,
@@ -264,11 +266,17 @@ function updateTask(projects: Project[], taskId: string, updater: (t: Task) => T
 }
 
 function agentParamsFor(
-  state: Pick<GameState, 'meta' | 'purchasedFineTunes'>,
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers'>,
   job: AgentJob | null,
 ): number {
   const modelTierIndex = getHallucinationLevel(state.meta, 'model')
-  return getAgentParameters(state.meta, state.purchasedFineTunes, job, modelTierIndex)
+  return getAgentParameters(
+    state.meta,
+    state.purchasedFineTunes,
+    job,
+    modelTierIndex,
+    state.fineTuneTiers,
+  )
 }
 
 function canSpawnAgent(state: GameState): boolean {
@@ -535,7 +543,7 @@ function hasStaffableAgent(agents: Agent[]): boolean {
 function mergeTaskOnProject(
   projects: Project[],
   taskId: string,
-  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'vibingCourses'>,
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers' | 'vibingCourses'>,
   reviewed: boolean,
 ): { projects: Project[]; eventMessage: string } | null {
   const found = findTask(projects, taskId)
@@ -597,7 +605,7 @@ function mergeTaskOnProject(
 function tryAutoMergeReviewedPr(
   projects: Project[],
   parentTaskId: string,
-  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'vibingCourses'>,
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers' | 'vibingCourses'>,
 ): { projects: Project[]; eventMessage: string | null } {
   const found = findTask(projects, parentTaskId)
   if (!found || found.task.status !== 'pr_ready' || !found.task.reviewed) {
@@ -1781,19 +1789,34 @@ export function upgradeModelTier(state: GameState, _at: number): GameState {
 
 export function buyFineTune(state: GameState, fineTuneIdArg: string, at: number): GameState {
   const ctx = ctxFrom(state)
-  if (state.purchasedFineTunes.includes(fineTuneIdArg)) return state
-  if (state.cash < 90) return state
+  const currentTier = getFineTuneLevel(state.fineTuneTiers, state.purchasedFineTunes, fineTuneIdArg)
+  if (currentTier >= FINE_TUNE_MAX_TIER) return state
+  const cost = fineTuneCost(currentTier)
+  if (state.cash < cost) return state
   const tierMatch = fineTuneIdArg.match(/^tune-(\d+)-/)
   if (!tierMatch) return state
   const tier = Number(tierMatch[1])
   const modelTierIndex = getHallucinationLevel(state.meta, 'model')
   if (tier > modelTierIndex) return state
 
+  const newTier = currentTier + 1
+  const fineTuneTiers = { ...state.fineTuneTiers, [fineTuneIdArg]: newTier }
+  const purchasedFineTunes =
+    currentTier === 0 ? [...state.purchasedFineTunes, fineTuneIdArg] : state.purchasedFineTunes
+
   return withCtx({
     ...state,
-    cash: state.cash - 90,
-    purchasedFineTunes: [...state.purchasedFineTunes, fineTuneIdArg],
-    events: pushEvent(ctx, state.meta, state.events, 'milestone', `Fine-tune purchased: ${fineTuneIdArg}.`, at),
+    cash: state.cash - cost,
+    purchasedFineTunes,
+    fineTuneTiers,
+    events: pushEvent(
+      ctx,
+      state.meta,
+      state.events,
+      'milestone',
+      `Fine-tune T${newTier}: ${fineTuneIdArg}.`,
+      at,
+    ),
   }, ctx, at)
 }
 
@@ -1960,7 +1983,7 @@ export function isReadyToDeliver(project: Project): boolean {
 }
 
 export function modelSpPerTick(
-  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'gameDay'>,
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers' | 'gameDay'>,
 ): number {
   const params = agentParamsFor(state, 'code')
   return storyPointProgressPerTick(params, state.gameDay)
