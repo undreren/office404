@@ -47,6 +47,7 @@ import {
   PROCUREMENT_CASH_FRACTION,
   RENT_INTERVAL_DAYS,
   SECONDS_PER_GAME_DAY,
+  TICK_INTERVAL_MS,
 } from '../constants'
 import {
   agentTickSpeed,
@@ -289,6 +290,86 @@ function agentIsWorking(agent: Agent): boolean {
 
 function projectAgents(projectId: string, job: AgentJob, agents: Agent[]): Agent[] {
   return agents.filter((a) => a.projectId === projectId && a.job === job)
+}
+
+const ONE_TICK_SEC = TICK_INTERVAL_MS / 1000
+
+type ConductorReassignmentTick = {
+  simCtx: SimCtx
+  meta: MetaProgress
+  contextSize: number
+  baseSpeed: number
+  ctxMult: number
+  contextTokens: number
+  compactDuration: number
+  at: number
+  events: GameEvent[]
+  stats: GameState['stats']
+}
+
+function conductorCanAutoStaff(agents: Agent[], projectId: string): boolean {
+  const conductor = agents.find((a) => a.projectId === projectId && a.job === 'conductor')
+  if (!conductor) return false
+  return conductor.status !== 'compacting' && conductor.status !== 'compacted' && conductor.status !== 'crashed'
+}
+
+function gainConductorContextOnReassignment(
+  agents: Agent[],
+  projectId: string,
+  tick: ConductorReassignmentTick,
+): Agent[] {
+  const idx = agents.findIndex((a) => a.projectId === projectId && a.job === 'conductor')
+  if (idx < 0) return agents
+  const conductor = agents[idx]!
+  if (conductor.status === 'compacting' || conductor.status === 'compacted' || conductor.status === 'crashed') {
+    return agents
+  }
+
+  const agent = { ...conductor }
+  fillAgentContext(agent, tick.contextSize, tick.baseSpeed, ONE_TICK_SEC, tick.ctxMult)
+  if (agent.contextUsed >= tick.contextTokens) {
+    agent.contextUsed = tick.contextTokens
+    agent.status = 'compacting'
+    agent.compactingRemainingSec = tick.compactDuration
+    tick.stats = { ...tick.stats, compactionsSurvived: tick.stats.compactionsSurvived + 1 }
+    tick.events = pushEvent(
+      tick.simCtx,
+      tick.meta,
+      tick.events,
+      'crash',
+      `${agent.name} context full — rebooting (${tick.compactDuration}s)...`,
+      tick.at,
+    )
+  }
+
+  const next = [...agents]
+  next[idx] = agent
+  return next
+}
+
+function buildConductorReassignmentTick(
+  simCtx: SimCtx,
+  state: Pick<GameState, 'meta' | 'vibingCourses' | 'gpuTickPurchases'>,
+  agents: Agent[],
+  events: GameEvent[],
+  stats: GameState['stats'],
+  at: number,
+): ConductorReassignmentTick {
+  const modelTierIndex = getHallucinationLevel(state.meta, 'model')
+  const model = getModelTier(modelTierIndex)!
+  const contextSize = contextSizeForLevel(model.contextSize, getHallucinationLevel(state.meta, 'context'))
+  return {
+    simCtx,
+    meta: state.meta,
+    contextSize,
+    baseSpeed: agentTickSpeed(agents, totalGpuTicks(state)),
+    ctxMult: contextFillMultiplier(state.vibingCourses),
+    contextTokens: contextSize * 1000,
+    compactDuration: compactionDurationSec(state.meta),
+    at,
+    events,
+    stats,
+  }
 }
 
 function assignAgentToRole(agent: Agent, projectId: string, job: AgentJob): Agent {
@@ -557,11 +638,17 @@ function reconcileProjectStaffing(
   project: Project,
   agents: Agent[],
   projects: Project[],
+  conductorTick?: ConductorReassignmentTick,
 ): { agents: Agent[]; projects: Project[] } {
   let nextAgents = [...agents]
   let nextProjects = projects
 
   const syncedProject = () => nextProjects.find((p) => p.id === project.id) ?? project
+  const noteWorkerReassignment = () => {
+    if (conductorTick) {
+      nextAgents = gainConductorContextOnReassignment(nextAgents, project.id, conductorTick)
+    }
+  }
 
   if (project.useConductor && hasConductorCourse(state.vibingCourses)) {
     const conductors = projectAgents(project.id, 'conductor', nextAgents)
@@ -590,78 +677,83 @@ function reconcileProjectStaffing(
       }
     }
 
-    const workerCap = Math.max(0, project.crewCap - projectAgents(project.id, 'conductor', nextAgents).length)
-    const workers = nextAgents.filter(
-      (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
-    )
+    if (conductorCanAutoStaff(nextAgents, project.id)) {
+      const workerCap = Math.max(0, project.crewCap - projectAgents(project.id, 'conductor', nextAgents).length)
+      const workers = nextAgents.filter(
+        (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
+      )
 
-    for (const w of workers) {
-      if (
-        w.job &&
-        w.job !== 'conductor' &&
-        isProjectRole(w.job) &&
-        w.status === 'idle' &&
-        !projectRoleHasWork(syncedProject(), w.job as StaffJob, w.id, nextAgents)
-      ) {
-        const result = unassignAgentFromRole(nextAgents, project.id, w.job, nextProjects)
-        if (result) {
-          nextAgents = result.agents
-          nextProjects = result.projects
-        }
-      }
-    }
-
-    const workersAfter = nextAgents.filter(
-      (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
-    )
-    if (workersAfter.length > workerCap) {
-      const idle = workersAfter.filter((a) => !isAgentBusy(a))
-      for (let i = 0; i < workersAfter.length - workerCap && idle.length > 0; i++) {
-        const victim = idle.pop()!
-        if (victim.job) {
-          const result = unassignAgentFromRole(nextAgents, project.id, victim.job, nextProjects)
+      for (const w of workers) {
+        if (
+          w.job &&
+          w.job !== 'conductor' &&
+          isProjectRole(w.job) &&
+          w.status === 'idle' &&
+          !projectRoleHasWork(syncedProject(), w.job as StaffJob, w.id, nextAgents)
+        ) {
+          const result = unassignAgentFromRole(nextAgents, project.id, w.job, nextProjects)
           if (result) {
             nextAgents = result.agents
             nextProjects = result.projects
+            noteWorkerReassignment()
           }
         }
       }
-    }
 
-    for (const role of CONDUCTOR_ROLE_PRIORITY) {
-      const current = projectAgents(project.id, role, nextAgents).length
-      const workersNow = nextAgents.filter(
+      const workersAfter = nextAgents.filter(
         (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
       )
-      if (
-        workersNow.length < workerCap &&
-        projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents) &&
-        (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
-      ) {
-        const staffed = staffAgentForRole(
-          ctx,
-          { ...state, agents: nextAgents },
-          nextAgents,
-          project.id,
-          role,
-          nextProjects,
-        )
-        if (staffed) {
-          nextAgents = staffed.agents
-          nextProjects = staffed.projects
-          nextAgents = nextAgents.map((a) =>
-            a.id === staffed.agentId
-              ? {
-                  ...a,
-                  status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents)
-                    ? jobStatusFor(role)
-                    : 'idle',
-                }
-              : a,
-          )
+      if (workersAfter.length > workerCap) {
+        const idle = workersAfter.filter((a) => !isAgentBusy(a))
+        for (let i = 0; i < workersAfter.length - workerCap && idle.length > 0; i++) {
+          const victim = idle.pop()!
+          if (victim.job) {
+            const result = unassignAgentFromRole(nextAgents, project.id, victim.job, nextProjects)
+            if (result) {
+              nextAgents = result.agents
+              nextProjects = result.projects
+              noteWorkerReassignment()
+            }
+          }
         }
       }
-      void current
+
+      for (const role of CONDUCTOR_ROLE_PRIORITY) {
+        const current = projectAgents(project.id, role, nextAgents).length
+        const workersNow = nextAgents.filter(
+          (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
+        )
+        if (
+          workersNow.length < workerCap &&
+          projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents) &&
+          (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
+        ) {
+          const staffed = staffAgentForRole(
+            ctx,
+            { ...state, agents: nextAgents },
+            nextAgents,
+            project.id,
+            role,
+            nextProjects,
+          )
+          if (staffed) {
+            nextAgents = staffed.agents
+            nextProjects = staffed.projects
+            nextAgents = nextAgents.map((a) =>
+              a.id === staffed.agentId
+                ? {
+                    ...a,
+                    status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents)
+                      ? jobStatusFor(role)
+                      : 'idle',
+                  }
+                : a,
+            )
+            noteWorkerReassignment()
+          }
+        }
+        void current
+      }
     }
     return { agents: nextAgents, projects: nextProjects }
   }
@@ -848,13 +940,23 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     }
   }
 
+  const baseSpeedGlobal = agentTickSpeed(nextAgents, totalGpus)
+  const conductorTick = buildConductorReassignmentTick(
+    ctx,
+    { ...state, gpuTickPurchases },
+    nextAgents,
+    nextEvents,
+    nextStats,
+    at,
+  )
+
   for (const project of nextProjects.filter((p) => p.status === 'active')) {
-    const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects)
+    const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects, conductorTick)
     nextAgents = reconciled.agents
     nextProjects = reconciled.projects
   }
-
-  const baseSpeedGlobal = agentTickSpeed(nextAgents, totalGpus)
+  nextEvents = conductorTick.events
+  nextStats = conductorTick.stats
 
   for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
     let agent = nextAgents[agentIdx]
@@ -1488,7 +1590,17 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
       : p,
   )
   const updatedProject = nextProjects.find((p) => p.id === projectId)!
-  const reconciled = reconcileProjectStaffing(ctx, repaired, updatedProject, repaired.agents, nextProjects)
+  const conductorTick = updatedProject.useConductor
+    ? buildConductorReassignmentTick(ctx, repaired, repaired.agents, repaired.events, state.stats, at)
+    : undefined
+  const reconciled = reconcileProjectStaffing(
+    ctx,
+    repaired,
+    updatedProject,
+    repaired.agents,
+    nextProjects,
+    conductorTick,
+  )
   const nextAgents = reconciled.agents
 
   return withCtx({
@@ -1496,10 +1608,17 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
     agents: nextAgents,
     projects: reconciled.projects,
     stats: {
-      ...state.stats,
+      ...(conductorTick?.stats ?? state.stats),
       agentsDeployed: Math.max(state.stats.agentsDeployed, nextAgents.length),
     },
-    events: pushEvent(ctx, state.meta, state.events, 'project', `Staffed +1 ${job} on ${project.clientName}.`, at),
+    events: pushEvent(
+      ctx,
+      state.meta,
+      conductorTick?.events ?? state.events,
+      'project',
+      `Staffed +1 ${job} on ${project.clientName}.`,
+      at,
+    ),
   }, ctx, at)
 }
 
