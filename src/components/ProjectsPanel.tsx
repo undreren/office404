@@ -17,6 +17,8 @@ import {
   taskIsFullyComplete,
   taskLifecycleLabel,
   taskLifecycleProgressPct,
+  taskNeedsRefinement,
+  taskRefineProgressPct,
   tasksForRequirement,
   untestedMergedTasks,
   visibleRequirements,
@@ -152,16 +154,21 @@ function TaskCard({
   selectedTaskId: string | null
   onJustMerge: (id: string) => void
 }) {
-  const pct = taskLifecycleProgressPct(task, project, agents)
+  const refining = taskNeedsRefinement(task)
+  const refinePct = refining ? taskRefineProgressPct(task, project, agents) : null
+  const pct = refining ? (refinePct ?? 0) : taskLifecycleProgressPct(task, project, agents)
   const phase = taskLifecycleLabel(task, project)
   const isSelected = selectedTaskId === task.id
   const comments = reviewCommentsOnTask(project, task.id)
   const resolved = resolvedReviewComments(project, task.id).length
+  const refiner = refining
+    ? agents.find((a) => a.job === 'refine' && a.projectId === project.id && a.taskId === task.id)
+    : undefined
   const statusSummary = taskAccessibleSummary(task, phase, pct, comments.length, resolved)
 
   return (
     <li
-      className={`task-item task-item--${task.status} ${isSelected ? 'task-item--selected' : ''} ${task.isBugFix ? 'task-item--bug' : ''}`}
+      className={`task-item task-item--${task.status} ${isSelected ? 'task-item--selected' : ''} ${task.isBugFix ? 'task-item--bug' : ''} ${refining ? 'task-item--refining' : ''}`}
     >
       <article
         className="task-card"
@@ -173,10 +180,15 @@ function TaskCard({
           <span className="task-status">{phase}</span>
         </div>
         <div className="meter meter--sm">
-          <div className="meter__fill meter__fill--code" style={{ width: `${pct}%` }} />
+          <div
+            className={`meter__fill ${refining ? 'meter__fill--refine' : 'meter__fill--code'}`}
+            style={{ width: `${pct}%` }}
+          />
         </div>
         <p className="task-sp">
           {Math.floor(pct)}% · {formatStoryPoints(task.storyPointsRequired)} SP
+          {refining && ' · refining'}
+          {refining && refiner && ` · ${refiner.name}`}
           {task.isBugFix && ' · bug fix'}
           {task.bugDiscovered && !task.isBugFix && ' · bug found'}
           {task.status === 'merged' && task.prQuality !== null && (
