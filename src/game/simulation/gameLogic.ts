@@ -820,7 +820,9 @@ function staffAgentForRole(
   projectId: string,
   job: AgentJob,
   projects: Project[],
+  options?: { stealFromOtherProjects?: boolean },
 ): { agents: Agent[]; agentId: string; projects: Project[] } | null {
+  const stealFromOtherProjects = options?.stealFromOtherProjects ?? true
   const unassignedIdx = agents.findIndex((a) => a.job === null && !a.isAutomation)
   if (unassignedIdx >= 0) {
     const next = [...agents]
@@ -831,7 +833,15 @@ function staffAgentForRole(
 
   const idleCandidates = agents
     .map((a, idx) => ({ a, idx }))
-    .filter(({ a }) => a.job !== null && a.job !== job && a.job !== 'conductor' && !a.isAutomation && !isAgentBusy(a))
+    .filter(
+      ({ a }) =>
+        a.job !== null &&
+        a.job !== job &&
+        a.job !== 'conductor' &&
+        !a.isAutomation &&
+        !isAgentBusy(a) &&
+        (stealFromOtherProjects || a.projectId === projectId),
+    )
   if (idleCandidates.length > 0) {
     idleCandidates.sort((x, y) => {
       const xPri = CONDUCTOR_ROLE_PRIORITY.indexOf(x.a.job as StaffJob)
@@ -1013,6 +1023,49 @@ function tryProgressTask(
   return { projects: next, becameDone, becamePrReady }
 }
 
+function projectHasConductorManageableWork(
+  project: Project,
+  agents: Agent[],
+  agentsPerTask: number,
+): boolean {
+  return conductorRolePriority(project).some((role) =>
+    projectRoleHasWork(project, role, 'conductor', agents, agentsPerTask),
+  )
+}
+
+function canStaffConductorOnProject(state: GameState, agents: Agent[], projectId: string): boolean {
+  if (agents.some((a) => a.job === null && !a.isAutomation)) return true
+  if (canSpawnAgent({ ...state, agents })) return true
+  return agents.some(
+    (a) =>
+      a.projectId === projectId &&
+      a.job !== null &&
+      a.job !== 'conductor' &&
+      !a.isAutomation &&
+      !isAgentBusy(a),
+  )
+}
+
+function priorConductorProjectsBlockStaffing(
+  activeProjects: Project[],
+  projectId: string,
+  agents: Agent[],
+  state: GameState,
+  agentsPerTask: number,
+): boolean {
+  const projectIndex = activeProjects.findIndex((p) => p.id === projectId)
+  if (projectIndex <= 0) return false
+
+  for (let i = 0; i < projectIndex; i++) {
+    const prior = activeProjects[i]!
+    if (!prior.useConductor) continue
+    if (projectAgents(prior.id, 'conductor', agents).length > 0) continue
+    if (!projectHasConductorManageableWork(prior, agents, agentsPerTask)) continue
+    if (canStaffConductorOnProject(state, agents, prior.id)) return true
+  }
+  return false
+}
+
 function evictLowestPriorityIdleWorker(
   agents: Agent[],
   projectId: string,
@@ -1061,17 +1114,31 @@ function reconcileProjectStaffing(
     const desiredConductor = project.useConductor ? 1 : project.roleCounts.conductor > 0 ? 1 : 0
 
     if (desiredConductor > 0 && !hasConductor) {
-      const staffed = staffAgentForRole(
-        ctx,
-        { ...state, agents: nextAgents },
-        nextAgents,
-        project.id,
-        'conductor',
-        nextProjects,
-      )
-      if (staffed) {
-        nextAgents = staffed.agents
-        nextProjects = staffed.projects
+      const activeProjects = nextProjects.filter((p) => p.status === 'active' && !p.isLocked)
+      const canStaffConductor =
+        projectHasConductorManageableWork(syncedProject(), nextAgents, agentsPerTask) &&
+        canStaffConductorOnProject({ ...state, agents: nextAgents }, nextAgents, project.id) &&
+        !priorConductorProjectsBlockStaffing(
+          activeProjects,
+          project.id,
+          nextAgents,
+          { ...state, agents: nextAgents },
+          agentsPerTask,
+        )
+      if (canStaffConductor) {
+        const staffed = staffAgentForRole(
+          ctx,
+          { ...state, agents: nextAgents },
+          nextAgents,
+          project.id,
+          'conductor',
+          nextProjects,
+          { stealFromOtherProjects: false },
+        )
+        if (staffed) {
+          nextAgents = staffed.agents
+          nextProjects = staffed.projects
+        }
       }
     }
     if (desiredConductor === 0 && hasConductor) {
