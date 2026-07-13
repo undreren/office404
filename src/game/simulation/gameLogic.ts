@@ -59,6 +59,8 @@ import {
   clientLeadPipelineTarget,
   computePrBaseQuality,
   contextFillMultiplier,
+  countActiveClientProjects,
+  effectiveVibingPmTiers,
   fillAgentContext,
   formatStoryPoints,
   getAgentParameters,
@@ -115,6 +117,80 @@ export type { SimCtx } from './simCtx'
 
 function availableLeadCount(leads: GameState['leads']): number {
   return leads.filter((l) => l.status === 'available').length
+}
+
+const EMPTY_PROJECT_ROLE_COUNTS: ProjectRoleCounts = {
+  refine: 0,
+  code: 0,
+  review: 0,
+  test: 0,
+  conductor: 0,
+}
+
+function enforceClientProjectCap(state: GameState, ctx: SimCtx, at: number): GameState {
+  const pmTiers = effectiveVibingPmTiers(state)
+  const maxSlots = maxClientProjectSlots(state.meta, pmTiers)
+  const lockedNames: string[] = []
+  const unlockedNames: string[] = []
+  let unlockedCount = 0
+
+  let projects = state.projects.map((p) => {
+    if (p.kind !== 'client' || p.status !== 'active') return p
+
+    const shouldUnlock = unlockedCount < maxSlots
+    if (shouldUnlock) {
+      unlockedCount++
+      if (p.isLocked) {
+        unlockedNames.push(p.clientName)
+        return { ...p, isLocked: false }
+      }
+      return p
+    }
+
+    if (!p.isLocked) lockedNames.push(p.clientName)
+    return {
+      ...p,
+      isLocked: true,
+      roleCounts: { ...EMPTY_PROJECT_ROLE_COUNTS },
+      useConductor: false,
+    }
+  })
+
+  const lockedIds = new Set(projects.filter((p) => p.isLocked).map((p) => p.id))
+  let agents = state.agents.map((a) => (a.projectId && lockedIds.has(a.projectId) ? clearAgentJob(a) : a))
+  for (const projectId of lockedIds) {
+    projects = clampRoleCountsToStaffed(projectId, agents, projects)
+  }
+
+  const pipelineTarget = clientLeadPipelineTarget(state.meta, pmTiers, projects)
+  const available = state.leads.filter((l) => l.status === 'available')
+  const nonAvailable = state.leads.filter((l) => l.status !== 'available')
+  const trimmedAvailable = available.slice(0, pipelineTarget)
+  const leads =
+    available.length > pipelineTarget ? [...nonAvailable, ...trimmedAvailable] : state.leads
+
+  let events = state.events
+  if (lockedNames.length > 0) {
+    events = pushEvent(
+      ctx,
+      state.meta,
+      events,
+      'project',
+      `Project Manager off duty — ${lockedNames.join(', ')} locked. Agents pulled; lead pipeline capped.`,
+      at,
+    )
+  } else if (unlockedNames.length > 0) {
+    events = pushEvent(
+      ctx,
+      state.meta,
+      events,
+      'project',
+      `Project Manager on duty — ${unlockedNames.join(', ')} unlocked.`,
+      at,
+    )
+  }
+
+  return { ...state, agents, projects, leads, events }
 }
 
 type ProjectRole = keyof ProjectRoleCounts
@@ -246,23 +322,23 @@ export function toggleSpecialistRole(
 
   if (!enabled) {
     const nextAgents = state.agents.filter((a) => !(a.isAutomation && a.automationJob === job))
-    return withCtx(
-      {
-        ...state,
-        assignedSpecialistRoles: state.assignedSpecialistRoles.filter((role) => role !== job),
-        agents: nextAgents,
-        events: pushEvent(
-          ctx,
-          state.meta,
-          state.events,
-          'system',
-          `${label} specialist unassigned — roster slot freed.`,
-          at,
-        ),
-      },
-      ctx,
-      at,
-    )
+    let nextState: GameState = {
+      ...state,
+      assignedSpecialistRoles: state.assignedSpecialistRoles.filter((role) => role !== job),
+      agents: nextAgents,
+      events: pushEvent(
+        ctx,
+        state.meta,
+        state.events,
+        'system',
+        `${label} specialist unassigned — roster slot freed.`,
+        at,
+      ),
+    }
+    if (job === 'project_manager') {
+      nextState = enforceClientProjectCap(nextState, ctx, at)
+    }
+    return withCtx(nextState, ctx, at)
   }
 
   if (state.agents.some((a) => a.isAutomation && a.automationJob === job)) {
@@ -292,25 +368,25 @@ export function toggleSpecialistRole(
   }
 
   const agent = createAutomationAgent(ctx, job)
-  return withCtx(
-    {
-      ...state,
-      assignedSpecialistRoles: [...state.assignedSpecialistRoles, job],
-      agents: [...agents, agent],
-      projects,
-      stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-      events: pushEvent(
-        ctx,
-        state.meta,
-        state.events,
-        'system',
-        `${agent.name} (${label}) assigned to specialist duty.${yeetNote}`,
-        at,
-      ),
-    },
-    ctx,
-    at,
-  )
+  let nextState: GameState = {
+    ...state,
+    assignedSpecialistRoles: [...state.assignedSpecialistRoles, job],
+    agents: [...agents, agent],
+    projects,
+    stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
+    events: pushEvent(
+      ctx,
+      state.meta,
+      state.events,
+      'system',
+      `${agent.name} (${label}) assigned to specialist duty.${yeetNote}`,
+      at,
+    ),
+  }
+  if (job === 'project_manager') {
+    nextState = enforceClientProjectCap(nextState, ctx, at)
+  }
+  return withCtx(nextState, ctx, at)
 }
 
 export function applyOfflineProgress(
@@ -874,7 +950,7 @@ function sweepAutoMergeReviewedPrs(
   const eventMessages: string[] = []
 
   for (const project of nextProjects) {
-    if (project.status !== 'active') continue
+    if (project.status !== 'active' || project.isLocked) continue
     const candidates = project.tasks.filter(
       (t) => !t.isReviewComment && t.status === 'pr_ready' && t.reviewed,
     )
@@ -1220,7 +1296,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
   const pipelineTarget = clientLeadPipelineTarget(
     meta,
-    state.vibingCourseTiers.project_manager ?? 0,
+    effectiveVibingPmTiers(state),
     nextProjects,
   )
   if (
@@ -1232,7 +1308,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   }
 
   for (const project of nextProjects) {
-    if (project.status !== 'active') continue
+    if (project.status !== 'active' || project.isLocked) continue
     project.daysRemaining -= dayProgress
 
     if (project.daysRemaining <= 0 && !project.tasks.every((t) => t.status === 'merged')) {
@@ -1264,7 +1340,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     at,
   )
 
-  for (const project of nextProjects.filter((p) => p.status === 'active')) {
+  for (const project of nextProjects.filter((p) => p.status === 'active' && !p.isLocked)) {
     const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects, conductorTick)
     nextAgents = reconciled.agents
     nextProjects = reconciled.projects
@@ -1330,7 +1406,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
     if (agent.job === 'code' && agent.projectId) {
               const project = nextProjects.find((p) => p.id === agent.projectId)
-              if (!project || project.status !== 'active') {
+              if (!project || project.status !== 'active' || project.isLocked) {
                 Object.assign(agent, clearAgentJob(agent))
                 continue
               }
@@ -1419,7 +1495,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               }
             } else if (agent.job === 'review' && agent.projectId) {
               const project = nextProjects.find((p) => p.id === agent.projectId)
-              if (!project || project.status !== 'active') {
+              if (!project || project.status !== 'active' || project.isLocked) {
                 Object.assign(agent, clearAgentJob(agent))
                 continue
               }
@@ -1512,7 +1588,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               }
             } else if (agent.job === 'refine' && agent.projectId) {
               const project = nextProjects.find((p) => p.id === agent.projectId)
-              if (!project || project.status !== 'active') {
+              if (!project || project.status !== 'active' || project.isLocked) {
                 Object.assign(agent, clearAgentJob(agent))
                 continue
               }
@@ -1639,7 +1715,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               }
             } else if (agent.job === 'test' && agent.projectId) {
               const project = nextProjects.find((p) => p.id === agent.projectId)
-              if (!project || project.status !== 'active') {
+              if (!project || project.status !== 'active' || project.isLocked) {
                 Object.assign(agent, clearAgentJob(agent))
                 continue
               }
@@ -1806,9 +1882,8 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const lead = state.leads.find((l) => l.id === leadId)
   if (!lead || lead.status !== 'available') return state
   if (state.reputation < lead.repRequired) return state
-  const clientProjects = state.projects.filter((p) => p.kind === 'client' && p.status === 'active')
-  const maxSlots = maxClientProjectSlots(state.meta, state.vibingCourseTiers.project_manager ?? 0)
-  if (clientProjects.length >= maxSlots) return state
+  const maxSlots = maxClientProjectSlots(state.meta, effectiveVibingPmTiers(state))
+  if (countActiveClientProjects(state.projects) >= maxSlots) return state
 
   const project = createProjectFromLead(
     ctx,
@@ -1860,7 +1935,7 @@ export function rejectLead(state: GameState, leadId: string, at: number): GameSt
 export function deliverProject(state: GameState, projectId: string, at: number): GameState {
   const ctx = ctxFrom(state)
   const project = state.projects.find((p) => p.id === projectId)
-  if (!project || project.status !== 'active') return state
+  if (!project || project.status !== 'active' || project.isLocked) return state
   if (!isReadyToDeliver(project)) return state
 
   const synced = syncTestScope(project)
@@ -1933,7 +2008,7 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   } else if (tutorialDone) {
     const pipelineTarget = clientLeadPipelineTarget(
       state.meta,
-      state.vibingCourseTiers.project_manager ?? 0,
+      effectiveVibingPmTiers(state),
       nextProjects,
     )
     if (availableLeadCount(nextLeads) < pipelineTarget) {
@@ -2015,7 +2090,7 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
     projects: repairStaleCodingAssignments(state.projects, state.agents),
   }
   const project = repaired.projects.find((p) => p.id === projectId)
-  if (!project) return state
+  if (!project || project.isLocked) return state
 
   if (delta > 0 && !canStaffRoleOnProject(repaired, projectId, job)) return state
 

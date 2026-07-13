@@ -489,9 +489,18 @@ function ProjectCard({ project }: { project: Project }) {
 
   return (
     <article
-      className={`project-card ${project.isTutorial ? 'project-card--tutorial' : ''} ${readyToDeliver ? 'project-card--ready' : ''}`}
+      className={`project-card ${project.isTutorial ? 'project-card--tutorial' : ''} ${readyToDeliver ? 'project-card--ready' : ''} ${project.isLocked ? 'project-card--locked' : ''}`}
       aria-label={projectSummary}
     >
+      {project.isLocked && (
+        <p
+          className="hint text-danger project-card__locked"
+          data-testid={`project-locked-${project.id}`}
+          aria-label="Project locked until Project Manager is assigned."
+        >
+          Locked — assign your Project Manager to work this gig.
+        </p>
+      )}
       <header className="project-card__header">
         <div>
           <p className="project-blurb" aria-label={`Project brief: ${project.blurb}`}>
@@ -536,7 +545,7 @@ function ProjectCard({ project }: { project: Project }) {
         </div>
       </div>
 
-      {requirements.length > 0 && (
+      {requirements.length > 0 && !project.isLocked && (
         <section className="requirements-block" aria-labelledby={`requirements-${project.id}`}>
           <h4 id={`requirements-${project.id}`}>Requirements</h4>
           <ul className="requirement-list">
@@ -553,6 +562,7 @@ function ProjectCard({ project }: { project: Project }) {
         </section>
       )}
 
+      {!project.isLocked && (
       <section
         className="project-crew"
         aria-labelledby={`staffing-${project.id}`}
@@ -643,6 +653,7 @@ function ProjectCard({ project }: { project: Project }) {
           ))
         )}
       </section>
+      )}
 
       {synced.testStoryPointsRequired > 0 && !readyToDeliver && synced.testPercent < 100 && (
         <p
@@ -659,7 +670,7 @@ function ProjectCard({ project }: { project: Project }) {
         </p>
       )}
 
-      {readyToDeliver && (
+      {readyToDeliver && !project.isLocked && (
         <div className="deliver-row">
           <p className="hint" aria-label="All tasks merged and QA complete. Ship it.">
             All tasks merged and QA complete. Ship it.

@@ -185,6 +185,8 @@ export interface Project {
   duplicateProjectId: string | null
   /** Synthetic client project — may ghost */
   isSynthetic?: boolean
+  /** Parked when client project cap drops (e.g. PM unassigned) — no work or staffing */
+  isLocked?: boolean
   mrrContribution: number
 }
 
