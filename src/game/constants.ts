@@ -28,6 +28,9 @@ export const LATE_FEE_PERCENT = 0.15
 export const LATE_REP_PENALTY_BASE = 3
 export const ON_TIME_REP_BONUS = 4
 
+/** Real seconds of active work at baseSpeed 1 to fill context before compacting. */
+export const CONTEXT_FILL_SECONDS = 120
+
 /** Real seconds to auto-compact and reset context after overflow (base; reducible via meta). */
 export const COMPACT_DURATION_SEC = 30
 

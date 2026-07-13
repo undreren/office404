@@ -3,6 +3,7 @@ import {
   BASE_AGENT_SLOTS,
   BASE_GPU_TICKS,
   COMPACT_DURATION_SEC,
+  CONTEXT_FILL_SECONDS,
   GPU_TICK_BASE_COST,
   GPU_TICK_COST_MULT,
   MAX_CLIENT_TASK_SP,
@@ -227,7 +228,7 @@ export function fillAgentContext(
   contextMultiplier = 1,
 ): number {
   const contextTokens = contextSizeK * 1000
-  const tok = (contextTokens / 60) * baseSpeed * deltaSec * contextMultiplier
+  const tok = (contextTokens / CONTEXT_FILL_SECONDS) * baseSpeed * deltaSec * contextMultiplier
   agent.contextUsed += tok
   return contextFillPct(agent.contextUsed, contextSizeK)
 }

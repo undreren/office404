@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { CONTEXT_FILL_SECONDS } from '../constants'
 import { applyOfflineProgressMsg, buyVibingCourseMsg, timeElapsed } from '../messages'
 import { contextFillPct } from '../mechanics'
 import { contextSizeForLevel, getModelTier } from '../models'
@@ -76,7 +77,7 @@ describe('offline-progress-simulates-work', () => {
   })
 
   it('does not leave staffed coders at full context with zero task progress', () => {
-    const awaySec = 120
+    const awaySec = CONTEXT_FILL_SECONDS - 1
     const before = codingAgentState()
     const model = getModelTier(0)!
     const contextSizeK = contextSizeForLevel(model.contextSize, 0)
