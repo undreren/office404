@@ -1,29 +1,13 @@
 import {
+  HALLUCINATION_TRACK_DEFS,
   HALLUCINATION_TRACKS,
   canBuyHallucinationUpgrade,
   getHallucinationLevel,
+  hallucinationTrackMaxLevel,
   hallucinationUpgradeCost,
-  type HallucinationTrack,
 } from '../game/prestige'
 import { prestigeHallucinationBuyMsg } from '../game/messages'
 import { useGameDispatchPurchase, useGameState } from '../runtime/GameRuntime'
-
-const TRACK_LABELS: Record<HallucinationTrack, string> = {
-  model: 'Model tier',
-  context: 'Context window',
-  compaction: 'Faster compaction',
-  starting_capital: 'Starting capital',
-  in_house: 'In-house product',
-  procurement: 'Procurement AI',
-  customer: 'Customer agent',
-  project_manager: 'Project manager',
-  project_slots: 'Client project slots',
-  fine_tune: 'Fine-tune unlocks',
-  sales: 'Sales automation',
-  marketing: 'Marketing boost',
-  accounting: 'Accounting tricks',
-  super_conductor: 'Super conductor',
-}
 
 export function HallucinationsPanel() {
   const { meta } = useGameState()
@@ -43,32 +27,40 @@ export function HallucinationsPanel() {
       <div className="vendor-list">
         {HALLUCINATION_TRACKS.map((track) => {
           const level = getHallucinationLevel(meta, track)
+          const maxLevel = hallucinationTrackMaxLevel(track)
+          const atMax = maxLevel !== null && level >= maxLevel
           const cost = hallucinationUpgradeCost(track, level)
           const affordable = canBuyHallucinationUpgrade(meta, track)
-          const label = TRACK_LABELS[track]
+          const def = HALLUCINATION_TRACK_DEFS[track]
+          const levelLabel =
+            maxLevel !== null ? `Lv ${level}/${maxLevel}` : `Lv ${level}`
 
           return (
             <article
               key={track}
               className="vendor-card"
-              aria-label={`${label} level ${level}, next costs ${cost} points`}
+              aria-label={`${def.label} ${levelLabel}, ${def.tagline}`}
             >
               <header>
-                <h4>{label}</h4>
-                <span>Lv {level}</span>
+                <h4>{def.label}</h4>
+                <span>{levelLabel}</span>
               </header>
+              <p className="vendor-tagline">&ldquo;{def.tagline}&rdquo;</p>
+              <p className="hint">{def.description}</p>
               <button
                 type="button"
                 className="btn btn--small"
                 aria-label={
-                  affordable
-                    ? `Upgrade ${label} for ${cost} hallucination points`
-                    : `Cannot afford ${label} upgrade (${cost} points)`
+                  atMax
+                    ? `${def.label} at max level`
+                    : affordable
+                      ? `Upgrade ${def.label} for ${cost} hallucination points`
+                      : `Cannot afford ${def.label} upgrade (${cost} points)`
                 }
                 disabled={!affordable}
                 onClick={() => dispatchPurchase(prestigeHallucinationBuyMsg(Date.now(), track))}
               >
-                {cost} pts
+                {atMax ? 'Max level' : `${cost} pts`}
               </button>
             </article>
           )

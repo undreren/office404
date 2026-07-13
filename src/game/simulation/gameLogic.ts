@@ -16,6 +16,7 @@ import { contextSizeForLevel, fineTuneId, getModelTier, MODEL_TIERS } from '../m
 import {
   allReviewCommentsAddressed,
   CONDUCTOR_ROLE_PRIORITY,
+  conductorRolePriority,
   createBugFixTask,
   createProjectFromLead,
   createReviewCommentTasks,
@@ -87,8 +88,11 @@ import {
   compactionDurationSec,
   getHallucinationLevel,
   hallucinationPointsFromRetirement,
+  instantTestHallucinationChance,
   maxClientProjectSlots,
   nextHighestRung,
+  refineHallucinationLevel,
+  reviewHallucinationLevel,
   startingCapitalBonus,
   type HallucinationTrack,
 } from '../prestige'
@@ -722,7 +726,9 @@ function reconcileProjectStaffing(
         }
       }
 
-      for (const role of CONDUCTOR_ROLE_PRIORITY) {
+      const rolePriority = conductorRolePriority(syncedProject())
+
+      for (const role of rolePriority) {
         if (
           projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
           (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
@@ -1138,7 +1144,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
               agent.jobProgress += dayProgress * baseSpeed
               if (agent.jobProgress >= agent.jobDuration) {
-                const comments = createReviewCommentTasks(ctx, task)
+                const comments = createReviewCommentTasks(ctx, task, reviewHallucinationLevel(meta))
                 nextProjects = nextProjects.map((p) =>
                   p.id === project.id
                     ? {
@@ -1292,6 +1298,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               let testTask = agent.taskId
                 ? project.tasks.find((t) => t.id === agent.taskId && taskNeedsTesting(t)) ?? null
                 : null
+              let instantQa = false
               if (!testTask) {
                 testTask = pickTestTask(project, agent.id, nextAgents, agentsPerTask)
                 if (!testTask) {
@@ -1302,6 +1309,10 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 }
                 agent.status = 'testing'
                 agent.taskId = testTask.id
+                const instantChance = instantTestHallucinationChance(meta)
+                if (instantChance > 0 && ctx.rng.float() < instantChance) {
+                  instantQa = true
+                }
               }
 
               fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
@@ -1310,16 +1321,18 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
-              const increment = testStoryPointIncrement(
-                testTask.storyPointsRequired,
-                testTask.testStoryPointsEarned,
-                params * baseSpeed,
-                gameDay,
-              )
-              const testEarned = Math.min(
-                testTask.storyPointsRequired,
-                testTask.testStoryPointsEarned + increment,
-              )
+              const testEarned = instantQa
+                ? testTask.storyPointsRequired
+                : Math.min(
+                    testTask.storyPointsRequired,
+                    testTask.testStoryPointsEarned +
+                      testStoryPointIncrement(
+                        testTask.storyPointsRequired,
+                        testTask.testStoryPointsEarned,
+                        params * baseSpeed,
+                        gameDay,
+                      ),
+                  )
               const taskFullyTested = testEarned >= testTask.storyPointsRequired
 
               let introducedBug = false
@@ -1430,7 +1443,13 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const maxSlots = maxClientProjectSlots(state.meta, state.vibingCourseTiers.project_manager ?? 0)
   if (clientProjects.length >= maxSlots) return state
 
-  const project = createProjectFromLead(ctx, lead, state.gameDay, state.reputation)
+  const project = createProjectFromLead(
+    ctx,
+    lead,
+    state.gameDay,
+    state.reputation,
+    refineHallucinationLevel(state.meta),
+  )
   const autoConductor =
     hasAutoConductorCourse(state.vibingCourses) && hasConductorCourse(state.vibingCourses)
   const projectWithConductor = autoConductor

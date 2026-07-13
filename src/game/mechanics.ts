@@ -22,7 +22,7 @@ import {
 } from './constants'
 import { HOUSING_CONFIG } from './housing'
 import type { MetaProgress } from './meta'
-import { effectiveModelParams, maxClientProjectSlots } from './prestige'
+import { codeHallucinationParamMultiplier, effectiveModelParams, maxClientProjectSlots } from './prestige'
 import type { Agent, AgentJob, FineTuneRole, GameState, Project, Task } from './types'
 import type { Rng } from './rng'
 
@@ -82,9 +82,14 @@ export function leadScopeForReputation(reputation: number): { minTotal: number; 
 }
 
 /** Max SP per requirement — ramps slowly with rep so Fib splits stay digestible. */
-export function maxRequirementSpForReputation(reputation: number): number {
+export function maxRequirementSpForReputation(
+  reputation: number,
+  refineHallucinationLevel = 0,
+): number {
   const rep = Math.max(0, reputation)
-  return Math.min(MAX_CLIENT_TASK_SP, Math.max(1, 1 + Math.floor(rep / 5)))
+  const level = Math.max(0, refineHallucinationLevel)
+  const divisor = 5 + level * 5
+  return Math.min(MAX_CLIENT_TASK_SP, Math.max(1, 1 + Math.floor(rep / divisor)))
 }
 
 /** Lead total SP roll — reputation only, slow ramp. */
@@ -169,11 +174,16 @@ export function refineJobDurationDays(taskSp: number, agentParams: number, split
   return splitMode ? base * 3 : base
 }
 
-export function reviewCommentSpawnCount(rng: Rng, taskSp: number): number {
+export function reviewCommentSpawnCount(
+  rng: Rng,
+  taskSp: number,
+  reviewHallucinationLevel = 0,
+): number {
   let count = 1 + rng.int(0, 2)
   if (taskSp >= 13) count = Math.max(count, 3)
   if (taskSp >= 8) count = Math.max(count, 3)
-  return Math.min(4, Math.max(1, count))
+  const rolled = Math.min(4, Math.max(1, count))
+  return Math.max(0, rolled - Math.max(0, reviewHallucinationLevel))
 }
 
 export function testStoryPointIncrement(
@@ -383,8 +393,11 @@ export function getAgentParameters(
   job: AgentJob | null,
   modelTierIndex: number,
 ): number {
-  const base = effectiveModelParams(meta)
+  let base = effectiveModelParams(meta)
   if (!job || job === 'conductor' || agentIsAutomationJob(job)) return base
+  if (job === 'code') {
+    base *= codeHallucinationParamMultiplier(meta)
+  }
   const tuneId = `tune-${modelTierIndex}-${job}`
   if (fineTunes.includes(tuneId)) {
     return base * (1 + 0.12)
