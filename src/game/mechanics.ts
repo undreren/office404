@@ -331,6 +331,18 @@ export function formatAgentDutyLabel(
   return `Coding: ${taskTitle ?? client}`
 }
 
+/** Project view: role and client are redundant (section header + card title). */
+export function formatAgentProjectViewDutyLabel(
+  agent: Pick<Agent, 'job' | 'status' | 'taskId' | 'projectId'>,
+  taskTitle: string | undefined,
+): string | null {
+  if (!agent.job) return null
+  if (agent.status === 'compacting') return 'Rebooting'
+  if (agent.status === 'idle') return null
+  if (agent.job === 'test' || agent.job === 'code') return taskTitle ?? null
+  return null
+}
+
 export function totalAgentSlots(state: Pick<GameState, 'agentSlotPurchases'>): number {
   return BASE_AGENT_SLOTS + state.agentSlotPurchases
 }

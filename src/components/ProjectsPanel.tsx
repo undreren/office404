@@ -2,7 +2,7 @@ import {
   agentContextDisplayPct,
   agentIsBusy,
   bestOfNTier,
-  formatAgentDutyLabel,
+  formatAgentProjectViewDutyLabel,
   formatStoryPoints,
   hasConductorCourse,
   maxAgentsPerTask,
@@ -357,7 +357,7 @@ function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
   const task = agent.taskId ? project.tasks.find((t) => t.id === agent.taskId) : undefined
-  const duty = formatAgentDutyLabel(agent, project.clientName, task?.title)
+  const duty = formatAgentProjectViewDutyLabel(agent, task?.title)
   const fill = agentContextDisplayPct(agent, model.contextSize)
   const isCompacting = agent.status === 'compacting'
 
@@ -376,7 +376,7 @@ function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
       aria-label={agentSummary}
     >
       <span className="crew-agent-name">{agent.name}</span>
-      <span className="crew-agent-duty">{duty}</span>
+      {duty && <span className="crew-agent-duty">{duty}</span>}
       <span className={`crew-agent-ctx${isCompacting ? ' crew-agent-ctx--draining' : ''}`}>
         {Math.floor(fill)}% ctx
       </span>
