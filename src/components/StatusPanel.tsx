@@ -1,8 +1,10 @@
 import {
   agentContextDisplayPct,
   agentRoleLabel,
+  countAssignedPmAgents,
   formatAgentDutyLabel,
   maxAgents,
+  maxAssignablePmAgents,
   unlockedAutomationJobs,
   type AutomationAgentJob,
 } from '../game/mechanics'
@@ -65,6 +67,85 @@ function AgentMiniCard({
       >
         {Math.floor(fill)}% ctx
       </span>
+    </li>
+  )
+}
+
+function PmSpecialistRoleRow({
+  assignedCount,
+  maxAssignable,
+  rosterFull,
+  canYeetForSlot,
+  agents,
+  modelContextSize,
+  projects,
+  onAdjust,
+}: {
+  assignedCount: number
+  maxAssignable: number
+  rosterFull: boolean
+  canYeetForSlot: boolean
+  agents: Agent[]
+  modelContextSize: number
+  projects: Project[]
+  onAdjust: (enabled: boolean) => void
+}) {
+  const label = agentRoleLabel('project_manager')
+  const disableAssign = assignedCount >= maxAssignable || (rosterFull && !canYeetForSlot)
+  const pmAgents = agents.filter((a) => a.isAutomation && a.automationJob === 'project_manager')
+
+  return (
+    <li className="specialist-role-row">
+      <div className="crew-label specialist-role-row__label specialist-role-row__label--pm">
+        <span>{label}</span>
+        <span className="specialist-role-row__pm-controls">
+          <button
+            type="button"
+            className="btn btn--ghost btn--tiny"
+            disabled={assignedCount <= 0}
+            data-testid="status-specialist-project_manager-remove"
+            aria-label={`Unassign one ${label}`}
+            onClick={() => onAdjust(false)}
+          >
+            −
+          </button>
+          <span
+            className="specialist-role-row__pm-count"
+            data-testid="status-specialist-project_manager-count"
+            aria-label={`${assignedCount} of ${maxAssignable} ${label} specialists assigned`}
+          >
+            {assignedCount}/{maxAssignable}
+          </span>
+          <button
+            type="button"
+            className="btn btn--ghost btn--tiny"
+            disabled={disableAssign}
+            data-testid="status-specialist-project_manager-add"
+            aria-label={`Assign one ${label}${disableAssign ? ', roster full or cap reached' : ''}`}
+            onClick={() => onAdjust(true)}
+          >
+            +
+          </button>
+        </span>
+        <span className="hint">(+1 client gig each)</span>
+      </div>
+      {pmAgents.length > 0 && (
+        <ul className="agent-mini-list agent-mini-list--inline">
+          {pmAgents.map((agent) => (
+            <AgentMiniCard
+              key={agent.id}
+              agent={agent}
+              duty={formatAgentDutyLabel(
+                agent,
+                projects.find((p) => p.id === agent.projectId)?.clientName,
+                findTask(projects, agent.taskId)?.title,
+              )}
+              fill={agentContextDisplayPct(agent, modelContextSize)}
+              isCompacting={agent.status === 'compacting'}
+            />
+          ))}
+        </ul>
+      )}
     </li>
   )
 }
@@ -132,7 +213,7 @@ function SpecialistRoleRow({
 
 export function StatusPanel() {
   const state = useGameState()
-  const { agents, projects, meta, events, vibingCourses, assignedSpecialistRoles } = state
+  const { agents, projects, meta, events, vibingCourses, vibingCourseTiers, assignedSpecialistRoles } = state
   const dispatchAt = useGameDispatchAt()
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
@@ -152,26 +233,42 @@ export function StatusPanel() {
         <>
           <h3 className="status-panel__section">Specialist roles</h3>
           <p className="hint">
-            Toggle to assign an agent to each role. Unassigned roles use no roster slot (
-            {agents.length}/{rosterMax}).
+            Toggle to assign an agent to each role (Project Managers: one per extra client gig). Unassigned
+            roles use no roster slot ({agents.length}/{rosterMax}).
           </p>
           <div className="status-panel__specialist-box">
             <ul className="specialist-role-list">
-              {specialistJobs.map((job) => (
-                <SpecialistRoleRow
-                  key={job}
-                  job={job}
-                  assigned={assignedSpecialistRoles.includes(job)}
-                  rosterFull={rosterFull}
-                  canYeetForSlot={canYeetForSlot}
-                  agent={agents.find((a) => a.isAutomation && a.automationJob === job)}
-                  modelContextSize={model.contextSize}
-                  projects={projects}
-                  onToggle={(enabled) =>
-                    dispatchAt((at) => toggleSpecialistRoleMsg(at, job, enabled))
-                  }
-                />
-              ))}
+              {specialistJobs.map((job) =>
+                job === 'project_manager' ? (
+                  <PmSpecialistRoleRow
+                    key={job}
+                    assignedCount={countAssignedPmAgents(agents)}
+                    maxAssignable={maxAssignablePmAgents({ vibingCourses, vibingCourseTiers, meta })}
+                    rosterFull={rosterFull}
+                    canYeetForSlot={canYeetForSlot}
+                    agents={agents}
+                    modelContextSize={model.contextSize}
+                    projects={projects}
+                    onAdjust={(enabled) =>
+                      dispatchAt((at) => toggleSpecialistRoleMsg(at, job, enabled))
+                    }
+                  />
+                ) : (
+                  <SpecialistRoleRow
+                    key={job}
+                    job={job}
+                    assigned={assignedSpecialistRoles.includes(job)}
+                    rosterFull={rosterFull}
+                    canYeetForSlot={canYeetForSlot}
+                    agent={agents.find((a) => a.isAutomation && a.automationJob === job)}
+                    modelContextSize={model.contextSize}
+                    projects={projects}
+                    onToggle={(enabled) =>
+                      dispatchAt((at) => toggleSpecialistRoleMsg(at, job, enabled))
+                    }
+                  />
+                ),
+              )}
             </ul>
           </div>
         </>

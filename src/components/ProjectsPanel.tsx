@@ -499,7 +499,7 @@ function ProjectCard({ project }: { project: Project }) {
           data-testid={`project-locked-${project.id}`}
           aria-label="Project locked until Project Manager is assigned."
         >
-          Locked — assign your Project Manager to work this gig.
+          Locked — assign a Project Manager to work this gig.
         </p>
       )}
       <header className="project-card__header">

@@ -6,7 +6,7 @@ import {
   adjustRoleCountMsg,
   toggleSpecialistRoleMsg,
 } from '../messages'
-import { countActiveClientProjects, clientLeadPipelineTarget } from '../mechanics'
+import { countActiveClientProjects, clientLeadPipelineTarget, countAssignedPmAgents } from '../mechanics'
 import { maxClientProjectSlots } from '../prestige'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { stateWithAvailableLead } from './_helpers/stateWithAvailableLead'
@@ -52,18 +52,44 @@ describe('pm-unassign-enforces-project-cap', () => {
   it('locks overflow projects, clears their staffing, and caps leads when PM is unassigned', () => {
     const base = stateWithCash(stateWithAvailableLead(), 5000)
     const withPm = withPmSpecialist(base)
-    const maxWithPm = maxClientProjectSlots(withPm.meta, withPm.vibingCourseTiers.project_manager ?? 0)
+    const maxWithPm = maxClientProjectSlots(withPm.meta, countAssignedPmAgents(withPm.agents))
     expect(maxWithPm).toBeGreaterThan(1)
 
     const projectA = extraProject(1)
     const projectB = extraProject(2)
-    const template = withPm.agents[0]!
     const staffed: GameState = {
       ...withPm,
       projects: [projectA, projectB],
       agents: [
-        { ...template, id: 'agt-a', projectId: projectA.id, job: 'refine', status: 'refining' },
-        { ...template, id: 'agt-b', projectId: projectB.id, job: 'refine', status: 'refining' },
+        {
+          id: 'agt-a',
+          name: 'Refine Bot A',
+          job: 'refine',
+          taskId: null,
+          projectId: projectA.id,
+          jobProgress: 0,
+          jobDuration: 0,
+          status: 'refining',
+          personality: withPm.agents[0]!.personality,
+          contextUsed: 0,
+          compactingRemainingSec: 0,
+          uptime: 0,
+        },
+        {
+          id: 'agt-b',
+          name: 'Refine Bot B',
+          job: 'refine',
+          taskId: null,
+          projectId: projectB.id,
+          jobProgress: 0,
+          jobDuration: 0,
+          status: 'refining',
+          personality: withPm.agents[0]!.personality,
+          contextUsed: 0,
+          compactingRemainingSec: 0,
+          uptime: 0,
+        },
+        ...withPm.agents.filter((a) => a.isAutomation && a.automationJob === 'project_manager'),
       ],
       leads: [
         ...withPm.leads,

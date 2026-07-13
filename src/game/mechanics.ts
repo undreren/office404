@@ -105,21 +105,33 @@ export function countActiveClientProjects(projects: Project[]): number {
   return projects.filter((p) => p.kind === 'client' && p.status === 'active' && !p.isLocked).length
 }
 
-/** PM course tiers only count toward client project slots while the specialist is assigned. */
-export function effectiveVibingPmTiers(
-  state: Pick<GameState, 'assignedSpecialistRoles' | 'vibingCourseTiers'>,
+export function countPmRoleAssignments(roles: AgentJob[]): number {
+  return roles.filter((role) => role === 'project_manager').length
+}
+
+export function countAssignedPmAgents(agents: Agent[]): number {
+  return agents.filter((a) => a.isAutomation && a.automationJob === 'project_manager').length
+}
+
+/** How many PM specialists the player may assign (course tier, or 1 if hallucination-unlocked). */
+export function maxAssignablePmAgents(
+  state: Pick<GameState, 'vibingCourses' | 'vibingCourseTiers' | 'meta'>,
 ): number {
-  if (!state.assignedSpecialistRoles.includes('project_manager')) return 0
-  return state.vibingCourseTiers.project_manager ?? 0
+  if (!isAutomationAgentUnlocked(state, 'project_manager')) return 0
+  const courseTier =
+    state.vibingCourseTiers.project_manager ??
+    (state.vibingCourses.includes('project_manager') ? 1 : 0)
+  if (courseTier > 0) return courseTier
+  return getHallucinationLevel(state.meta, 'project_manager') > 0 ? 1 : 0
 }
 
 /** How many available leads we want — one per empty client project slot. */
 export function clientLeadPipelineTarget(
   meta: MetaProgress,
-  vibingPmTiers: number,
+  assignedPmAgents: number,
   projects: Project[],
 ): number {
-  const maxSlots = maxClientProjectSlots(meta, vibingPmTiers)
+  const maxSlots = maxClientProjectSlots(meta, assignedPmAgents)
   return Math.max(0, maxSlots - countActiveClientProjects(projects))
 }
 
