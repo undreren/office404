@@ -9,6 +9,7 @@ import {
   pickLeadTotalStoryPoints,
   clientPaymentForTotalSp,
   repZeroPaymentMultiplier,
+  refinementAutoSplitChance,
   reviewCommentSpawnCount,
 } from './mechanics'
 import { pickBugDescription, pickSubtaskTitles } from './refinementContent'
@@ -506,23 +507,19 @@ function passesAfterRefine(task: Task): number {
   return Math.max(0, (task.refinePassesRemaining ?? 1) - 1)
 }
 
-function splitOptionsForTier(refinementTier: number): { preferSplit: boolean; forceSplit: boolean } {
-  return {
-    preferSplit: refinementTier > 0,
-    forceSplit: refinementTier >= 2,
-  }
+function splitOptionsForTier(refinementTierLevel: number): { autoSplitChance: number } {
+  return { autoSplitChance: refinementAutoSplitChance(refinementTierLevel) }
 }
 
 function shouldSplitStoryPoints(
   ctx: SimCtx,
   sp: number,
-  options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean },
+  options: { autoSplitChance?: number; forceSingle?: boolean },
 ): boolean {
-  const { preferSplit = false, forceSplit = false, forceSingle = false } = options
+  const { autoSplitChance = 0, forceSingle = false } = options
   if (forceSingle || sp < 2 || splitStoryPoints(sp) === null) return false
-  if (forceSplit) return true
-  const splitChance = preferSplit ? 0.85 : 0.4
-  return ctx.rng.chance(splitChance)
+  if (autoSplitChance <= 0) return false
+  return ctx.rng.chance(autoSplitChance)
 }
 
 function tasksFromSplit(
@@ -563,25 +560,23 @@ export function refineRequirementToTasks(
   requirement: Requirement,
   options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean; refinementTier?: number } = {},
 ): Task[] {
-  const { refinementTier = 0, forceSingle = false } = options
-  const tierSplit = splitOptionsForTier(refinementTier)
+  const { refinementTier: refinementTierLevel = 0, forceSingle = false } = options
+  const tierSplit = splitOptionsForTier(refinementTierLevel)
   const sp = requirement.storyPoints
-  const refinePassesRemaining = refinementTier
   const shouldSplit = shouldSplitStoryPoints(ctx, sp, {
-    preferSplit: options.preferSplit ?? tierSplit.preferSplit,
-    forceSplit: options.forceSplit ?? tierSplit.forceSplit,
+    autoSplitChance: options.forceSplit || options.preferSplit ? 1 : tierSplit.autoSplitChance,
     forceSingle,
   })
 
   if (shouldSplit) {
-    return tasksFromSplit(ctx, requirement.projectId, requirement.title, sp, requirement.id, null, refinePassesRemaining)
+    return tasksFromSplit(ctx, requirement.projectId, requirement.title, sp, requirement.id, null, 0)
   }
 
   const [title] = pickSubtaskTitles(ctx.rng, requirement.title, 1)
   return [
     {
       ...createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id),
-      refinePassesRemaining,
+      refinePassesRemaining: 0,
     },
   ]
 }

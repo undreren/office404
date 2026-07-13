@@ -6,6 +6,7 @@ import {
   formatStoryPoints,
   hasConductorCourse,
   maxAgentsPerTask,
+  maxConductorTeamSize,
 } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
@@ -614,8 +615,11 @@ function ProjectCard({ project }: { project: Project }) {
               className="hint"
               aria-label="Conductor auto-staffs refine, code, review, and test. Projects compete for roster agents."
             >
-              Conductor auto-staffs refine → code → review → test. Projects compete for roster
-              agents.
+              Conductor auto-staffs refine → code → review → test (max{' '}
+              {maxConductorTeamSize(
+                vibingCourseTiers.conductor ?? (vibingCourses.includes('conductor') ? 1 : 0),
+              )}{' '}
+              on this project). Projects compete for roster agents.
             </p>
             {STAFF_JOBS.map(({ job, label }) => (
               <RoleCounter

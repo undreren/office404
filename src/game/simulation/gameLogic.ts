@@ -58,6 +58,7 @@ import {
   bestOfNTier,
   clientLeadPipelineTarget,
   computePrBaseQuality,
+  conductorTier,
   contextFillMultiplier,
   countActiveClientProjects,
   effectiveVibingPmTiers,
@@ -76,8 +77,10 @@ import {
   maxAgentSlotPurchases,
   maxAgents,
   maxAgentsPerTask,
+  maxConductorTeamSize,
   maxGpuTickPurchases,
   prQualityAfterComments,
+  projectTeamSize,
   ramSlotCost,
   refineJobDurationDays,
   refinementTier,
@@ -1010,6 +1013,30 @@ function tryProgressTask(
   return { projects: next, becameDone, becamePrReady }
 }
 
+function evictLowestPriorityIdleWorker(
+  agents: Agent[],
+  projectId: string,
+  projects: Project[],
+): { agents: Agent[]; projects: Project[] } | null {
+  const idleWorkers = agents
+    .filter(
+      (a) =>
+        a.projectId === projectId &&
+        a.job &&
+        a.job !== 'conductor' &&
+        a.status === 'idle' &&
+        isProjectRole(a.job),
+    )
+    .sort(
+      (a, b) =>
+        CONDUCTOR_ROLE_PRIORITY.indexOf(b.job as StaffJob) -
+        CONDUCTOR_ROLE_PRIORITY.indexOf(a.job as StaffJob),
+    )
+  const victim = idleWorkers[0]
+  if (!victim?.job || !isProjectRole(victim.job)) return null
+  return unassignAgentFromRole(agents, projectId, victim.job, projects)
+}
+
 function reconcileProjectStaffing(
   ctx: SimCtx,
   state: GameState,
@@ -1056,6 +1083,7 @@ function reconcileProjectStaffing(
     }
 
     if (conductorCanAutoStaff(nextAgents, project.id)) {
+      const maxTeam = maxConductorTeamSize(conductorTier(state.vibingCourseTiers, state.vibingCourses))
       const workers = nextAgents.filter(
         (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
       )
@@ -1077,13 +1105,30 @@ function reconcileProjectStaffing(
         }
       }
 
+      while (projectTeamSize(nextAgents, project.id) > maxTeam) {
+        const result = evictLowestPriorityIdleWorker(nextAgents, project.id, nextProjects)
+        if (!result) break
+        nextAgents = result.agents
+        nextProjects = result.projects
+        noteWorkerReassignment()
+      }
+
       const rolePriority = conductorRolePriority(syncedProject())
 
       for (const role of rolePriority) {
         if (
           projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
+          projectAgents(project.id, role, nextAgents).length === 0 &&
           (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
         ) {
+          while (projectTeamSize(nextAgents, project.id) >= maxTeam) {
+            const evicted = evictLowestPriorityIdleWorker(nextAgents, project.id, nextProjects)
+            if (!evicted) break
+            nextAgents = evicted.agents
+            nextProjects = evicted.projects
+            noteWorkerReassignment()
+          }
+          if (projectTeamSize(nextAgents, project.id) >= maxTeam) continue
           const staffed = staffAgentForRole(
             ctx,
             { ...state, agents: nextAgents },

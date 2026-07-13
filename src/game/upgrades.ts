@@ -1,5 +1,11 @@
 export const BEST_OF_N_COURSE_ID = 'best_of_n'
-export const BEST_OF_N_MAX_TIER = 9
+export const BEST_OF_N_MAX_TIER = 4
+
+export const CONDUCTOR_COURSE_ID = 'conductor'
+export const CONDUCTOR_MAX_TIER = 4
+
+export const REFINEMENT_COURSE_ID = 'refinement'
+export const REFINEMENT_MAX_TIER = 5
 
 export interface VibingCourse {
   id: string
@@ -26,11 +32,13 @@ export const VIBING_COURSES: VibingCourse[] = [
     description: 'Agents fill context 35% slower before compacting.',
   },
   {
-    id: 'conductor',
+    id: CONDUCTOR_COURSE_ID,
     label: 'Conductor',
     tagline: 'Someone has to watch them. Might as well be someone fake.',
     cost: 350,
-    description: 'Toggle Conductor mode per project — auto-staffs refine, code, review, and test.',
+    description:
+      'Toggle Conductor mode per project — auto-staffs refine, code, review, and test. Caps project crew at 3; each tier adds +1 max agents.',
+    maxTier: CONDUCTOR_MAX_TIER,
   },
   {
     id: 'auto_conductor',
@@ -40,12 +48,13 @@ export const VIBING_COURSES: VibingCourse[] = [
     description: 'New client projects start with Conductor mode on (requires Conductor course).',
   },
   {
-    id: 'refinement',
+    id: REFINEMENT_COURSE_ID,
     label: 'Advanced Refinement',
-    tagline: 'Split it again. And again. Legally distinct tasks.',
+    tagline: 'Split it once. Maybe twice if the vibes align.',
     cost: 250,
-    description: 'Extra refinement passes to break large tasks down further.',
-    maxTier: 3,
+    description:
+      'Requirement splits cap at one level. Each tier after the first adds +25% auto-split chance when refining.',
+    maxTier: REFINEMENT_MAX_TIER,
   },
   {
     id: 'project_manager',
@@ -95,7 +104,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     label: 'Best-of-N',
     tagline: 'Hallucinatory cooperation, real infighting.',
     cost: 400,
-    description: '+1 max agent on the same task per tier. Coders, reviewers, refiners, and testers can pile on.',
+    description: '+1 max agent on the same task per tier (max 5 at tier 4). Coders, reviewers, refiners, and testers can pile on.',
     maxTier: BEST_OF_N_MAX_TIER,
   },
   {
