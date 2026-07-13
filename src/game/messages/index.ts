@@ -1,5 +1,6 @@
 import type { GameMessage } from '../engine/Message'
 import type { AgentJob, GameState, MainTabId } from '../types'
+import type { AutomationAgentJob } from '../mechanics'
 import type { HallucinationTrack } from '../prestige'
 import {
   acceptLead,
@@ -10,6 +11,7 @@ import {
   acknowledgeTutorialStep,
   adjustRoleCount,
   advanceTime,
+  assignAutomationAgent,
   buyAgentSlot,
   buyFineTune,
   buyGpuTick,
@@ -137,6 +139,10 @@ export function acknowledgeStoryIntroMsg(at: number): GameMessage {
 
 export function acknowledgeTutorialStepMsg(at: number, step: number): GameMessage {
   return { at, apply: (state) => acknowledgeTutorialStep(state, step, at) }
+}
+
+export function assignAutomationAgentMsg(at: number, job: AutomationAgentJob): GameMessage {
+  return { at, apply: (state) => assignAutomationAgent(state, job, at) }
 }
 
 export function setAutomationAgentActiveMsg(at: number, agentId: string, active: boolean): GameMessage {

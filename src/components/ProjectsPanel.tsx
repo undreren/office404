@@ -75,7 +75,7 @@ function staffingAgentLabelPlural(job: AgentJob, count: number): string {
 }
 
 function countIdleAgents(agents: Agent[]): number {
-  return agents.filter((agent) => !agentIsBusy(agent)).length
+  return agents.filter((agent) => !agent.isAutomation && !agentIsBusy(agent)).length
 }
 
 function staffingAddHint(
