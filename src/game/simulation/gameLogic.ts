@@ -52,7 +52,9 @@ import {
   TICK_INTERVAL_MS,
 } from '../constants'
 import {
+  agentRoleLabel,
   agentTickSpeed,
+  AUTOMATION_AGENT_JOBS,
   bestOfNTier,
   clientLeadPipelineTarget,
   computePrBaseQuality,
@@ -62,9 +64,11 @@ import {
   getAgentParameters,
   getFineTuneLevel,
   gpuTickCost,
+  hasActiveAutomationAgent,
   hasAutoConductorCourse,
   hasConductorCourse,
   hasPromptEngineering,
+  isAutomationAgentUnlocked,
   jobStatusFor,
   maxAgentSlotPurchases,
   maxAgents,
@@ -81,6 +85,7 @@ import {
   testStoryPointIncrement,
   totalAgentSlots,
   totalGpuTicks,
+  type AutomationAgentJob,
 } from '../mechanics'
 import { HOUSING_CONFIG, isSingularityEligible, nextHousingTier } from '../housing'
 import {
@@ -168,6 +173,87 @@ function createAgent(ctx: SimCtx): Agent {
     compactingRemainingSec: 0,
     uptime: 0,
   }
+}
+
+function createAutomationAgent(ctx: SimCtx, automationJob: AutomationAgentJob): Agent {
+  const agent = createAgent(ctx)
+  agent.isAutomation = true
+  agent.automationJob = automationJob
+  agent.job = automationJob
+  agent.status = jobStatusFor(automationJob)
+  return agent
+}
+
+export function syncAutomationAgents(state: GameState, ctx: SimCtx): GameState {
+  let agents = [...state.agents]
+  let spawned = 0
+
+  for (const job of AUTOMATION_AGENT_JOBS) {
+    if (!isAutomationAgentUnlocked(state, job)) continue
+    const exists = agents.some((a) => a.isAutomation && a.automationJob === job)
+    if (exists) continue
+    agents.push(createAutomationAgent(ctx, job))
+    spawned += 1
+  }
+
+  if (spawned === 0) return state
+  return {
+    ...state,
+    agents,
+    stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + spawned },
+  }
+}
+
+export function setAutomationAgentActive(
+  state: GameState,
+  agentId: string,
+  active: boolean,
+  at: number,
+): GameState {
+  const agent = state.agents.find((a) => a.id === agentId)
+  if (!agent?.isAutomation || !agent.automationJob) return state
+  if (active === (agent.job === agent.automationJob)) return state
+
+  const ctx = ctxFrom(state)
+  const automationJob = agent.automationJob
+  const nextAgents = state.agents.map((a) => {
+    if (a.id !== agentId) return a
+    if (active) {
+      return {
+        ...a,
+        job: automationJob,
+        projectId: null,
+        taskId: null,
+        jobProgress: 0,
+        jobDuration: 0,
+        status: jobStatusFor(automationJob),
+      }
+    }
+    return {
+      ...a,
+      job: null,
+      projectId: null,
+      taskId: null,
+      jobProgress: 0,
+      jobDuration: 0,
+      status: 'idle' as const,
+    } satisfies Agent
+  })
+
+  const label = agentRoleLabel(automationJob)
+  const message = active
+    ? `${agent.name} (${label}) back on automation duty.`
+    : `${agent.name} (${label}) benched — automation paused.`
+
+  return withCtx(
+    {
+      ...state,
+      agents: nextAgents,
+      events: pushEvent(ctx, state.meta, state.events, 'system', message, at),
+    },
+    ctx,
+    at,
+  )
 }
 
 export function createInitialState(
@@ -291,6 +377,7 @@ function isAgentBusy(agent: Agent): boolean {
 }
 
 function isAgentStaffable(agent: Agent): boolean {
+  if (agent.isAutomation) return false
   if (agent.job === null) return true
   if (agent.job === 'conductor' || agent.status === 'compacting') return false
   return !isAgentBusy(agent)
@@ -488,7 +575,7 @@ function staffAgentForRole(
   job: AgentJob,
   projects: Project[],
 ): { agents: Agent[]; agentId: string; projects: Project[] } | null {
-  const unassignedIdx = agents.findIndex((a) => a.job === null)
+  const unassignedIdx = agents.findIndex((a) => a.job === null && !a.isAutomation)
   if (unassignedIdx >= 0) {
     const next = [...agents]
     const assigned = assignAgentToRole(next[unassignedIdx], projectId, job)
@@ -498,7 +585,7 @@ function staffAgentForRole(
 
   const idleCandidates = agents
     .map((a, idx) => ({ a, idx }))
-    .filter(({ a }) => a.job !== null && a.job !== job && a.job !== 'conductor' && !isAgentBusy(a))
+    .filter(({ a }) => a.job !== null && a.job !== job && a.job !== 'conductor' && !a.isAutomation && !isAgentBusy(a))
   if (idleCandidates.length > 0) {
     idleCandidates.sort((x, y) => {
       const xPri = CONDUCTOR_ROLE_PRIORITY.indexOf(x.a.job as StaffJob)
@@ -839,7 +926,7 @@ function clampRoleCountsToStaffed(
 export function canStaffRoleOnProject(state: GameState, _projectId: string, job: AgentJob): boolean {
   if (!isProjectRole(job)) return false
   if (canSpawnAgent(state)) return true
-  if (state.agents.some((a) => a.job === null)) return true
+  if (state.agents.some((a) => a.job === null && !a.isAutomation)) return true
   return state.agents.some(
     (a) =>
       a.job !== null &&
@@ -917,7 +1004,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     )
   }
 
-  if (vibingCourses.includes('procurement')) {
+  if (vibingCourses.includes('procurement') && hasActiveAutomationAgent(nextAgents, 'procurement')) {
     const budget = cash * PROCUREMENT_CASH_FRACTION
     const slotCost = ramSlotCost(agentSlotPurchases)
     const tickCost = gpuTickCost(gpuTickPurchases)
@@ -1018,7 +1105,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
   for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
     let agent = nextAgents[agentIdx]
-    if (!agent.job || agent.job === 'conductor') continue
+    if (!agent.job || agent.job === 'conductor' || agent.isAutomation) continue
     if (agent.status === 'compacting' || agent.status === 'compacted' || agent.status === 'crashed') {
       continue
     }
@@ -1840,20 +1927,27 @@ export function buyVibingCourse(state: GameState, courseId: string, at: number):
     : [...state.vibingCourses, courseId]
   const tierNote = maxTier > 1 ? ` (tier ${newTier}/${maxTier})` : ''
 
-  return withCtx({
-    ...state,
-    cash: state.cash - cost,
-    vibingCourses,
-    vibingCourseTiers,
-    events: pushEvent(
+  return withCtx(
+    syncAutomationAgents(
+      {
+        ...state,
+        cash: state.cash - cost,
+        vibingCourses,
+        vibingCourseTiers,
+        events: pushEvent(
+          ctx,
+          state.meta,
+          state.events,
+          'milestone',
+          `Enrolled in ${course.label}${tierNote}: "${course.tagline}"`,
+          at,
+        ),
+      },
       ctx,
-      state.meta,
-      state.events,
-      'milestone',
-      `Enrolled in ${course.label}${tierNote}: "${course.tagline}"`,
-      at,
     ),
-  }, ctx, at)
+    ctx,
+    at,
+  )
 }
 
 export function upgradeApartment(state: GameState, at: number): GameState {
@@ -1904,18 +1998,25 @@ export function prestigeHallucinationBuy(
   const newMeta = buyHallucinationUpgrade(state.meta, track)
   if (!newMeta) return state
   const level = getHallucinationLevel(newMeta, track)
-  return withCtx({
-    ...state,
-    meta: newMeta,
-    events: pushEvent(
+  return withCtx(
+    syncAutomationAgents(
+      {
+        ...state,
+        meta: newMeta,
+        events: pushEvent(
+          ctx,
+          state.meta,
+          state.events,
+          'hallucination',
+          `Hallucination upgrade: ${track} → level ${level}.`,
+          at,
+        ),
+      },
       ctx,
-      state.meta,
-      state.events,
-      'hallucination',
-      `Hallucination upgrade: ${track} → level ${level}.`,
-      at,
     ),
-  }, ctx, at)
+    ctx,
+    at,
+  )
 }
 
 export function acceptSingularity(state: GameState, at: number): GameState {

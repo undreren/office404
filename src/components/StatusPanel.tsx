@@ -1,8 +1,9 @@
-import { agentContextDisplayPct, formatAgentDutyLabel } from '../game/mechanics'
+import { agentContextDisplayPct, agentRoleLabel, formatAgentDutyLabel } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
 import type { Task } from '../game/types'
-import { useGameState } from '../runtime/GameRuntime'
+import { setAutomationAgentActiveMsg } from '../game/messages'
+import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { SaveBackupPanel } from './SaveBackupPanel'
 
 const EVENT_ICONS: Record<string, string> = {
@@ -18,6 +19,7 @@ const EVENT_ICONS: Record<string, string> = {
 
 export function StatusPanel() {
   const { agents, projects, meta, events } = useGameState()
+  const dispatchAt = useGameDispatchAt()
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
 
@@ -55,11 +57,14 @@ export function StatusPanel() {
               const fill = agentContextDisplayPct(agent, model.contextSize)
               const duty = formatAgentDutyLabel(agent, project?.clientName, task?.title)
               const isCompacting = agent.status === 'compacting'
+              const isAutomation = agent.isAutomation && agent.automationJob
+              const automationActive = isAutomation && agent.job === agent.automationJob
+              const automationJob = agent.automationJob
 
               const agentSummary = [
                 agent.name,
                 duty,
-                `${Math.floor(fill)}% context`,
+                isAutomation ? null : `${Math.floor(fill)}% context`,
                 isCompacting ? 'compacting' : null,
               ]
                 .filter(Boolean)
@@ -73,11 +78,36 @@ export function StatusPanel() {
                 >
                   <span className="agent-mini-card__name">{agent.name}</span>
                   <span className="agent-mini-card__duty">{duty}</span>
-                  <span
-                    className={`agent-mini-card__ctx${isCompacting ? ' agent-mini-card__ctx--draining' : ''}`}
-                  >
-                    {Math.floor(fill)}% ctx
-                  </span>
+                  {!isAutomation && (
+                    <span
+                      className={`agent-mini-card__ctx${isCompacting ? ' agent-mini-card__ctx--draining' : ''}`}
+                    >
+                      {Math.floor(fill)}% ctx
+                    </span>
+                  )}
+                  {isAutomation && automationJob && (
+                    <button
+                      type="button"
+                      className="btn btn--small agent-mini-card__bench"
+                      data-testid={
+                        automationActive
+                          ? `status-bench-automation-${automationJob}`
+                          : `status-activate-automation-${automationJob}`
+                      }
+                      aria-label={
+                        automationActive
+                          ? `Bench ${agentRoleLabel(automationJob)} agent ${agent.name}`
+                          : `Activate ${agentRoleLabel(automationJob)} agent ${agent.name}`
+                      }
+                      onClick={() =>
+                        dispatchAt((at) =>
+                          setAutomationAgentActiveMsg(at, agent.id, !automationActive),
+                        )
+                      }
+                    >
+                      {automationActive ? 'Bench' : 'Activate'}
+                    </button>
+                  )}
                 </li>
               )
             })}

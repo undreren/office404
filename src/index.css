@@ -1382,6 +1382,11 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.agent-mini-card__bench {
+  justify-self: end;
+  white-space: nowrap;
+}
+
 .vendor-card--compact {
   padding: 0.5rem;
 }
