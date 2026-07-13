@@ -37,7 +37,6 @@ export const SP_PROGRESS_PER_B_PARAM = 0.1
 
 export const LEAD_SPAWN_INTERVAL_DAYS = 4
 export const LEAD_SPAWN_INTERVAL_MIN_DAYS = 1.5
-export const MAX_LEADS = 3
 export const MIN_PROJECT_DAYS = 14
 export const SP_PROGRESS_DAY_DIVISOR = 60
 
