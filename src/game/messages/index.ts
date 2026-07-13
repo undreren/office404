@@ -11,6 +11,7 @@ import {
   acknowledgeTutorialStep,
   adjustRoleCount,
   advanceTime,
+  applyOfflineProgress,
   buyAgentSlot,
   buyFineTune,
   buyGpuTick,
@@ -24,6 +25,7 @@ import {
   resetGame,
   retire,
   selectTask,
+  syncOfflineSpecialist,
   toggleSpecialistRole,
   toggleConductor,
   upgradeApartment,
@@ -47,7 +49,12 @@ export function newGame(at: number, rngSeed?: number): GameMessage {
 export function hydrateFromSave(saved: GameState, at: number): GameMessage {
   return {
     at,
-    apply: () => ({ ...saved, snapshotAt: at }),
+    apply: () => {
+      const elapsedSec = Math.max(0, (at - saved.snapshotAt) / 1000)
+      let next = { ...saved, snapshotAt: at }
+      next = applyOfflineProgress(next, elapsedSec, at)
+      return next
+    },
   }
 }
 
@@ -142,6 +149,21 @@ export function acknowledgeTutorialStepMsg(at: number, step: number): GameMessag
 
 export function toggleSpecialistRoleMsg(at: number, job: AutomationAgentJob, enabled: boolean): GameMessage {
   return { at, apply: (state) => toggleSpecialistRole(state, job, enabled, at) }
+}
+
+export function syncOfflineSpecialistMsg(at: number, tabHidden: boolean): GameMessage {
+  return { at, apply: (state) => syncOfflineSpecialist(state, tabHidden, at) }
+}
+
+export function applyOfflineProgressMsg(at: number, elapsedSec: number): GameMessage {
+  return { at, apply: (state) => applyOfflineProgress(state, elapsedSec, at) }
+}
+
+export function returnFromHiddenMsg(at: number, elapsedSec: number): GameMessage {
+  return {
+    at,
+    apply: (state) => syncOfflineSpecialist(applyOfflineProgress(state, elapsedSec, at), false, at),
+  }
 }
 
 export function acknowledgeCompactionIntroMsg(at: number): GameMessage {

@@ -43,6 +43,8 @@ import {
   LATE_FEE_PERCENT,
   LATE_REP_PENALTY_BASE,
   MAX_EVENTS,
+  MAX_OFFLINE_SECONDS,
+  MIN_OFFLINE_APPLY_SEC,
   ON_TIME_REP_BONUS,
   PRESTIGE_START_CASH,
   PROCUREMENT_CASH_FRACTION,
@@ -65,6 +67,7 @@ import {
   hasActiveAutomationAgent,
   hasAutoConductorCourse,
   hasConductorCourse,
+  hasOfflineCourse,
   hasPromptEngineering,
   isAutomationAgentUnlocked,
   jobStatusFor,
@@ -288,6 +291,55 @@ export function toggleSpecialistRole(
     ctx,
     at,
   )
+}
+
+export function applyOfflineProgress(
+  state: GameState,
+  elapsedSec: number,
+  at: number,
+): GameState {
+  if (!hasOfflineCourse(state.vibingCourses) || state.phase !== 'playing') return state
+
+  const capped = Math.min(Math.max(0, elapsedSec), MAX_OFFLINE_SECONDS)
+  if (capped < MIN_OFFLINE_APPLY_SEC) return state
+
+  const ctx = ctxFrom(state)
+  const advanced = advanceTime(state, capped, at)
+  const awayMinutes = Math.floor(capped / 60)
+  const awayLabel =
+    awayMinutes >= 60
+      ? `${Math.floor(awayMinutes / 60)}h ${awayMinutes % 60}m`
+      : `${awayMinutes}m`
+
+  return withCtx(
+    {
+      ...advanced,
+      events: pushEvent(
+        ctx,
+        state.meta,
+        advanced.events,
+        'system',
+        `Away for ${awayLabel}. Offline Agent hallucinated the elapsed time.`,
+        at,
+      ),
+    },
+    ctx,
+    at,
+  )
+}
+
+/** Auto-assign or unassign the Offline specialist when the app tab hides or shows. */
+export function syncOfflineSpecialist(state: GameState, tabHidden: boolean, at: number): GameState {
+  if (!hasOfflineCourse(state.vibingCourses)) return state
+
+  const isAssigned = state.assignedSpecialistRoles.includes('offline')
+  if (tabHidden && !isAssigned) {
+    return toggleSpecialistRole(state, 'offline', true, at)
+  }
+  if (!tabHidden && isAssigned) {
+    return toggleSpecialistRole(state, 'offline', false, at)
+  }
+  return state
 }
 
 export function createInitialState(

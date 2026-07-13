@@ -12,6 +12,7 @@ export type AgentJob =
   | 'customer'
   | 'accounting'
   | 'project_manager'
+  | 'offline'
 
 export type AgentStatus =
   | 'idle'
@@ -25,6 +26,7 @@ export type AgentStatus =
   | 'marketing'
   | 'accounting'
   | 'managing'
+  | 'offline'
   | 'compacting'
   | 'compacted'
   | 'crashed'
@@ -62,7 +64,17 @@ export type ApartmentTier =
 
 export type FineTuneRole = 'code' | 'review' | 'refine' | 'test'
 
-export type StaffJob = Exclude<AgentJob, 'conductor' | 'procurement' | 'sales' | 'marketing' | 'customer' | 'accounting' | 'project_manager'>
+export type StaffJob = Exclude<
+  AgentJob,
+  | 'conductor'
+  | 'procurement'
+  | 'sales'
+  | 'marketing'
+  | 'customer'
+  | 'accounting'
+  | 'project_manager'
+  | 'offline'
+>
 
 export type HallucinationLevels = Partial<Record<string, number>>
 
