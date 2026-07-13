@@ -25,6 +25,7 @@ Skip grilling only when Kasper explicitly waives it or the task is obviously mic
 
 ## While implementing
 
+- **Bug fixes:** follow the `vermin-slayer` skill — failing test first, then the fix.
 - Keep diffs focused; match existing game code style.
 - Branch names: `cursor/<descriptive-name>-2daf`
 
