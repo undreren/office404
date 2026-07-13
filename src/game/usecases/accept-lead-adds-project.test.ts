@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { LEAD_SPAWN_INTERVAL_DAYS, SECONDS_PER_GAME_DAY } from '../constants'
-import { acceptLeadMsg, timeElapsed } from '../messages'
+import { acceptLeadMsg } from '../messages'
 import { createInitialState } from '../simulation/gameLogic'
+import type { GameState } from '../types'
+import { advanceUntilLeadSpawns } from './_helpers/advanceGameDays'
 import { dispatchChain } from './_helpers/dispatchChain'
 
 const SEED = 42
@@ -9,10 +10,13 @@ const T0 = 1_000_000
 
 describe('accept-lead-adds-project', () => {
   it('matches use case invariants', () => {
-    const spawnSec = LEAD_SPAWN_INTERVAL_DAYS * SECONDS_PER_GAME_DAY
-
-    let state = { ...createInitialState(T0, SEED), tutorialDone: true }
-    state = dispatchChain(state, [timeElapsed(T0 + 1000, spawnSec)])
+    let state: GameState = {
+      ...createInitialState(T0, SEED),
+      tutorialDone: true,
+      projects: [],
+      agents: [],
+    }
+    state = advanceUntilLeadSpawns(state, T0 + 1000)
 
     const available = state.leads.filter((l) => l.status === 'available')
     expect(available.length).toBeGreaterThan(0)

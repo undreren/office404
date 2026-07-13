@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "hallucinationPoints": 2,
+    "totalHallucinationsEarned": 2,
+    "highestRungEver": 1,
+    "retirementCount": 0,
+    "singularityCount": 0,
+    "hallucinationLevels": { "model": 1 }
+  },
+  "phase": "playing",
+  "cash": 200,
+  "reputation": 9,
+  "gameDay": 3,
+  "rentDueInDays": 27,
+  "apartment": "cardboard",
+  "apartmentLeaseRemaining": 27,
+  "agentSlotPurchases": 0,
+  "gpuTickPurchases": 0,
+  "mrr": 0,
+  "productFeaturesShipped": 0,
+  "purchasedFineTunes": [],
+  "vibingCourses": [],
+  "vibingCourseTiers": {},
+  "agents": [
+    {
+      "id": "agt-1",
+      "name": "Context Window",
+      "job": null,
+      "taskId": null,
+      "projectId": null,
+      "jobProgress": 0,
+      "jobDuration": 0,
+      "status": "idle",
+      "personality": "apologizes for hallucinating your name",
+      "contextUsed": 0,
+      "compactingRemainingSec": 0,
+      "uptime": 0
+    }
+  ],
+  "projects": [],
+  "productBacklog": [],
+  "leads": [
+    {
+      "id": "lead-1",
+      "clientName": "OKR Overlords",
+      "clientTagline": "Objectives unclear. Results quarterly.",
+      "blurb": "AI-powered spreadsheet. Yes, another one.",
+      "payment": 28,
+      "durationDays": 20,
+      "totalStoryPoints": 8,
+      "daysToExpire": 5,
+      "spawnedGameDay": 2,
+      "status": "available",
+      "repRequired": 2,
+      "source": "real"
+    }
+  ],
+  "selectedTaskId": null,
+  "tutorialDone": true,
+  "seenStoryIntro": true,
+  "acknowledgedTutorialStep": 2,
+  "seenTabIntros": ["feed", "shop", "agents", "projects", "leads", "hallucinations"],
+  "leadSpawnCooldown": 3,
+  "syntheticLeadCooldown": 4,
+  "taxCodeCooldown": 10,
+  "events": [],
+  "stats": {
+    "projectsCompleted": 1,
+    "tasksMerged": 4,
+    "agentsDeployed": 1,
+    "compactionsSurvived": 0,
+    "productsShipped": 0,
+    "syntheticLeadsAccepted": 0
+  },
+  "snapshotAt": 1783905682927,
+  "rng": 1733189712,
+  "nextId": 20
+}

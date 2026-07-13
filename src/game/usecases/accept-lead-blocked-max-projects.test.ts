@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_ACTIVE_PROJECTS } from '../constants'
+import { maxClientProjectSlots } from '../prestige'
 import { acceptLeadMsg, stateChanged } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { stateWithAvailableLead } from './_helpers/stateWithAvailableLead'
@@ -24,11 +24,14 @@ function extraProject(index: number): Project {
     requirements: [],
     tasks: [],
     isTutorial: false,
+    kind: 'client',
     lateCount: 0,
     repPenaltyMultiplier: 1,
     crewCap: 4,
     roleCounts: { refine: 0, code: 0, review: 0, test: 0, conductor: 0 },
     useConductor: false,
+    duplicateProjectId: null,
+    mrrContribution: 0,
   }
 }
 
@@ -36,10 +39,13 @@ describe('accept-lead-blocked-max-projects', () => {
   it('matches use case invariants', () => {
     const before = stateWithAvailableLead()
     const lead = before.leads.find((l) => l.status === 'available')!
-    const extras = Array.from({ length: MAX_ACTIVE_PROJECTS }, (_, i) => extraProject(i))
-    const patched = { ...before, projects: [...before.projects, ...extras] }
+    const maxSlots = maxClientProjectSlots(before.meta, before.vibingCourseTiers.project_manager ?? 0)
+    const extras = Array.from({ length: maxSlots }, (_, i) => extraProject(i))
+    const patched = { ...before, projects: extras }
 
-    expect(patched.projects.length).toBeGreaterThanOrEqual(MAX_ACTIVE_PROJECTS)
+    expect(patched.projects.filter((p) => p.status === 'active' && p.kind === 'client').length).toBe(
+      maxSlots,
+    )
 
     const after = dispatchChain(patched, [acceptLeadMsg(T0 + 3000, lead.id)])
 

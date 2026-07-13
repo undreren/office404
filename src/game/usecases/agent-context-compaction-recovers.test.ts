@@ -49,7 +49,7 @@ describe('agent-context-compaction-recovers', () => {
         projectId: project.id,
         status: 'working' as const,
         taskId: task.id,
-        contextUsed: 3950,
+        contextUsed: 15950,
         compactingRemainingSec: 0,
       })),
     }

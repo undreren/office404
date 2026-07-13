@@ -1,11 +1,13 @@
-import type { Agent, AgentJob, Lead, Project, Requirement, StaffJob, Task } from './types'
-import { MIN_PROJECT_DAYS, TUTORIAL_PAYMENT } from './constants'
+import type { Agent, AgentJob, Lead, LeadSource, Project, ProjectKind, Requirement, StaffJob, Task } from './types'
+import { MIN_PROJECT_DAYS, TUTORIAL_PAYMENT, MAX_CLIENT_TASK_SP, REP_ZERO_MAX_TASK_SP } from './constants'
 import { pickJokeClient } from './clients'
 import {
   agentIsBusy,
   FIBONACCI,
   fibIndex,
-  pickLeadFibonacci,
+  pickLeadTotalStoryPoints,
+  clientPaymentForTotalSp,
+  repZeroPaymentMultiplier,
   reviewCommentSpawnCount,
 } from './mechanics'
 import { pickBugDescription, pickSubtaskTitles } from './refinementContent'
@@ -276,6 +278,7 @@ export function createRequirement(
     title,
     storyPoints,
     status: 'open',
+    refinePassesUsed: 0,
   }
 }
 
@@ -310,27 +313,38 @@ export function createTask(
     isReviewComment: false,
     reviewed: false,
     testStoryPointsEarned: 0,
+    refinePassesRemaining: 0,
   }
 }
 
-function createRequirementsForProject(ctx: SimCtx, projectId: string, totalSp: number): Requirement[] {
-  const idx = fibIndex(totalSp)
-  if (idx <= 1 || totalSp <= 3) {
-    return [createRequirement(ctx, projectId, ctx.rng.pick(REQUIREMENT_TITLES), totalSp)]
+/** Split total SP into requirement chunks (each ≤ MAX_CLIENT_TASK_SP). */
+export function decomposeTotalSp(totalSp: number): number[] {
+  const parts: number[] = []
+  let left = totalSp
+  while (left > 0) {
+    const cap = Math.min(left, MAX_CLIENT_TASK_SP)
+    let best = cap
+    for (const f of FIBONACCI) {
+      if (f <= cap) best = f
+      else break
+    }
+    const chunk = left <= best ? left : best
+    parts.push(chunk)
+    left -= chunk
   }
+  return parts
+}
 
-  const spA = FIBONACCI[idx - 1]
-  const spB = totalSp - spA
+export function createRequirementsForProject(ctx: SimCtx, projectId: string, totalSp: number): Requirement[] {
+  const chunks = decomposeTotalSp(totalSp)
   const titles = [...REQUIREMENT_TITLES]
-  const titleA = ctx.rng.pick(titles)
-  const titleB = ctx.rng.pick(titles.filter((t) => t !== titleA))
-  return [
-    createRequirement(ctx, projectId, titleA, spA),
-    createRequirement(ctx, projectId, titleB, spB),
-  ]
+  return chunks.map((sp) => {
+    const title = ctx.rng.pick(titles)
+    return createRequirement(ctx, projectId, title, sp)
+  })
 }
 
-function defaultProjectFields(ctx: SimCtx, projectId: string, sp: number) {
+export function defaultProjectFields(ctx: SimCtx, projectId: string, sp: number, kind: ProjectKind = 'client') {
   return {
     deliveryQuality: 0,
     testPercent: 0,
@@ -338,12 +352,15 @@ function defaultProjectFields(ctx: SimCtx, projectId: string, sp: number) {
     testStoryPointsCompleted: 0,
     totalStoryPoints: sp,
     status: 'active' as const,
+    kind,
     requirements: createRequirementsForProject(ctx, projectId, sp),
     tasks: [] as Task[],
     lateCount: 0,
     crewCap: 1,
     roleCounts: { ...EMPTY_ROLE_COUNTS },
     useConductor: false,
+    duplicateProjectId: null,
+    mrrContribution: 0,
   }
 }
 
@@ -353,29 +370,38 @@ export function createTutorialProject(ctx: SimCtx): Project {
 
   return {
     id: projectId,
-    clientName: 'Friendly Neighbor App',
-    clientTagline: 'Hyperlocal. Hypothetical.',
-    blurb: 'Tutorial gig. Refine each requirement into a task, then ship.',
+    clientName: "Your Uncle's Totally Legal Web Shop",
+    clientTagline: 'Imports "vitamins." Exports vibes.',
+    blurb: 'He paid you in exposure and a firm handshake. Build the shop. Do not ask what he sells.',
     payment: TUTORIAL_PAYMENT,
     durationDays: 20,
     daysRemaining: 20,
     isTutorial: true,
     repPenaltyMultiplier: 1,
-    ...defaultProjectFields(ctx, projectId, sp),
+    ...defaultProjectFields(ctx, projectId, sp, 'client'),
     requirements: [
-      createRequirement(ctx, projectId, 'Users must be able to log in without a séance', 2),
-      createRequirement(ctx, projectId, 'Dashboard needs to not look like it misses 2009', 1),
-      createRequirement(ctx, projectId, 'API must return JSON sometimes, never XML emotionally', 1),
+      createRequirement(ctx, projectId, 'Customers need a login. Uncle needs plausible deniability.', 2),
+      createRequirement(ctx, projectId, "The homepage can't look like a 2009 phishing site. Uncle insists it already doesn't.", 1),
+      createRequirement(ctx, projectId, 'Checkout must work. Crypto preferred. Questions discouraged.', 1),
     ],
   }
 }
 
-export function generateLead(ctx: SimCtx, reputation: number, gameDay: number): Lead {
-  const repFactor = Math.max(1, reputation / 10)
+export function generateLead(
+  ctx: SimCtx,
+  reputation: number,
+  gameDay: number,
+  source: LeadSource = 'real',
+  syntheticPayMult = 1,
+): Lead {
+  const repFactor = Math.max(1, Math.max(0, reputation) / 10)
   const dayFactor = 1 + Math.pow(gameDay / 100, 1.2) * 0.5
   const isUnreasonable = reputation > 25
 
-  const storyPoints = pickLeadFibonacci(ctx.rng, reputation, gameDay)
+  const storyPoints =
+    reputation <= 0
+      ? ctx.rng.int(3, Math.max(3, REP_ZERO_MAX_TASK_SP * 2))
+      : pickLeadTotalStoryPoints(ctx.rng, reputation, gameDay)
   const durationDays = Math.max(
     MIN_PROJECT_DAYS,
     Math.round(
@@ -383,7 +409,9 @@ export function generateLead(ctx: SimCtx, reputation: number, gameDay: number): 
     ),
   )
   const payment = Math.round(
-    storyPoints * (4 + reputation * 0.3) * (isUnreasonable ? 0.75 : 1),
+    clientPaymentForTotalSp(storyPoints, reputation, isUnreasonable) *
+      repZeroPaymentMultiplier(reputation) *
+      (source === 'synthetic' ? syntheticPayMult : 1),
   )
 
   const client = pickJokeClient(ctx.rng)
@@ -399,7 +427,10 @@ export function generateLead(ctx: SimCtx, reputation: number, gameDay: number): 
     daysToExpire: ctx.rng.int(3, 8),
     spawnedGameDay: gameDay,
     status: 'available',
-    repRequired: Math.max(0, ctx.rng.int(0, Math.floor(reputation * 0.6))),
+    repRequired: source === 'synthetic' ? 0 : Math.max(0, ctx.rng.int(0, Math.floor(Math.max(0, reputation) * 0.6))),
+    source,
+    estimatedDollarsPerSp: payment / Math.max(1, storyPoints),
+    ghostRisk: source === 'synthetic' ? 0.1 : 0,
   }
 }
 
@@ -427,8 +458,9 @@ export function createProjectFromLead(ctx: SimCtx, lead: Lead, acceptGameDay: nu
     durationDays: effectiveDuration,
     daysRemaining: effectiveDuration,
     isTutorial: false,
+    isSynthetic: lead.source === 'synthetic',
     repPenaltyMultiplier: 1 + effectiveDuration / 40,
-    ...defaultProjectFields(ctx, projectId, sp),
+    ...defaultProjectFields(ctx, projectId, sp, 'client'),
   }
 }
 

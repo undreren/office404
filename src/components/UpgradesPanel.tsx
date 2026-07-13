@@ -1,26 +1,29 @@
 import type { ReactElement } from 'react'
-import { APARTMENT_CONFIG } from '../game/constants'
+import { HOUSING_CONFIG } from '../game/housing'
+import { getHallucinationLevel } from '../game/meta'
 import { FINE_TUNE_COST, FINE_TUNE_LABELS, FINE_TUNE_ROLES, MODEL_TIERS, fineTuneId } from '../game/models'
-import { canUpgradeModelTier, formatSpPerTick } from '../game/mechanics'
+import { formatSpPerTick } from '../game/mechanics'
+import { effectiveModelParams } from '../game/prestige'
 import {
+  buyAgentSlotMsg,
   buyFineTuneMsg,
-  buyGpuUpgradeMsg,
-  buyRamUpgradeMsg,
+  buyGpuTickMsg,
   buyVibingCourseMsg,
   upgradeApartmentMsg,
-  upgradeModelTierMsg,
 } from '../game/messages'
 import { agentCapacity, getNextApartment } from '../game/selectors'
-import { GPU_UPGRADES, getVisibleTrackUpgrades, housingMeetsRequirement, RAM_UPGRADES, VIBING_COURSES } from '../game/upgrades'
+import { formatCash } from '../game/cash'
+import { gpuTickCost, maxAgentSlotPurchases, maxGpuTickPurchases, ramSlotCost } from '../game/mechanics'
+import { VIBING_COURSES, vibingCourseCost } from '../game/upgrades'
 import { useGameDispatchPurchase, useGameState } from '../runtime/GameRuntime'
 import { useTabNav } from '../context/TabNavContext'
 import { SwipeCarousel } from './SwipeCarousel'
 
 const SHOP_SECTIONS = [
   { id: 'housing', title: 'Housing', subtitle: 'Rent is just a suggestion until the landlord disagrees.' },
-  { id: 'ram', title: 'RAM Track', subtitle: 'Your agents forget everything. This helps them forget faster.' },
-  { id: 'gpu', title: 'GPU Track', subtitle: 'More tensor cores, fewer existential crises.' },
-  { id: 'model', title: 'Model Tier', subtitle: 'Bigger brains, smaller excuses.' },
+  { id: 'agentSlots', title: 'Agent Slots', subtitle: 'More seats at the table. Same amount of regret.' },
+  { id: 'gpuTicks', title: 'GPU Ticks', subtitle: 'More tensor cores, fewer existential crises.' },
+  { id: 'model', title: 'Model Tier', subtitle: 'Prestige hallucinations only. Cash cannot buy bigger brains.' },
   { id: 'courses', title: 'Vibing Courses', subtitle: 'Professional development for professionals who develop unprofessionally.' },
 ] as const
 
@@ -30,185 +33,137 @@ function HousingSection() {
   const { cash, apartment } = useGameState()
   const dispatchPurchase = useGameDispatchPurchase()
   const nextApt = getNextApartment({ apartment })
+  const housing = HOUSING_CONFIG[apartment]
 
   return (
     <div className="market-section">
       <p
         className="hint"
-        aria-label={`Unlocks hardware tiers. Currently: ${APARTMENT_CONFIG[apartment].label}`}
+        aria-label={`Unlocks hardware tiers. Currently: ${housing.label}`}
       >
-        Unlocks hardware tiers. Currently: {APARTMENT_CONFIG[apartment].label}
+        Unlocks hardware tiers. Currently: {housing.label}
       </p>
       {nextApt && (
         <button
           type="button"
           className="btn btn--deploy"
-          aria-label={`Move to ${APARTMENT_CONFIG[nextApt].label} for $${APARTMENT_CONFIG[nextApt].upgradeCost}`}
+          aria-label={`Move to ${HOUSING_CONFIG[nextApt].label} for ${formatCash(HOUSING_CONFIG[nextApt].upgradeCost)}`}
           onClick={() => dispatchPurchase(upgradeApartmentMsg(Date.now()))}
-          disabled={cash < APARTMENT_CONFIG[nextApt].upgradeCost}
+          disabled={cash < HOUSING_CONFIG[nextApt].upgradeCost}
         >
-          Move to {APARTMENT_CONFIG[nextApt].label} (${APARTMENT_CONFIG[nextApt].upgradeCost})
+          Move to {HOUSING_CONFIG[nextApt].label} ({formatCash(HOUSING_CONFIG[nextApt].upgradeCost)})
         </button>
       )}
     </div>
   )
 }
 
-function RamSection() {
-  const { cash, apartment, purchasedRamUpgrades } = useGameState()
+function AgentSlotsSection() {
+  const state = useGameState()
+  const { cash, apartment, agentSlotPurchases } = state
   const dispatchPurchase = useGameDispatchPurchase()
-  const visibleRamUpgrades = getVisibleTrackUpgrades(RAM_UPGRADES, purchasedRamUpgrades)
+  const { agentSlots } = agentCapacity(state)
+  const maxPurchases = maxAgentSlotPurchases(apartment)
+  const atMax = agentSlotPurchases >= maxPurchases
+  const cost = ramSlotCost(agentSlotPurchases)
 
   return (
     <div className="market-section">
-      <div className="vendor-list">
-        {visibleRamUpgrades.map((upgrade) => {
-          const owned = purchasedRamUpgrades.includes(upgrade.id)
-          const unlocked = housingMeetsRequirement(apartment, upgrade.housingRequired)
-          const upgradeSummary = [
-            upgrade.label,
-            `+${upgrade.ramGb} GB`,
-            upgrade.tagline,
-            owned ? 'owned' : unlocked ? `$${upgrade.cost}` : 'need better housing',
-          ].join(', ')
-
-          return (
-            <article key={upgrade.id} className="vendor-card" aria-label={upgradeSummary}>
-              <header>
-                <h4>{upgrade.label}</h4>
-                <span aria-label={`+${upgrade.ramGb} GB`}>+{upgrade.ramGb} GB</span>
-              </header>
-              <p className="vendor-tagline">{upgrade.tagline}</p>
-              <button
-                type="button"
-                className="btn btn--small"
-                aria-label={
-                  owned
-                    ? `${upgrade.label} owned`
-                    : unlocked
-                      ? `Buy ${upgrade.label} for $${upgrade.cost}`
-                      : `${upgrade.label} requires better housing`
-                }
-                disabled={owned || !unlocked || cash < upgrade.cost}
-                onClick={() => dispatchPurchase(buyRamUpgradeMsg(Date.now(), upgrade.id))}
-              >
-                {owned ? 'Owned' : unlocked ? `$${upgrade.cost}` : 'Need better housing'}
-              </button>
-            </article>
-          )
-        })}
-      </div>
+      <p className="hint" aria-label={`${agentSlots} agent slots total`}>
+        {agentSlots} agent slot{agentSlots === 1 ? '' : 's'} staffed max. Housing caps purchases.
+      </p>
+      <article className="vendor-card" aria-label={`+1 agent slot for ${formatCash(cost)}`}>
+        <header>
+          <h4>+1 Agent Slot</h4>
+          <span>{agentSlots} total</span>
+        </header>
+        <p className="vendor-tagline">HR calls it headcount. You call it hope.</p>
+        <button
+          type="button"
+          className="btn btn--small"
+          aria-label={atMax ? 'Agent slot purchases maxed for housing' : `Buy +1 agent slot for ${formatCash(cost)}`}
+          disabled={atMax || cash < cost}
+          onClick={() => dispatchPurchase(buyAgentSlotMsg(Date.now()))}
+        >
+          {atMax ? 'Housing maxed' : formatCash(cost)}
+        </button>
+      </article>
     </div>
   )
 }
 
-function GpuSection() {
-  const { cash, apartment, purchasedGpuUpgrades } = useGameState()
+function GpuTicksSection() {
+  const state = useGameState()
+  const { cash, apartment, gpuTickPurchases } = state
   const dispatchPurchase = useGameDispatchPurchase()
-  const visibleGpuUpgrades = getVisibleTrackUpgrades(GPU_UPGRADES, purchasedGpuUpgrades)
+  const { gpuTicks } = agentCapacity(state)
+  const maxPurchases = maxGpuTickPurchases(apartment)
+  const atMax = gpuTickPurchases >= maxPurchases
+  const cost = gpuTickCost(gpuTickPurchases)
 
   return (
     <div className="market-section">
-      <div className="vendor-list">
-        {visibleGpuUpgrades.map((upgrade) => {
-          const owned = purchasedGpuUpgrades.includes(upgrade.id)
-          const unlocked = housingMeetsRequirement(apartment, upgrade.housingRequired)
-          const upgradeSummary = [
-            upgrade.label,
-            `+${upgrade.gpus} GPU`,
-            upgrade.tagline,
-            owned ? 'owned' : unlocked ? `$${upgrade.cost}` : 'need better housing',
-          ].join(', ')
-
-          return (
-            <article key={upgrade.id} className="vendor-card" aria-label={upgradeSummary}>
-              <header>
-                <h4>{upgrade.label}</h4>
-                <span aria-label={`+${upgrade.gpus} GPU`}>+{upgrade.gpus} GPU</span>
-              </header>
-              <p className="vendor-tagline">{upgrade.tagline}</p>
-              <button
-                type="button"
-                className="btn btn--small"
-                aria-label={
-                  owned
-                    ? `${upgrade.label} owned`
-                    : unlocked
-                      ? `Buy ${upgrade.label} for $${upgrade.cost}`
-                      : `${upgrade.label} requires better housing`
-                }
-                disabled={owned || !unlocked || cash < upgrade.cost}
-                onClick={() => dispatchPurchase(buyGpuUpgradeMsg(Date.now(), upgrade.id))}
-              >
-                {owned ? 'Owned' : unlocked ? `$${upgrade.cost}` : 'Need better housing'}
-              </button>
-            </article>
-          )
-        })}
-      </div>
+      <p className="hint" aria-label={`${gpuTicks} GPU ticks total`}>
+        {gpuTicks} GPU tick{gpuTicks === 1 ? '' : 's'} shared across active coders.
+      </p>
+      <article className="vendor-card" aria-label={`+1 GPU tick for ${formatCash(cost)}`}>
+        <header>
+          <h4>+1 GPU Tick</h4>
+          <span>{gpuTicks} total</span>
+        </header>
+        <p className="vendor-tagline">Fans spin. Morale does not.</p>
+        <button
+          type="button"
+          className="btn btn--small"
+          aria-label={atMax ? 'GPU tick purchases maxed for housing' : `Buy +1 GPU tick for ${formatCash(cost)}`}
+          disabled={atMax || cash < cost}
+          onClick={() => dispatchPurchase(buyGpuTickMsg(Date.now()))}
+        >
+          {atMax ? 'Housing maxed' : formatCash(cost)}
+        </button>
+      </article>
     </div>
   )
 }
 
 function ModelSection() {
   const state = useGameState()
-  const { cash, gameDay, modelTierIndex, purchasedFineTunes } = state
+  const { cash, gameDay, purchasedFineTunes, meta } = state
   const dispatchPurchase = useGameDispatchPurchase()
-  const { totalRam } = agentCapacity(state)
-  const currentModel = MODEL_TIERS[modelTierIndex]
-  const nextModel = MODEL_TIERS[modelTierIndex + 1]
-  const canModelUpgrade =
-    nextModel &&
-    cash >= nextModel.upgradeCost &&
-    canUpgradeModelTier(totalRam, modelTierIndex)
+  const modelLevel = getHallucinationLevel(meta, 'model')
+  const currentModel = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
+  const effectiveParams = effectiveModelParams(meta)
 
   const modelSummary = [
     currentModel.displayName,
-    `${currentModel.ramPerAgent} GB per agent`,
+    `prestige level ${modelLevel}`,
     currentModel.tagline,
-    formatSpPerTick(currentModel.parameters, gameDay),
+    formatSpPerTick(effectiveParams, gameDay),
     `${currentModel.contextSize}k context`,
-    nextModel ? `upgrade available to ${nextModel.displayName} for $${nextModel.upgradeCost}` : null,
-  ]
-    .filter(Boolean)
-    .join(', ')
+    'upgrade via Hallucinations tab',
+  ].join(', ')
 
   return (
     <div className="market-section">
       <article className="vendor-card" aria-label={modelSummary}>
         <header>
           <h4>{currentModel.displayName}</h4>
-          <span aria-label={`${currentModel.ramPerAgent} GB per agent`}>
-            {currentModel.ramPerAgent} GB/agent
-          </span>
+          <span aria-label={`Prestige model level ${modelLevel}`}>Lv {modelLevel}</span>
         </header>
         <p className="vendor-tagline">{currentModel.tagline}</p>
         <ul className="vendor-stats" aria-label="Model stats">
-          <li>{formatSpPerTick(currentModel.parameters, gameDay)}</li>
+          <li>{formatSpPerTick(effectiveParams, gameDay)}</li>
           <li>{currentModel.contextSize}k context</li>
         </ul>
-        {nextModel && (
-          <button
-            type="button"
-            className="btn btn--deploy"
-            aria-label={`Upgrade to ${nextModel.displayName} for $${nextModel.upgradeCost}`}
-            disabled={!canModelUpgrade}
-            onClick={() => dispatchPurchase(upgradeModelTierMsg(Date.now()))}
-          >
-            Upgrade to {nextModel.displayName} (${nextModel.upgradeCost})
-          </button>
-        )}
+        <p className="hint">Model tier upgrades live in the Hallucinations shop — spend points from retirement.</p>
       </article>
 
       <h4 className="shop-section__subhead">Fine-tunes (stackable)</h4>
       <div className="vendor-list">
         {FINE_TUNE_ROLES.map((role) => {
-          const id = fineTuneId(modelTierIndex, role)
+          const id = fineTuneId(modelLevel, role)
           const owned = purchasedFineTunes.includes(id)
-          const tuneSummary = [
-            FINE_TUNE_LABELS[role],
-            owned ? 'owned' : `$${FINE_TUNE_COST}`,
-          ].join(', ')
+          const tuneSummary = [FINE_TUNE_LABELS[role], owned ? 'owned' : formatCash(FINE_TUNE_COST)].join(', ')
 
           return (
             <article key={id} className="vendor-card vendor-card--compact" aria-label={tuneSummary}>
@@ -221,12 +176,12 @@ function ModelSection() {
                 aria-label={
                   owned
                     ? `${FINE_TUNE_LABELS[role]} owned`
-                    : `Buy ${FINE_TUNE_LABELS[role]} for $${FINE_TUNE_COST}`
+                    : `Buy ${FINE_TUNE_LABELS[role]} for ${formatCash(FINE_TUNE_COST)}`
                 }
                 disabled={owned || cash < FINE_TUNE_COST}
                 onClick={() => dispatchPurchase(buyFineTuneMsg(Date.now(), id))}
               >
-                {owned ? 'Owned' : `$${FINE_TUNE_COST}`}
+                {owned ? 'Owned' : formatCash(FINE_TUNE_COST)}
               </button>
             </article>
           )
@@ -237,40 +192,53 @@ function ModelSection() {
 }
 
 function CoursesSection() {
-  const { cash, vibingCourses } = useGameState()
+  const { cash, vibingCourses, vibingCourseTiers } = useGameState()
   const dispatchPurchase = useGameDispatchPurchase()
 
   return (
     <div className="market-section">
       <div className="vendor-list">
         {VIBING_COURSES.map((course) => {
-          const owned = vibingCourses.includes(course.id)
+          const currentTier =
+            vibingCourseTiers[course.id] ?? (vibingCourses.includes(course.id) ? 1 : 0)
+          const maxTier = course.maxTier ?? 1
+          const maxed = currentTier >= maxTier
+          const cost = vibingCourseCost(course, currentTier)
+          const tierLabel = maxTier > 1 ? ` tier ${currentTier}/${maxTier}` : ''
           const courseSummary = [
             course.label,
             course.tagline,
             course.description,
-            owned ? 'enrolled' : `$${course.cost}`,
+            maxed ? 'max tier' : formatCash(cost),
           ].join(', ')
 
           return (
             <article key={course.id} className="vendor-card" aria-label={courseSummary}>
               <header>
-                <h4>{course.label}</h4>
+                <h4>
+                  {course.label}
+                  {maxTier > 1 && (
+                    <span className="vendor-tier" aria-label={`Tier ${currentTier} of ${maxTier}`}>
+                      {' '}
+                      · T{currentTier}/{maxTier}
+                    </span>
+                  )}
+                </h4>
               </header>
-              <p className="vendor-tagline">"{course.tagline}"</p>
+              <p className="vendor-tagline">&ldquo;{course.tagline}&rdquo;</p>
               <p className="hint">{course.description}</p>
               <button
                 type="button"
                 className="btn btn--small"
                 aria-label={
-                  owned
-                    ? `${course.label} enrolled`
-                    : `Enroll in ${course.label} for $${course.cost}`
+                  maxed
+                    ? `${course.label} at max tier`
+                    : `Enroll in ${course.label}${tierLabel} for ${formatCash(cost)}`
                 }
-                disabled={owned || cash < course.cost}
+                disabled={maxed || cash < cost}
                 onClick={() => dispatchPurchase(buyVibingCourseMsg(Date.now(), course.id))}
               >
-                {owned ? 'Enrolled' : `$${course.cost}`}
+                {maxed ? 'Max tier' : formatCash(cost)}
               </button>
             </article>
           )
@@ -282,8 +250,8 @@ function CoursesSection() {
 
 const SECTION_CONTENT: Record<ShopSectionId, () => ReactElement> = {
   housing: HousingSection,
-  ram: RamSection,
-  gpu: GpuSection,
+  agentSlots: AgentSlotsSection,
+  gpuTicks: GpuTicksSection,
   model: ModelSection,
   courses: CoursesSection,
 }

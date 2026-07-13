@@ -1,4 +1,12 @@
 {
+  "meta": {
+    "hallucinationPoints": 0,
+    "totalHallucinationsEarned": 0,
+    "highestRungEver": 0,
+    "retirementCount": 0,
+    "singularityCount": 0,
+    "hallucinationLevels": {}
+  },
   "phase": "playing",
   "cash": 0,
   "reputation": 5,
@@ -6,24 +14,24 @@
   "rentDueInDays": 30,
   "apartment": "cardboard",
   "apartmentLeaseRemaining": 30,
-  "totalRam": 2,
-  "totalGpus": 1,
-  "modelTierIndex": 0,
-  "purchasedRamUpgrades": [],
-  "purchasedGpuUpgrades": [],
+  "agentSlotPurchases": 0,
+  "gpuTickPurchases": 0,
+  "mrr": 0,
+  "productFeaturesShipped": 0,
   "purchasedFineTunes": [],
   "vibingCourses": [],
+  "vibingCourseTiers": {},
   "agents": [
     {
-      "id": "agt-6",
-      "name": "GPT-wannabe the Slack Bot",
+      "id": "agt-7",
+      "name": "Fine-Tuned the JIRA Ticket",
       "job": "refine",
       "taskId": null,
       "projectId": "proj-1",
       "jobProgress": 0,
       "jobDuration": 0,
       "status": "refining",
-      "personality": "refuses to touch legacy code written before Tuesday",
+      "personality": "writes unit tests for your lunch order",
       "contextUsed": 0,
       "compactingRemainingSec": 0,
       "uptime": 0
@@ -32,14 +40,17 @@
   "projects": [
     {
       "id": "proj-1",
-      "clientName": "Friendly Neighbor App",
-      "clientTagline": "Hyperlocal. Hypothetical.",
-      "blurb": "Tutorial gig. Refine each requirement into a task, then ship.",
+      "clientName": "Your Uncle's Totally Legal Web Shop",
+      "clientTagline": "Imports \"vitamins.\" Exports vibes.",
+      "blurb": "He paid you in exposure and a firm handshake. Build the shop. Do not ask what he sells.",
       "payment": 200,
       "durationDays": 20,
       "daysRemaining": 20,
       "isTutorial": true,
+      "kind": "client",
       "repPenaltyMultiplier": 1,
+      "duplicateProjectId": null,
+      "mrrContribution": 0,
       "deliveryQuality": 0,
       "testPercent": 0,
       "testStoryPointsRequired": 0,
@@ -48,25 +59,28 @@
       "status": "active",
       "requirements": [
         {
-          "id": "req-3",
-          "projectId": "proj-1",
-          "title": "Users must be able to log in without a séance",
-          "storyPoints": 2,
-          "status": "open"
-        },
-        {
           "id": "req-4",
           "projectId": "proj-1",
-          "title": "Dashboard needs to not look like it misses 2009",
-          "storyPoints": 1,
-          "status": "open"
+          "title": "Customers need a login. Uncle needs plausible deniability.",
+          "storyPoints": 2,
+          "status": "open",
+          "refinePassesUsed": 0
         },
         {
           "id": "req-5",
           "projectId": "proj-1",
-          "title": "API must return JSON sometimes, never XML emotionally",
+          "title": "The homepage can't look like a 2009 phishing site. Uncle insists it already doesn't.",
           "storyPoints": 1,
-          "status": "open"
+          "status": "open",
+          "refinePassesUsed": 0
+        },
+        {
+          "id": "req-6",
+          "projectId": "proj-1",
+          "title": "Checkout must work. Crypto preferred. Questions discouraged.",
+          "storyPoints": 1,
+          "status": "open",
+          "refinePassesUsed": 0
         }
       ],
       "tasks": [],
@@ -82,6 +96,7 @@
       "useConductor": false
     }
   ],
+  "productBacklog": [],
   "leads": [],
   "selectedTaskId": null,
   "tutorialDone": false,
@@ -89,10 +104,12 @@
   "acknowledgedTutorialStep": -1,
   "seenTabIntros": [],
   "leadSpawnCooldown": 4,
+  "syntheticLeadCooldown": 4,
+  "taxCodeCooldown": 10,
   "events": [
     {
-      "id": "evt-7",
-      "timestamp": 1783861460972,
+      "id": "evt-8",
+      "timestamp": 1783905682927,
       "type": "system",
       "message": "Day 0. $0. One agent. One laptop. Infinite audacity."
     }
@@ -101,9 +118,11 @@
     "projectsCompleted": 0,
     "tasksMerged": 0,
     "agentsDeployed": 1,
-    "compactionsSurvived": 0
+    "compactionsSurvived": 0,
+    "productsShipped": 0,
+    "syntheticLeadsAccepted": 0
   },
-  "snapshotAt": 1783861460972,
-  "rng": -722000844,
-  "nextId": 8
+  "snapshotAt": 1783905682927,
+  "rng": 1733189712,
+  "nextId": 9
 }

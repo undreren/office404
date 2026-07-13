@@ -5,6 +5,7 @@ import { ProjectsPanel } from './components/ProjectsPanel'
 import { LeadsPanel } from './components/LeadsPanel'
 import { UpgradesPanel } from './components/UpgradesPanel'
 import { AgentsPanel } from './components/AgentsPanel'
+import { HallucinationsPanel } from './components/HallucinationsPanel'
 import { EventLog } from './components/EventLog'
 import { GameOverlay } from './components/GameOverlay'
 import { OnboardingOverlay } from './components/OnboardingOverlay'
@@ -38,6 +39,9 @@ function AppShell() {
           </div>
           <div className={`tab-view ${activeTab === 'leads' ? 'tab-view--active' : ''}`}>
             <LeadsPanel />
+          </div>
+          <div className={`tab-view ${activeTab === 'hallucinations' ? 'tab-view--active' : ''}`}>
+            <HallucinationsPanel />
           </div>
         </main>
 

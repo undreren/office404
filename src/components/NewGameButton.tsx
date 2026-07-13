@@ -1,17 +1,19 @@
 import { useState } from 'react'
-import { WIN_CASH } from '../game/constants'
+import { formatCash } from '../game/cash'
+import { canRetire, personalRetirementThreshold } from '../game/prestige'
 import { resetGameMsg, retireMsg } from '../game/messages'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
 export function NewGameButton() {
-  const { cash } = useGameState()
+  const { cash, meta } = useGameState()
   const dispatchAt = useGameDispatchAt()
   const [confirming, setConfirming] = useState(false)
 
-  const canRetire = cash >= WIN_CASH
+  const eligible = canRetire(cash, meta.retirementCount)
+  const threshold = personalRetirementThreshold(meta.retirementCount)
 
   function handleClick() {
-    if (canRetire) {
+    if (eligible) {
       dispatchAt(retireMsg)
       return
     }
@@ -27,11 +29,15 @@ export function NewGameButton() {
     <>
       <button
         type="button"
-        className={`btn resource-bar__quit ${canRetire ? 'resource-bar__quit--retire' : 'resource-bar__quit--danger'}`}
-        aria-label={canRetire ? 'Retire with $10M net worth' : 'Start a new game'}
+        className={`btn resource-bar__quit ${eligible ? 'resource-bar__quit--retire' : 'resource-bar__quit--danger'}`}
+        aria-label={
+          eligible
+            ? `Retire at ${formatCash(threshold)} for hallucination points`
+            : 'Start a new game'
+        }
         onClick={handleClick}
       >
-        {canRetire ? 'Retire' : 'just give up'}
+        {eligible ? 'Retire' : 'just give up'}
       </button>
 
       {confirming && (
@@ -39,7 +45,8 @@ export function NewGameButton() {
           <div className="game-overlay__card">
             <h2>Give Up?</h2>
             <p aria-label="Your agency, agents, and petty cash go back to Day 0. This cannot be undone.">
-              Your agency, agents, and petty cash go back to Day 0. This cannot be undone.
+              Your agency, agents, and petty cash go back to Day 0. Prestige hallucinations are kept. This cannot be
+              undone.
             </p>
             <div className="game-overlay__actions">
               <button

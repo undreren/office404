@@ -6,7 +6,7 @@ import { stateWithCash } from './_helpers/stateWithCash'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { T0 } from './_helpers/testConstants'
 
-describe('retire-when-eligible', () => {
+describe('prestige-retire-grants-hallucinations', () => {
   it('matches use case invariants', () => {
     const before = stateWithCash(initialPlaying(), LADDER_BASE_CASH)
 
@@ -14,6 +14,8 @@ describe('retire-when-eligible', () => {
 
     expect(state.phase).toBe('playing')
     expect(state.meta.retirementCount).toBe(1)
-    expect(state.tutorialDone).toBe(true)
+    expect(state.meta.hallucinationPoints).toBeGreaterThan(0)
+    expect(state.meta.totalHallucinationsEarned).toBeGreaterThan(0)
+    expect(state.cash).toBeLessThan(LADDER_BASE_CASH)
   })
 })

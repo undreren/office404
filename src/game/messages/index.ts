@@ -1,21 +1,24 @@
 import type { GameMessage } from '../engine/Message'
 import type { AgentJob, GameState, MainTabId } from '../types'
+import type { HallucinationTrack } from '../prestige'
 import {
   acceptLead,
+  acceptSingularity,
   acknowledgeTabIntro,
   acknowledgeStoryIntro,
   acknowledgeTutorialStep,
   adjustCrewCap,
   adjustRoleCount,
   advanceTime,
+  buyAgentSlot,
   buyFineTune,
-  buyGpuUpgrade,
-  buyRamUpgrade,
+  buyGpuTick,
   buyVibingCourse,
   createInitialState,
   deliverProject,
   justMergePr,
   mergePr,
+  prestigeHallucinationBuy,
   rejectLead,
   resetGame,
   retire,
@@ -87,12 +90,12 @@ export function toggleConductorMsg(at: number, projectId: string, enabled: boole
   return { at, apply: (state) => toggleConductor(state, projectId, enabled, at) }
 }
 
-export function buyRamUpgradeMsg(at: number, upgradeId: string): GameMessage {
-  return { at, apply: (state) => buyRamUpgrade(state, upgradeId, at) }
+export function buyAgentSlotMsg(at: number): GameMessage {
+  return { at, apply: (state) => buyAgentSlot(state, at) }
 }
 
-export function buyGpuUpgradeMsg(at: number, upgradeId: string): GameMessage {
-  return { at, apply: (state) => buyGpuUpgrade(state, upgradeId, at) }
+export function buyGpuTickMsg(at: number): GameMessage {
+  return { at, apply: (state) => buyGpuTick(state, at) }
 }
 
 export function upgradeModelTierMsg(at: number): GameMessage {
@@ -113,6 +116,14 @@ export function upgradeApartmentMsg(at: number): GameMessage {
 
 export function retireMsg(at: number): GameMessage {
   return { at, apply: (state) => retire(state, at) }
+}
+
+export function prestigeHallucinationBuyMsg(at: number, track: HallucinationTrack): GameMessage {
+  return { at, apply: (state) => prestigeHallucinationBuy(state, track, at) }
+}
+
+export function acceptSingularityMsg(at: number): GameMessage {
+  return { at, apply: (state) => acceptSingularity(state, at) }
 }
 
 export function resetGameMsg(at: number, rngSeed?: number): GameMessage {

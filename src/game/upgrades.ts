@@ -1,110 +1,11 @@
-import type { ApartmentTier } from './types'
-
-export interface RamUpgrade {
-  id: string
-  tier: number
-  label: string
-  tagline: string
-  ramGb: number
-  cost: number
-  housingRequired: ApartmentTier
-}
-
-export interface GpuUpgrade {
-  id: string
-  tier: number
-  label: string
-  tagline: string
-  gpus: number
-  cost: number
-  housingRequired: ApartmentTier
-}
-
 export interface VibingCourse {
   id: string
   label: string
   tagline: string
   cost: number
   description: string
+  maxTier?: number
 }
-
-export const RAM_UPGRADES: RamUpgrade[] = [
-  {
-    id: 'neighbors-ddr4',
-    tier: 2,
-    label: "Neighbor's DDR4",
-    tagline: "He'll want it back.",
-    ramGb: 6,
-    cost: 80,
-    housingRequired: 'shared_1br',
-  },
-  {
-    id: 'mark-mini-ram',
-    tier: 3,
-    label: 'Mark Mini RAM Stick',
-    tagline: 'Certified not a toaster. Probably.',
-    ramGb: 8,
-    cost: 180,
-    housingRequired: 'studio',
-  },
-  {
-    id: 'stfu-bulk-ram',
-    tier: 4,
-    label: 'STFU.io Bulk Pack',
-    tagline: 'Ships in a bag labeled "DO NOT OPEN".',
-    ramGb: 16,
-    cost: 520,
-    housingRequired: 'loft',
-  },
-  {
-    id: 'cuda-palace-ram',
-    tier: 5,
-    label: 'CUDA Palace Memory',
-    tagline: "Your landlord thinks it's a space heater.",
-    ramGb: 32,
-    cost: 1400,
-    housingRequired: 'penthouse',
-  },
-]
-
-export const GPU_UPGRADES: GpuUpgrade[] = [
-  {
-    id: 'marketplace-gpu',
-    tier: 2,
-    label: 'Facebook Marketplace GPU',
-    tagline: 'Smells like cat. Performs like regret.',
-    gpus: 2,
-    cost: 100,
-    housingRequired: 'shared_1br',
-  },
-  {
-    id: 'mark-mini-gpu',
-    tier: 3,
-    label: 'Mark Mini GPU',
-    tagline: 'Two cores. One prayer.',
-    gpus: 2,
-    cost: 200,
-    housingRequired: 'studio',
-  },
-  {
-    id: 'stfu-gpu-cluster',
-    tier: 4,
-    label: 'Mark STFU.io Cluster Card',
-    tagline: 'Fans spin up like a jet engine.',
-    gpus: 4,
-    cost: 600,
-    housingRequired: 'loft',
-  },
-  {
-    id: 'cuda-cluster-gpu',
-    tier: 5,
-    label: 'CUDA Cluster',
-    tagline: 'The power bill is a lifestyle choice.',
-    gpus: 8,
-    cost: 1500,
-    housingRequired: 'penthouse',
-  },
-]
 
 export const VIBING_COURSES: VibingCourse[] = [
   {
@@ -128,37 +29,63 @@ export const VIBING_COURSES: VibingCourse[] = [
     cost: 350,
     description: 'Assign a Conductor per project to auto-staff roles within crew cap.',
   },
+  {
+    id: 'refinement',
+    label: 'Advanced Refinement',
+    tagline: 'Split it again. And again. Legally distinct tasks.',
+    cost: 250,
+    description: 'Extra refinement passes to break large tasks down further.',
+    maxTier: 3,
+  },
+  {
+    id: 'project_manager',
+    label: 'Project Manager',
+    tagline: 'Agile ceremonies, but the stand-up is just you crying.',
+    cost: 400,
+    description: '+1 client project slot. Deadline warnings. Portfolio smarts.',
+    maxTier: 3,
+  },
+  {
+    id: 'sales',
+    label: 'Sales Agent',
+    tagline: 'Closed-Won Bot 3000.',
+    cost: 300,
+    description: 'Auto-accept real leads matching your rules.',
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing Agent',
+    tagline: 'Our funnel is optimized. We do not discuss the funnel.',
+    cost: 350,
+    description: 'Faster lead spawn and bigger project scopes.',
+  },
+  {
+    id: 'customer',
+    label: 'Customer Agent',
+    tagline: 'The leads are coming from inside the GPU.',
+    cost: 450,
+    description: 'Lead enrichment, negotiate bonuses, synthetic lead psychosis (with hallucinations).',
+  },
+  {
+    id: 'accounting',
+    label: 'Accounting Agent',
+    tagline: 'Creative deductions since Tuesday.',
+    cost: 400,
+    description: 'Boost client payments. Hallucinate tax-code windfalls.',
+  },
+  {
+    id: 'procurement',
+    label: 'Procurement Agent',
+    tagline: 'One-click regret purchases.',
+    cost: 275,
+    description: 'Auto-buys upgrades costing less than 10% of current cash.',
+  },
 ]
 
-const HOUSING_ORDER: ApartmentTier[] = [
-  'cardboard',
-  'shared_1br',
-  'studio',
-  'loft',
-  'penthouse',
-]
-
-export function housingMeetsRequirement(
-  current: ApartmentTier,
-  required: ApartmentTier,
-): boolean {
-  return HOUSING_ORDER.indexOf(current) >= HOUSING_ORDER.indexOf(required)
+export function vibingCourseCost(course: VibingCourse, tier: number): number {
+  return Math.round(course.cost * Math.pow(1.8, tier))
 }
 
-/** Show owned upgrades plus the next locked one; hide deeper locked tiers. */
-export function getVisibleTrackUpgrades<T extends { id: string; tier: number }>(
-  upgrades: T[],
-  purchased: string[],
-): T[] {
-  const sorted = [...upgrades].sort((a, b) => a.tier - b.tier)
-  const visible: T[] = []
-  for (const upgrade of sorted) {
-    if (purchased.includes(upgrade.id)) {
-      visible.push(upgrade)
-      continue
-    }
-    visible.push(upgrade)
-    break
-  }
-  return visible
+export function hasVibingCourse(courses: string[], id: string): boolean {
+  return courses.includes(id)
 }

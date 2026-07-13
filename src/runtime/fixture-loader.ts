@@ -2,7 +2,7 @@ import { TUTORIAL_STEP_COUNT } from '../game/onboarding'
 import type { GameState, MainTabId } from '../game/types'
 import { injectPersistedState } from './persist'
 
-const ALL_TABS: MainTabId[] = ['feed', 'shop', 'agents', 'projects', 'leads']
+const ALL_TABS: MainTabId[] = ['feed', 'shop', 'agents', 'projects', 'leads', 'hallucinations']
 
 /** Load a named fixture from public/fixtures/{name}.json */
 export async function loadNamedFixture(name: string): Promise<GameState | null> {

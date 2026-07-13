@@ -8,6 +8,7 @@ const TABS: { id: TabId; icon: string; label: string }[] = [
   { id: 'agents', icon: '🤖', label: 'Agents' },
   { id: 'projects', icon: '📦', label: 'Projects' },
   { id: 'leads', icon: '📨', label: 'Leads' },
+  { id: 'hallucinations', icon: '✨', label: 'Hallucinations' },
 ]
 
 export function BottomNav() {

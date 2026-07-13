@@ -33,12 +33,12 @@ import {
   isReadyToDeliver,
   projectProgressPct,
 } from '../game/selectors'
-import type { Agent, AgentJob, Project, Requirement, Task } from '../game/types'
+import type { Agent, AgentJob, Project, Requirement, StaffJob, Task } from '../game/types'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { useTabNav } from '../context/TabNavContext'
 import { SwipeCarousel } from './SwipeCarousel'
 
-const STAFF_JOBS: { job: AgentJob; label: string }[] = [
+const STAFF_JOBS: { job: StaffJob; label: string }[] = [
   { job: 'refine', label: 'Refine' },
   { job: 'code', label: 'Code' },
   { job: 'review', label: 'Review' },
@@ -57,6 +57,8 @@ function staffingAgentLabel(job: AgentJob): string {
       return 'QA agent'
     case 'conductor':
       return 'conductor'
+    default:
+      return 'agent'
   }
 }
 

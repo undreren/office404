@@ -1,4 +1,17 @@
-export type AgentJob = 'code' | 'review' | 'refine' | 'test' | 'conductor'
+import type { MetaProgress } from './meta'
+
+export type AgentJob =
+  | 'code'
+  | 'review'
+  | 'refine'
+  | 'test'
+  | 'conductor'
+  | 'procurement'
+  | 'sales'
+  | 'marketing'
+  | 'customer'
+  | 'accounting'
+  | 'project_manager'
 
 export type AgentStatus =
   | 'idle'
@@ -7,6 +20,11 @@ export type AgentStatus =
   | 'refining'
   | 'testing'
   | 'conducting'
+  | 'procuring'
+  | 'selling'
+  | 'marketing'
+  | 'accounting'
+  | 'managing'
   | 'compacting'
   | 'compacted'
   | 'crashed'
@@ -17,17 +35,36 @@ export type RequirementStatus = 'open' | 'refined' | 'split'
 
 export type ProjectStatus = 'active' | 'completed' | 'abandoned'
 
+export type ProjectKind = 'client' | 'product' | 'tax_code'
+
 export type LeadStatus = 'available' | 'expired' | 'accepted' | 'rejected'
 
-export type GamePhase = 'playing' | 'won' | 'lost'
+export type LeadSource = 'real' | 'synthetic'
 
-export type MainTabId = 'feed' | 'shop' | 'agents' | 'projects' | 'leads'
+export type GamePhase = 'playing' | 'singularity'
 
-export type ApartmentTier = 'cardboard' | 'shared_1br' | 'studio' | 'loft' | 'penthouse'
+export type MainTabId = 'feed' | 'shop' | 'agents' | 'projects' | 'leads' | 'product' | 'hallucinations'
+
+export type ApartmentTier =
+  | 'cardboard'
+  | 'shared_1br'
+  | 'studio'
+  | 'loft'
+  | 'penthouse'
+  | 'campus'
+  | 'regional_dc'
+  | 'hyperscale_campus'
+  | 'continental_grid'
+  | 'planetary_backbone'
+  | 'orbital_ring'
+  | 'dyson_swarm'
+  | 'dyson_sphere'
 
 export type FineTuneRole = 'code' | 'review' | 'refine' | 'test'
 
-export type StaffJob = Exclude<AgentJob, 'conductor'>
+export type StaffJob = Exclude<AgentJob, 'conductor' | 'procurement' | 'sales' | 'marketing' | 'customer' | 'accounting' | 'project_manager'>
+
+export type HallucinationLevels = Partial<Record<string, number>>
 
 export interface ModelDef {
   id: string
@@ -36,9 +73,6 @@ export interface ModelDef {
   parameters: number
   /** Context window in thousands of tokens */
   contextSize: number
-  /** RAM consumed per agent at this tier (GB) */
-  ramPerAgent: number
-  upgradeCost: number
 }
 
 export interface ProjectRoleCounts {
@@ -62,6 +96,8 @@ export interface Agent {
   contextUsed: number
   compactingRemainingSec: number
   uptime: number
+  /** Automation agents only — not spawned workers */
+  isAutomation?: boolean
 }
 
 export interface Requirement {
@@ -70,12 +106,13 @@ export interface Requirement {
   title: string
   storyPoints: number
   status: RequirementStatus
+  /** Extra refinement passes used on this requirement */
+  refinePassesUsed?: number
 }
 
 export interface Task {
   id: string
   projectId: string
-  /** Requirement this task was refined from (bug fixes inherit from source). */
   requirementId: string | null
   title: string
   storyPointsRequired: number
@@ -86,11 +123,8 @@ export interface Task {
   assignedAgentId: string | null
   completedByAgentId: string | null
   parentTaskId: string | null
-  /** PR quality 0–100; set at merge. */
   prQuality: number | null
-  /** Builds during review; resolved comments add +10%. */
   prQualityStaging: number
-  /** Bug roll pending at QA (set at merge). */
   hasUndiscoveredBug: boolean
   bugDiscovered: boolean
   isBugFix: boolean
@@ -98,6 +132,8 @@ export interface Task {
   isReviewComment: boolean
   reviewed: boolean
   testStoryPointsEarned: number
+  /** Refinement splits remaining for this task */
+  refinePassesRemaining?: number
 }
 
 export interface Project {
@@ -108,7 +144,6 @@ export interface Project {
   payment: number
   durationDays: number
   daysRemaining: number
-  /** Average merged PR quality — display + rep on delivery. */
   deliveryQuality: number
   testPercent: number
   testStoryPointsRequired: number
@@ -118,11 +153,17 @@ export interface Project {
   requirements: Requirement[]
   tasks: Task[]
   isTutorial: boolean
+  kind: ProjectKind
   lateCount: number
   repPenaltyMultiplier: number
   crewCap: number
   roleCounts: ProjectRoleCounts
   useConductor: boolean
+  /** PM hallucination: completing this also completes duplicateProjectId */
+  duplicateProjectId: string | null
+  /** Synthetic client project — may ghost */
+  isSynthetic?: boolean
+  mrrContribution: number
 }
 
 export interface Lead {
@@ -134,20 +175,32 @@ export interface Lead {
   durationDays: number
   totalStoryPoints: number
   daysToExpire: number
-  /** gameDay when this lead appeared — used to shrink deadline on late accept. */
   spawnedGameDay: number
   status: LeadStatus
   repRequired: number
+  source: LeadSource
+  /** Estimated $/SP for customer agent UI */
+  estimatedDollarsPerSp?: number
+  ghostRisk?: number
+}
+
+export interface ProductBacklogItem {
+  id: string
+  title: string
+  storyPoints: number
+  cost: number
+  status: 'queued' | 'active' | 'shipped'
 }
 
 export interface GameEvent {
   id: string
   timestamp: number
-  type: 'crash' | 'client' | 'milestone' | 'system' | 'project' | 'lead'
+  type: 'crash' | 'client' | 'milestone' | 'system' | 'project' | 'lead' | 'product' | 'hallucination'
   message: string
 }
 
 export interface GameState {
+  meta: MetaProgress
   phase: GamePhase
   cash: number
   reputation: number
@@ -155,36 +208,46 @@ export interface GameState {
   rentDueInDays: number
   apartment: ApartmentTier
   apartmentLeaseRemaining: number
-  totalRam: number
-  totalGpus: number
-  modelTierIndex: number
-  purchasedRamUpgrades: string[]
-  purchasedGpuUpgrades: string[]
+  /** Purchased +1 agent slot upgrades */
+  agentSlotPurchases: number
+  /** Purchased +1 GPU tick upgrades */
+  gpuTickPurchases: number
+  mrr: number
+  productFeaturesShipped: number
   purchasedFineTunes: string[]
   vibingCourses: string[]
+  /** Per-course tier for multi-level vibing (e.g. refinement, PM) */
+  vibingCourseTiers: Partial<Record<string, number>>
   agents: Agent[]
   projects: Project[]
+  productBacklog: ProductBacklogItem[]
   leads: Lead[]
   selectedTaskId: string | null
   tutorialDone: boolean
-  /** Opening story modal dismissed. */
   seenStoryIntro: boolean
-  /** Highest tutorial step modal the player has dismissed (-1 = none). */
   acknowledgedTutorialStep: number
-  /** Main nav tabs whose intro modal has been shown. */
   seenTabIntros: MainTabId[]
   leadSpawnCooldown: number
+  syntheticLeadCooldown: number
+  taxCodeCooldown: number
   events: GameEvent[]
   stats: {
     projectsCompleted: number
     tasksMerged: number
     agentsDeployed: number
     compactionsSurvived: number
+    productsShipped: number
+    syntheticLeadsAccepted: number
   }
-  /** Epoch ms when this snapshot was committed. */
   snapshotAt: number
-  /** PRNG seed state — advanced on each random draw. */
   rng: number
-  /** Monotonic counter for entity IDs. */
   nextId: number
 }
+
+export interface PersistedSave {
+  version: number
+  meta: MetaProgress
+  state: GameState
+}
+
+export type { MetaProgress }
