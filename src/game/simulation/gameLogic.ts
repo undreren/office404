@@ -43,7 +43,6 @@ import {
   LATE_REP_PENALTY_BASE,
   LEAD_SPAWN_INTERVAL_DAYS,
   MAX_EVENTS,
-  MAX_LEADS,
   ON_TIME_REP_BONUS,
   PRESTIGE_START_CASH,
   PROCUREMENT_CASH_FRACTION,
@@ -52,6 +51,7 @@ import {
 } from '../constants'
 import {
   agentTickSpeed,
+  clientLeadPipelineTarget,
   computePrBaseQuality,
   contextFillMultiplier,
   fillAgentContext,
@@ -97,6 +97,14 @@ import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
 
 export type { SimCtx } from './simCtx'
+
+function availableLeadCount(leads: GameState['leads']): number {
+  return leads.filter((l) => l.status === 'available').length
+}
+
+function leadSpawnIntervalFor(meta: MetaProgress, reputation: number, gameDay: number): number {
+  return leadSpawnIntervalDays(reputation, gameDay, getHallucinationLevel(meta, 'marketing'))
+}
 
 type ProjectRole = keyof ProjectRoleCounts
 
@@ -189,7 +197,7 @@ export function createInitialState(
     dayZeroMessage = 'Day 0. $0. One agent. One laptop. Infinite audacity.'
   } else {
     leads = [generateLead(ctx, INITIAL_REPUTATION, 0)]
-    leadSpawnCooldown = leadSpawnIntervalDays(INITIAL_REPUTATION, 0)
+    leadSpawnCooldown = leadSpawnIntervalFor(meta, INITIAL_REPUTATION, 0)
     dayZeroMessage = `Day 0. ${formatCash(cash)}. No tutorial. One lead on the board.`
   }
 
@@ -789,13 +797,18 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     }
   }
 
+  const pipelineTarget = clientLeadPipelineTarget(
+    meta,
+    state.vibingCourseTiers.project_manager ?? 0,
+    nextProjects,
+  )
   if (
     state.tutorialDone &&
     leadSpawnCooldown <= 0 &&
-    nextLeads.filter((l) => l.status === 'available').length < MAX_LEADS
+    availableLeadCount(nextLeads) < pipelineTarget
   ) {
     nextLeads = [generateLead(ctx, reputation, gameDay), ...nextLeads]
-    leadSpawnCooldown = leadSpawnIntervalDays(reputation, gameDay)
+    leadSpawnCooldown = leadSpawnIntervalFor(meta, reputation, gameDay)
     nextEvents = pushEvent(ctx, meta, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
   }
 
@@ -1370,7 +1383,7 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   let nextLeadSpawnCooldown = state.leadSpawnCooldown
   if (tutorialJustCompleted) {
     nextLeads = [generateLead(ctx, reputation, state.gameDay)]
-    nextLeadSpawnCooldown = leadSpawnIntervalDays(reputation, state.gameDay)
+    nextLeadSpawnCooldown = leadSpawnIntervalFor(state.meta, reputation, state.gameDay)
     nextEvents = pushEvent(
       ctx,
       state.meta,
@@ -1379,6 +1392,24 @@ export function deliverProject(state: GameState, projectId: string, at: number):
       'New client lead appeared. They want it yesterday.',
       at,
     )
+  } else if (tutorialDone) {
+    const pipelineTarget = clientLeadPipelineTarget(
+      state.meta,
+      state.vibingCourseTiers.project_manager ?? 0,
+      nextProjects,
+    )
+    if (availableLeadCount(nextLeads) < pipelineTarget) {
+      nextLeads = [generateLead(ctx, reputation, state.gameDay), ...nextLeads]
+      nextLeadSpawnCooldown = leadSpawnIntervalFor(state.meta, reputation, state.gameDay)
+      nextEvents = pushEvent(
+        ctx,
+        state.meta,
+        nextEvents,
+        'lead',
+        'New client lead appeared. They want it yesterday.',
+        at,
+      )
+    }
   }
 
   return withCtx({

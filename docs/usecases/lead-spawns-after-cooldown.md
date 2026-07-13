@@ -1,7 +1,7 @@
 # Lead spawns after cooldown
 
 ## Given
-Initial playing state with no leads.
+Initial playing state with tutorial complete, no active client projects, and no leads.
 
 ## When
 4 game days elapse.

@@ -24,8 +24,8 @@ import {
 } from './constants'
 import { HOUSING_CONFIG } from './housing'
 import type { MetaProgress } from './meta'
-import { effectiveModelParams } from './prestige'
-import type { Agent, AgentJob, FineTuneRole, GameState, Task } from './types'
+import { effectiveModelParams, maxClientProjectSlots } from './prestige'
+import type { Agent, AgentJob, FineTuneRole, GameState, Project, Task } from './types'
 import type { Rng } from './rng'
 
 export const FIBONACCI = [0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
@@ -102,6 +102,20 @@ export function leadSpawnIntervalDays(reputation: number, gameDay: number, marke
   const marketingBoost = 1 + marketingLevel * 0.25
   const interval = LEAD_SPAWN_INTERVAL_DAYS / (repFactor * dayFactor * marketingBoost)
   return Math.max(LEAD_SPAWN_INTERVAL_MIN_DAYS, interval)
+}
+
+export function countActiveClientProjects(projects: Project[]): number {
+  return projects.filter((p) => p.kind === 'client' && p.status === 'active').length
+}
+
+/** How many available leads we want — one per empty client project slot. */
+export function clientLeadPipelineTarget(
+  meta: MetaProgress,
+  vibingPmTiers: number,
+  projects: Project[],
+): number {
+  const maxSlots = maxClientProjectSlots(meta, vibingPmTiers)
+  return Math.max(0, maxSlots - countActiveClientProjects(projects))
 }
 
 export function formatSpPerTick(effectiveParams: number, gameDay = 0, taskSp = 4): string {
