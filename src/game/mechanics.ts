@@ -462,7 +462,7 @@ export function automationAgentDutyLabel(job: AutomationAgentJob): string {
     case 'procurement':
       return 'Procuring upgrades'
     case 'sales':
-      return 'Closing leads'
+      return 'Closing leads & shipping'
     case 'marketing':
       return 'Marketing funnel crimes'
     case 'customer':
