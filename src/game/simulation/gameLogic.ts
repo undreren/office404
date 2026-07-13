@@ -323,8 +323,16 @@ export function applyOfflineProgress(
   const capped = Math.min(Math.max(0, elapsedSec), MAX_OFFLINE_SECONDS)
   if (capped < MIN_OFFLINE_APPLY_SEC) return state
 
+  const tickSec = TICK_INTERVAL_MS / 1000
+  let advanced = state
+  let remaining = capped
+  while (remaining > 0) {
+    const chunk = Math.min(remaining, tickSec)
+    advanced = advanceTime(advanced, chunk, at)
+    remaining -= chunk
+  }
+
   const ctx = ctxFrom(state)
-  const advanced = advanceTime(state, capped, at)
   const awayMinutes = Math.floor(capped / 60)
   const awayLabel =
     awayMinutes >= 60
