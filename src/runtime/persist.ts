@@ -5,11 +5,32 @@ import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
 import { createInitialState } from '../game/simulation/gameLogic'
 
-const SAVE_VERSION = 8
+const SAVE_VERSION = 9
+
+function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
+  const migrated = new Set<GameState['seenTabIntros'][number]>()
+  for (const tab of seenTabIntros) {
+    if (tab === 'feed' || tab === 'agents') {
+      migrated.add('status')
+    } else if (
+      tab === 'status' ||
+      tab === 'shop' ||
+      tab === 'projects' ||
+      tab === 'leads' ||
+      tab === 'product' ||
+      tab === 'hallucinations'
+    ) {
+      migrated.add(tab)
+    }
+  }
+  return [...migrated]
+}
 
 function normalizeLoadedState(state: GameState): GameState {
   return {
     ...state,
+    seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
+    seenCompactionIntro: state.seenCompactionIntro ?? false,
     projects: repairStaleCodingAssignments(state.projects, state.agents),
   }
 }
@@ -57,6 +78,13 @@ function migrateState(state: GameState, fromVersion: number): GameState {
   }
   if (fromVersion < 8) {
     next = migrateV7State(next as unknown as Record<string, unknown>)
+  }
+  if (fromVersion < 9) {
+    next = {
+      ...next,
+      seenTabIntros: migrateTabIntros(next.seenTabIntros as string[]),
+      seenCompactionIntro: next.seenCompactionIntro ?? false,
+    }
   }
   return next
 }

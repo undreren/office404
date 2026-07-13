@@ -165,7 +165,7 @@ Project id is `proj-1` for the tutorial gig.
 
 - Bash loops grepping snapshots — play turn-by-turn
 - Raw `agent-browser` shell commands — use the pi `browser` tool
-- Click locked nav tabs (Feed/Shop/Agents/Leads) before tutorial done
+- Click locked nav tabs (Status/Shop/Leads) before tutorial done
 - Trust `@eN` refs across separate tool calls
 - Staff Code while Refine still holds the only roster slot
 - Use `get text body` — unknown command; use `snapshot -i` instead

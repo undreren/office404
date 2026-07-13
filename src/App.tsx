@@ -4,9 +4,8 @@ import { BottomNav } from './components/BottomNav'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { LeadsPanel } from './components/LeadsPanel'
 import { UpgradesPanel } from './components/UpgradesPanel'
-import { AgentsPanel } from './components/AgentsPanel'
+import { StatusPanel } from './components/StatusPanel'
 import { HallucinationsPanel } from './components/HallucinationsPanel'
-import { EventLog } from './components/EventLog'
 import { GameOverlay } from './components/GameOverlay'
 import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { useOnboardingModal } from './hooks/useOnboardingModal'
@@ -21,18 +20,15 @@ function AppShell() {
     <>
       <div className="app" aria-hidden={modalOpen || undefined} inert={modalOpen || undefined}>
         <div className="scanlines" aria-hidden="true" />
-        <ResourceBar compact={activeTab !== 'feed'} />
+        <ResourceBar compact={activeTab !== 'status'} />
         <GameOverlay />
 
         <main className="main">
-          <div className={`tab-view ${activeTab === 'feed' ? 'tab-view--active' : ''}`}>
-            <EventLog />
+          <div className={`tab-view ${activeTab === 'status' ? 'tab-view--active' : ''}`}>
+            <StatusPanel />
           </div>
           <div className={`tab-view ${activeTab === 'shop' ? 'tab-view--active' : ''}`}>
             <UpgradesPanel />
-          </div>
-          <div className={`tab-view ${activeTab === 'agents' ? 'tab-view--active' : ''}`}>
-            <AgentsPanel />
           </div>
           <div className={`tab-view ${activeTab === 'projects' ? 'tab-view--active' : ''}`}>
             <ProjectsPanel />

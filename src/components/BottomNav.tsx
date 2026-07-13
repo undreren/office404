@@ -3,9 +3,8 @@ import { isReadyToDeliver } from '../game/selectors'
 import { useGameState } from '../runtime/GameRuntime'
 
 const TABS: { id: TabId; icon: string; label: string }[] = [
-  { id: 'feed', icon: '📋', label: 'Feed' },
+  { id: 'status', icon: '📊', label: 'Status' },
   { id: 'shop', icon: '🛒', label: 'Shop' },
-  { id: 'agents', icon: '🤖', label: 'Agents' },
   { id: 'projects', icon: '📦', label: 'Projects' },
   { id: 'leads', icon: '📨', label: 'Leads' },
   { id: 'hallucinations', icon: '✨', label: 'Hallucinations' },

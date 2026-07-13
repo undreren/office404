@@ -49,7 +49,7 @@ Merge when CI is green — no diff review expected.
 
 - Starts on **Projects** tab with one tutorial gig (*Friendly Neighbor App*)
 - Story intro modal → tab intro → step modals as you progress
-- **Feed, Shop, Agents, Leads** nav locked until tutorial is delivered
+- **Status, Shop, Leads** nav locked until tutorial is delivered
 - One refine agent staffed; player must staff a coder, then deliver
 - `$200` + first lead spawn on tutorial delivery; `tutorialDone` gates leads
 

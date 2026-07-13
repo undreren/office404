@@ -4,6 +4,7 @@ import type { HallucinationTrack } from '../prestige'
 import {
   acceptLead,
   acceptSingularity,
+  acknowledgeCompactionIntro,
   acknowledgeTabIntro,
   acknowledgeStoryIntro,
   acknowledgeTutorialStep,
@@ -140,6 +141,10 @@ export function acknowledgeStoryIntroMsg(at: number): GameMessage {
 
 export function acknowledgeTutorialStepMsg(at: number, step: number): GameMessage {
   return { at, apply: (state) => acknowledgeTutorialStep(state, step, at) }
+}
+
+export function acknowledgeCompactionIntroMsg(at: number): GameMessage {
+  return { at, apply: (state) => acknowledgeCompactionIntro(state, at) }
 }
 
 /** Returns true if the message changed state (for shop purchases). */
