@@ -51,6 +51,7 @@ import {
 } from '../constants'
 import {
   agentTickSpeed,
+  bestOfNTier,
   clientLeadPipelineTarget,
   computePrBaseQuality,
   contextFillMultiplier,
@@ -63,6 +64,7 @@ import {
   jobStatusFor,
   maxAgentSlotPurchases,
   maxAgents,
+  maxAgentsPerTask,
   maxGpuTickPurchases,
   prQualityAfterComments,
   ramSlotCost,
@@ -642,6 +644,7 @@ function reconcileProjectStaffing(
 ): { agents: Agent[]; projects: Project[] } {
   let nextAgents = [...agents]
   let nextProjects = projects
+  const agentsPerTask = maxAgentsPerTask(bestOfNTier(state.vibingCourseTiers))
 
   const syncedProject = () => nextProjects.find((p) => p.id === project.id) ?? project
   const noteWorkerReassignment = () => {
@@ -689,7 +692,7 @@ function reconcileProjectStaffing(
           w.job !== 'conductor' &&
           isProjectRole(w.job) &&
           w.status === 'idle' &&
-          !projectRoleHasWork(syncedProject(), w.job as StaffJob, w.id, nextAgents)
+          !projectRoleHasWork(syncedProject(), w.job as StaffJob, w.id, nextAgents, agentsPerTask)
         ) {
           const result = unassignAgentFromRole(nextAgents, project.id, w.job, nextProjects)
           if (result) {
@@ -725,7 +728,7 @@ function reconcileProjectStaffing(
         )
         if (
           workersNow.length < workerCap &&
-          projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents) &&
+          projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
           (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
         ) {
           const staffed = staffAgentForRole(
@@ -743,7 +746,7 @@ function reconcileProjectStaffing(
               a.id === staffed.agentId
                 ? {
                     ...a,
-                    status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents)
+                    status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents, agentsPerTask)
                       ? jobStatusFor(role)
                       : 'idle',
                   }
@@ -794,7 +797,7 @@ function reconcileProjectStaffing(
               ? projectHasRefineWork(syncedProject())
               : role === 'test'
                 ? projectHasTestWork(syncedProject())
-                : projectRoleHasWork(syncedProject(), role as StaffJob, staffed.agentId, nextAgents)
+                : projectRoleHasWork(syncedProject(), role as StaffJob, staffed.agentId, nextAgents, agentsPerTask)
           nextAgents = nextAgents.map((a) =>
             a.id === staffed.agentId ? { ...a, status: hasWork ? jobStatusFor(role) : 'idle' } : a,
           )
@@ -852,6 +855,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   const contextTokens = contextSize * 1000
   const compactDuration = compactionDurationSec(meta)
   const ctxMult = contextFillMultiplier(vibingCourses)
+  const agentsPerTask = maxAgentsPerTask(bestOfNTier(state.vibingCourseTiers))
   const totalGpus = totalGpuTicks({ ...state, gpuTickPurchases })
 
   gameDay += dayProgress
@@ -1023,7 +1027,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 taskRef.task.status === 'pr_ready' ||
                 (taskRef.task.isReviewComment && taskRef.task.status === 'done')
               ) {
-                const nextTask = pickCodingTask(project, agent.id, nextAgents)
+                const nextTask = pickCodingTask(project, agent.id, nextAgents, agentsPerTask)
                 if (!nextTask) {
                   agent.status = 'idle'
                   nextAgents[agentIdx] = agent
@@ -1112,7 +1116,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
-              const task = pickReviewTask(project, agent.id, nextAgents)
+              const task = pickReviewTask(project, agent.id, nextAgents, agentsPerTask)
               if (!task) {
                 agent.status = 'idle'
                 agent.taskId = null
@@ -1188,7 +1192,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
-              const target = pickRefineTarget(project, nextAgents, agent.id)
+              const target = pickRefineTarget(project, nextAgents, agent.id, agentsPerTask)
               if (!target) {
                 agent.status = 'idle'
                 agent.taskId = null
@@ -1262,7 +1266,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 ? project.tasks.find((t) => t.id === agent.taskId && taskNeedsTesting(t)) ?? null
                 : null
               if (!testTask) {
-                testTask = pickTestTask(project, agent.id, nextAgents)
+                testTask = pickTestTask(project, agent.id, nextAgents, agentsPerTask)
                 if (!testTask) {
                   agent.status = 'idle'
                   agent.taskId = null

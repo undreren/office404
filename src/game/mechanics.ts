@@ -408,6 +408,15 @@ export function hasConductorCourse(vibingCourses: string[]): boolean {
   return vibingCourses.includes('conductor')
 }
 
+export function bestOfNTier(tiers: Partial<Record<string, number>>): number {
+  return tiers.best_of_n ?? 0
+}
+
+/** Agents that may share one task (1 at tier 0, up to 10 at tier 9). */
+export function maxAgentsPerTask(bestOfTier: number): number {
+  return 1 + bestOfTier
+}
+
 export function hasVibingTier(tiers: Partial<Record<string, number>>, courseId: string, min: number): boolean {
   return (tiers[courseId] ?? (courseId in tiers ? 0 : 0)) >= min
 }
