@@ -5,7 +5,7 @@ import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
 import { createInitialState } from '../game/simulation/gameLogic'
 
-const SAVE_VERSION = 9
+const SAVE_VERSION = 10
 
 function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
   const migrated = new Set<GameState['seenTabIntros'][number]>()
@@ -84,6 +84,16 @@ function migrateState(state: GameState, fromVersion: number): GameState {
       ...next,
       seenTabIntros: migrateTabIntros(next.seenTabIntros as string[]),
       seenCompactionIntro: next.seenCompactionIntro ?? false,
+    }
+  }
+  if (fromVersion < 10) {
+    const { leadSpawnCooldown: _removed, ...rest } = next as GameState & { leadSpawnCooldown?: number }
+    type LegacyLead = GameState['leads'][number] & { daysToExpire?: number }
+    next = {
+      ...rest,
+      leads: (rest.leads as LegacyLead[])
+        .filter((lead) => (lead.status as string) !== 'expired')
+        .map(({ daysToExpire: _days, ...lead }) => lead),
     }
   }
   return next

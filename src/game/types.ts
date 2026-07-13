@@ -37,7 +37,7 @@ export type ProjectStatus = 'active' | 'completed' | 'abandoned'
 
 export type ProjectKind = 'client' | 'product' | 'tax_code'
 
-export type LeadStatus = 'available' | 'expired' | 'accepted' | 'rejected'
+export type LeadStatus = 'available' | 'accepted' | 'rejected'
 
 export type LeadSource = 'real' | 'synthetic'
 
@@ -174,7 +174,6 @@ export interface Lead {
   payment: number
   durationDays: number
   totalStoryPoints: number
-  daysToExpire: number
   spawnedGameDay: number
   status: LeadStatus
   repRequired: number
@@ -228,7 +227,6 @@ export interface GameState {
   acknowledgedTutorialStep: number
   seenTabIntros: MainTabId[]
   seenCompactionIntro: boolean
-  leadSpawnCooldown: number
   syntheticLeadCooldown: number
   taxCodeCooldown: number
   events: GameEvent[]

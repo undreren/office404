@@ -61,7 +61,7 @@ npm run preview:pages
 | **Cash** | Rent, tokens, hardware, apartment upgrades — paid on project completion (lump sum) |
 | **Tokens** | Fabulous5 cloud agents burn per tick; dry wallet = agents stop |
 | **Sanity** | Everything stressful drains it; **Vibe** (smoke break) restores it |
-| **Reputation** | On-time delivery up, missed deadlines & expired leads down — zero rep + no work = game over |
+| **Reputation** | On-time delivery up, missed deadlines down — zero rep + no work = game over |
 | **Net worth** | Cash + refurbished rack value — hit **$10M** to retire |
 
 ### Player actions
@@ -90,7 +90,6 @@ npm run preview:pages
 ### Projects & clients
 
 - Multiple concurrent projects with per-project **quality** and **deadlines**
-- Leads expire; ghosting them hurts reputation
 - Late delivery: rep hit, late fee, extension — escalating shame
 - Scripted tutorial gig on day one
 

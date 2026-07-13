@@ -16,7 +16,6 @@ export function stateWithAvailableLead(seed: number = SEED): GameState {
   const lead = generateLead(ctx, state.reputation, state.gameDay)
   return {
     ...state,
-    leads: [{ ...lead, daysToExpire: 30 }],
-    leadSpawnCooldown: 999,
+    leads: [lead],
   }
 }

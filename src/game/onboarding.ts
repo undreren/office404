@@ -52,7 +52,7 @@ export const TAB_INTRO_COPY: Record<
   },
   leads: {
     title: 'Leads',
-    body: 'New business opportunities. Accept to add a project, reject to stay sane, or ignore until they expire and your reputation takes a hit.',
+    body: 'New business opportunities. Accept to add a project or reject to stay sane.',
   },
   product: {
     title: 'Product',

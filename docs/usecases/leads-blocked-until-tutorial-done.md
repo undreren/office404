@@ -4,7 +4,7 @@
 Initial playing state with tutorial incomplete.
 
 ## When
-The lead spawn cooldown elapses.
+Time advances with tutorial still incomplete.
 
 ## Then (invariants)
 - No lead has status `available`
