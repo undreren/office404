@@ -621,10 +621,15 @@ function updateRequirement(
 
 const YEET_ROLE_ORDER: AgentJob[] = ['test', 'review', 'code', 'refine', 'conductor']
 
-function pickProjectAgentToYeet(agents: Agent[]): Agent | null {
-  const candidates = agents.filter(
-    (a) => !a.isAutomation && a.projectId && a.job && isProjectRole(a.job),
-  )
+function pickProjectAgentToYeet(agents: Agent[], projects: Project[]): Agent | null {
+  const candidates = agents.filter((a) => {
+    if (a.isAutomation || !a.projectId || !a.job || !isProjectRole(a.job)) return false
+    if (a.job === 'conductor') {
+      const project = projects.find((p) => p.id === a.projectId)
+      if (project?.useConductor) return false
+    }
+    return true
+  })
   if (candidates.length === 0) return null
 
   const roleRank = new Map(YEET_ROLE_ORDER.map((job, index) => [job, index]))
@@ -645,7 +650,7 @@ function yeetProjectAgentForRosterSlot(
   agents: Agent[],
   projects: Project[],
 ): { agents: Agent[]; projects: Project[]; yeeted: Agent } | null {
-  const victim = pickProjectAgentToYeet(agents)
+  const victim = pickProjectAgentToYeet(agents, projects)
   if (!victim?.projectId || !victim.job || !isProjectRole(victim.job)) return null
 
   const projectId = victim.projectId
@@ -926,7 +931,7 @@ function reconcileProjectStaffing(
   if (project.useConductor && hasConductorCourse(state.vibingCourses)) {
     const conductors = projectAgents(project.id, 'conductor', nextAgents)
     const hasConductor = conductors.length > 0
-    const desiredConductor = project.roleCounts.conductor > 0 ? 1 : 0
+    const desiredConductor = project.useConductor ? 1 : project.roleCounts.conductor > 0 ? 1 : 0
 
     if (desiredConductor > 0 && !hasConductor) {
       const staffed = staffAgentForRole(
