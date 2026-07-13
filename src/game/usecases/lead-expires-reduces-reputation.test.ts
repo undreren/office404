@@ -8,7 +8,7 @@ import { SECONDS_PER_GAME_DAY } from '../constants'
 
 describe('lead-expires-reduces-reputation', () => {
   it('matches use case invariants', () => {
-    let state = stateWithAvailableLead()
+    let state = { ...stateWithAvailableLead(), reputation: 5 }
     const lead = state.leads.find((l) => l.status === 'available')!
     const repBefore = state.reputation
     const expireDays = lead.daysToExpire + 0.5

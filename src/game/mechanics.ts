@@ -76,18 +76,24 @@ export function storyPointIncrement(
   return Math.min(remaining, step)
 }
 
-export function pickLeadTotalStoryPoints(rng: Rng, reputation: number, gameDay = 0): number {
-  let minTotal: number
-  if (reputation <= 0) minTotal = 3
-  else if (reputation < 10) minTotal = 8
-  else if (reputation < 25) minTotal = 21
-  else minTotal = 34
+export function leadScopeForReputation(reputation: number): { minTotal: number; maxTotal: number } {
+  const rep = Math.max(0, reputation)
+  const minTotal = 3 + Math.floor(rep / 4)
+  const spread = 2 + Math.floor(rep / 6)
+  return { minTotal, maxTotal: minTotal + spread }
+}
 
-  const repBoost = Math.floor(reputation / 15) * 13
-  const dayBoost = Math.floor(Math.pow(gameDay / 50, 1.3) * 21)
-  const maxTotal = minTotal + repBoost + dayBoost + 55
-  const roll = minTotal + rng.int(0, Math.max(0, maxTotal - minTotal))
-  return Math.max(minTotal, roll)
+/** Max SP per requirement — ramps slowly with rep so Fib splits stay digestible. */
+export function maxRequirementSpForReputation(reputation: number): number {
+  const rep = Math.max(0, reputation)
+  return Math.min(MAX_CLIENT_TASK_SP, Math.max(1, 1 + Math.floor(rep / 5)))
+}
+
+/** Lead total SP roll — reputation only, slow ramp. */
+export function pickLeadTotalStoryPoints(rng: Rng, reputation: number): number {
+  const { minTotal, maxTotal } = leadScopeForReputation(reputation)
+  if (maxTotal <= minTotal) return minTotal
+  return minTotal + rng.int(0, maxTotal - minTotal)
 }
 
 export function leadSpawnIntervalDays(reputation: number, gameDay: number, marketingLevel = 0): number {

@@ -8,7 +8,7 @@ export const SECONDS_PER_GAME_DAY = 60
 export const LOSE_REPUTATION = 0
 
 export const INITIAL_CASH = 0
-export const INITIAL_REPUTATION = 5
+export const INITIAL_REPUTATION = 0
 export const RENT_INTERVAL_DAYS = 30
 
 export const PLAYER_ACTION_BASE_DAYS = 0.5

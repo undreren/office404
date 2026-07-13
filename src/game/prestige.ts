@@ -111,9 +111,9 @@ export function prestigeModelParams(meta: MetaProgress): number {
   return 4 + getHallucinationLevel(meta, 'model')
 }
 
-/** Effective params for SP (4B baseline = old 1B). */
+/** Effective params for SP — matches model size (4B → 4, 5B → 5, …). */
 export function effectiveModelParams(meta: MetaProgress): number {
-  return prestigeModelParams(meta) / 4
+  return prestigeModelParams(meta)
 }
 
 export function startingCapitalBonus(meta: MetaProgress): number {
