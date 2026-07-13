@@ -1,5 +1,5 @@
 import { SAVE_KEY } from '../game/constants'
-import { repairStaleCodingAssignments } from '../game/projects'
+import { repairDuplicateTaskIds, repairStaleCodingAssignments } from '../game/projects'
 import { createDefaultMeta } from '../game/meta'
 import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
@@ -38,13 +38,15 @@ function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
 function normalizeLoadedState(state: GameState): GameState {
   const ctx = ctxFrom(state)
   const synced = reconcileSpecialistAgents(
-    migrateAssignedSpecialistRoles({
-      ...state,
-      seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
-      seenCompactionIntro: state.seenCompactionIntro ?? false,
-      fineTuneTiers: state.fineTuneTiers ?? {},
-      projects: repairStaleCodingAssignments(state.projects, state.agents),
-    }),
+    migrateAssignedSpecialistRoles(
+      repairDuplicateTaskIds({
+        ...state,
+        seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
+        seenCompactionIntro: state.seenCompactionIntro ?? false,
+        fineTuneTiers: state.fineTuneTiers ?? {},
+        projects: repairStaleCodingAssignments(state.projects, state.agents),
+      }),
+    ),
     ctx,
   )
   return synced
