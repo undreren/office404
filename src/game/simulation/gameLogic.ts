@@ -1394,7 +1394,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               agent.taskId = targetId
               const refineDuration =
                 savedProgress.refineJobDuration ??
-                refineJobDurationDays(targetSp, params, target.kind === 'task')
+                refineJobDurationDays(targetSp, params)
               let refineProgress = savedProgress.refineJobProgress ?? 0
               agent.jobProgress = refineProgress
               agent.jobDuration = refineDuration

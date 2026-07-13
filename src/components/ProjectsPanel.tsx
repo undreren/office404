@@ -29,7 +29,6 @@ import {
 import {
   adjustRoleCountMsg,
   deliverProjectMsg,
-  justMergePrMsg,
   toggleConductorMsg,
 } from '../game/messages'
 import {
@@ -147,13 +146,11 @@ function TaskCard({
   project,
   agents,
   selectedTaskId,
-  onJustMerge,
 }: {
   task: Task
   project: Project
   agents: Agent[]
   selectedTaskId: string | null
-  onJustMerge: (id: string) => void
 }) {
   const refining = taskNeedsRefinement(task)
   const refinePct = refining ? taskRefineProgressPct(task, project, agents) : null
@@ -248,18 +245,6 @@ function TaskCard({
         </ul>
       )}
 
-      {task.status === 'pr_ready' && (
-        <div className="assign-row">
-          <button
-            type="button"
-            className="btn btn--small btn--danger"
-            aria-label={`Just merge ${task.title} without waiting for review`}
-            onClick={() => onJustMerge(task.id)}
-          >
-            Just Merge
-          </button>
-        </div>
-      )}
     </li>
   )
 }
@@ -269,13 +254,11 @@ function RequirementBlock({
   project,
   agents,
   selectedTaskId,
-  onJustMerge,
 }: {
   requirement: Requirement
   project: Project
   agents: Agent[]
   selectedTaskId: string | null
-  onJustMerge: (id: string) => void
 }) {
   const refinePct = requirementRefineProgressPct(project, requirement, agents)
   const testPct = requirementTestPercent(project, requirement.id)
@@ -343,7 +326,6 @@ function RequirementBlock({
               project={project}
               agents={agents}
               selectedTaskId={selectedTaskId}
-              onJustMerge={onJustMerge}
             />
           ))}
         </ul>
@@ -565,7 +547,6 @@ function ProjectCard({ project }: { project: Project }) {
                 project={synced}
                 agents={agents}
                 selectedTaskId={selectedTaskId}
-                onJustMerge={(id) => dispatchAt((at) => justMergePrMsg(at, id))}
               />
             ))}
           </ul>
