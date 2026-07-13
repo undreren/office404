@@ -276,6 +276,10 @@ export function agentIsWorking(agent: Agent): boolean {
   return agentIsBusy(agent) || agent.status === 'conducting'
 }
 
+export function countRosterIdleAgents(agents: Agent[]): number {
+  return agents.filter((agent) => !agent.isAutomation && agent.status === 'idle').length
+}
+
 export function agentUsesGpu(agent: Agent): boolean {
   return agentIsWorking(agent) && agent.job !== 'conductor'
 }
