@@ -370,7 +370,6 @@ export function defaultProjectFields(
     requirements: createRequirementsForProject(ctx, projectId, sp, maxChunkSp),
     tasks: [] as Task[],
     lateCount: 0,
-    crewCap: 1,
     roleCounts: { ...EMPTY_ROLE_COUNTS },
     useConductor: false,
     duplicateProjectId: null,

@@ -48,7 +48,6 @@ describe('conductor-prioritizes-refine-over-code', () => {
         {
           ...project,
           useConductor: true,
-          crewCap: 3,
           roleCounts: { refine: 0, code: 2, review: 0, test: 0, conductor: 1 },
           requirements: [
             { ...project.requirements[0]!, status: 'open' },

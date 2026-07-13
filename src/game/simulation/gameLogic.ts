@@ -60,6 +60,7 @@ import {
   formatStoryPoints,
   getAgentParameters,
   gpuTickCost,
+  hasAutoConductorCourse,
   hasConductorCourse,
   hasPromptEngineering,
   jobStatusFor,
@@ -653,43 +654,6 @@ function tryProgressTask(
   return { projects: next, becameDone, becamePrReady }
 }
 
-function conductorRolePriority(role: StaffJob): number {
-  return CONDUCTOR_ROLE_PRIORITY.indexOf(role)
-}
-
-function evictIdleLowerPriorityWorkers(
-  projectId: string,
-  role: StaffJob,
-  workerCap: number,
-  agents: Agent[],
-  projects: Project[],
-): { agents: Agent[]; projects: Project[] } {
-  let nextAgents = agents
-  let nextProjects = projects
-  const rolePri = conductorRolePriority(role)
-  if (rolePri < 0) return { agents: nextAgents, projects: nextProjects }
-
-  const workers = () =>
-    nextAgents.filter((a) => a.projectId === projectId && a.job && a.job !== 'conductor')
-
-  while (workers().length >= workerCap) {
-    const idleLower = workers()
-      .filter((w) => w.status === 'idle' && !isAgentBusy(w) && w.job && w.job !== 'conductor')
-      .filter((w) => conductorRolePriority(w.job as StaffJob) > rolePri)
-      .sort((a, b) => conductorRolePriority(b.job as StaffJob) - conductorRolePriority(a.job as StaffJob))
-
-    const victim = idleLower[0]
-    if (!victim?.job) break
-
-    const result = unassignAgentFromRole(nextAgents, projectId, victim.job, nextProjects)
-    if (!result) break
-    nextAgents = result.agents
-    nextProjects = result.projects
-  }
-
-  return { agents: nextAgents, projects: nextProjects }
-}
-
 function reconcileProjectStaffing(
   ctx: SimCtx,
   state: GameState,
@@ -737,7 +701,6 @@ function reconcileProjectStaffing(
     }
 
     if (conductorCanAutoStaff(nextAgents, project.id)) {
-      const workerCap = Math.max(0, project.crewCap - projectAgents(project.id, 'conductor', nextAgents).length)
       const workers = nextAgents.filter(
         (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
       )
@@ -759,48 +722,8 @@ function reconcileProjectStaffing(
         }
       }
 
-      const workersAfter = nextAgents.filter(
-        (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
-      )
-      if (workersAfter.length > workerCap) {
-        const idle = workersAfter.filter((a) => !isAgentBusy(a))
-        for (let i = 0; i < workersAfter.length - workerCap && idle.length > 0; i++) {
-          const victim = idle.pop()!
-          if (victim.job) {
-            const result = unassignAgentFromRole(nextAgents, project.id, victim.job, nextProjects)
-            if (result) {
-              nextAgents = result.agents
-              nextProjects = result.projects
-              noteWorkerReassignment()
-            }
-          }
-        }
-      }
-
       for (const role of CONDUCTOR_ROLE_PRIORITY) {
-        const current = projectAgents(project.id, role, nextAgents).length
-        let workersNow = nextAgents.filter(
-          (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
-        )
         if (
-          projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
-          (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
-        ) {
-          const evicted = evictIdleLowerPriorityWorkers(
-            project.id,
-            role,
-            workerCap,
-            nextAgents,
-            nextProjects,
-          )
-          nextAgents = evicted.agents
-          nextProjects = evicted.projects
-          workersNow = nextAgents.filter(
-            (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
-          )
-        }
-        if (
-          workersNow.length < workerCap &&
           projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
           (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
         ) {
@@ -828,7 +751,6 @@ function reconcileProjectStaffing(
             noteWorkerReassignment()
           }
         }
-        void current
       }
     }
     return { agents: nextAgents, projects: nextProjects }
@@ -1509,13 +1431,22 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   if (clientProjects.length >= maxSlots) return state
 
   const project = createProjectFromLead(ctx, lead, state.gameDay, state.reputation)
+  const autoConductor =
+    hasAutoConductorCourse(state.vibingCourses) && hasConductorCourse(state.vibingCourses)
+  const projectWithConductor = autoConductor
+    ? {
+        ...project,
+        useConductor: true,
+        roleCounts: { ...project.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 },
+      }
+    : project
   const daysWaited = Math.max(0, Math.floor(state.gameDay - (lead.spawnedGameDay ?? state.gameDay)))
   const waitNote =
     daysWaited > 0 ? ` (${daysWaited}d wait shaved ${daysWaited}d off deadline)` : ''
   const syntheticAccepted = lead.source === 'synthetic'
   return withCtx({
     ...state,
-    projects: [...state.projects, project],
+    projects: [...state.projects, projectWithConductor],
     leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
     stats: syntheticAccepted
       ? { ...state.stats, syntheticLeadsAccepted: state.stats.syntheticLeadsAccepted + 1 }
@@ -1525,7 +1456,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
       state.meta,
       state.events,
       'lead',
-      `Accepted ${lead.clientName}. ${project.durationDays}d to deliver.${waitNote}`,
+      `Accepted ${lead.clientName}. ${projectWithConductor.durationDays}d to deliver.${waitNote}`,
       at,
     ),
   }, ctx, at)
@@ -1729,18 +1660,6 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
       at,
     ),
   }, ctx, at)
-}
-
-export function adjustCrewCap(state: GameState, projectId: string, delta: number, at: number): GameState {
-  return {
-    ...state,
-    projects: state.projects.map((p) =>
-      p.id === projectId
-        ? { ...p, crewCap: Math.max(1, Math.min(12, p.crewCap + delta)) }
-        : p,
-    ),
-    snapshotAt: at,
-  }
 }
 
 export function toggleConductor(state: GameState, projectId: string, enabled: boolean, at: number): GameState {

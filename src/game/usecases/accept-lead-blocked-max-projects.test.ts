@@ -27,7 +27,6 @@ function extraProject(index: number): Project {
     kind: 'client',
     lateCount: 0,
     repPenaltyMultiplier: 1,
-    crewCap: 4,
     roleCounts: { refine: 0, code: 0, review: 0, test: 0, conductor: 0 },
     useConductor: false,
     duplicateProjectId: null,

@@ -25,7 +25,6 @@ import {
   roleCanAcceptStaffing,
 } from '../game/projects'
 import {
-  adjustCrewCapMsg,
   adjustRoleCountMsg,
   deliverProjectMsg,
   justMergePrMsg,
@@ -602,59 +601,24 @@ function ProjectCard({ project }: { project: Project }) {
               />{' '}
               Conductor mode
             </label>
-            {project.useConductor && (
-              <div className="crew-counter" role="group" aria-label={`Crew cap for ${project.clientName}`}>
-                <span className="crew-label">Crew cap</span>
-                <button
-                  type="button"
-                  className="btn btn--small"
-                  aria-label={`Decrease crew cap for ${project.clientName}`}
-                  onClick={() => dispatchAt((at) => adjustCrewCapMsg(at, project.id, -1))}
-                >
-                  −
-                </button>
-                <span className="crew-count">{project.crewCap}</span>
-                <button
-                  type="button"
-                  className="btn btn--small"
-                  aria-label={`Increase crew cap for ${project.clientName}`}
-                  onClick={() => dispatchAt((at) => adjustCrewCapMsg(at, project.id, 1))}
-                >
-                  +
-                </button>
-              </div>
-            )}
           </div>
         )}
 
         {project.useConductor && conductorUnlocked ? (
           <>
-            <RoleCounter
-              projectId={project.id}
-              job="conductor"
-              label="Conductor"
-              count={project.roleCounts.conductor}
-              canAdd={canStaff && project.roleCounts.conductor < 1}
-              agents={projectAgents(project.id, 'conductor')}
-              project={project}
-              idleAgents={idleAgents}
-              rosterUsed={rosterUsed}
-              rosterMax={rosterMax}
-              hasRoleWork
-            />
+            {projectAgents(project.id, 'conductor').length > 0 && (
+              <div className="crew-row__content">
+                {projectAgents(project.id, 'conductor').map((agent) => (
+                  <AgentCrewRow key={agent.id} agent={agent} project={project} />
+                ))}
+              </div>
+            )}
             <p
               className="hint"
-              aria-label={`Conductor auto-staffs refine, code, review, and test within crew cap (${
-                projectAgents(project.id, 'conductor').length > 0
-                  ? `${project.crewCap - 1} worker slots`
-                  : 'assign conductor first'
-              }).`}
+              aria-label="Conductor auto-staffs refine, code, review, and test. Projects compete for roster agents."
             >
-              Conductor auto-staffs refine → code → review → test within crew cap (
-              {projectAgents(project.id, 'conductor').length > 0
-                ? `${project.crewCap - 1} worker slots`
-                : 'assign conductor first'}
-              ).
+              Conductor auto-staffs refine → code → review → test. Projects compete for roster
+              agents.
             </p>
             {STAFF_JOBS.map(({ job, label }) => (
               <RoleCounter

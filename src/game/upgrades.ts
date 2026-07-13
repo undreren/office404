@@ -30,7 +30,14 @@ export const VIBING_COURSES: VibingCourse[] = [
     label: 'Conductor',
     tagline: 'Someone has to watch them. Might as well be someone fake.',
     cost: 350,
-    description: 'Assign a Conductor per project to auto-staff roles within crew cap.',
+    description: 'Toggle Conductor mode per project — auto-staffs refine, code, review, and test.',
+  },
+  {
+    id: 'auto_conductor',
+    label: 'Auto Conductor',
+    tagline: 'Every project gets a babysitter. Whether it wants one or not.',
+    cost: 275,
+    description: 'New client projects start with Conductor mode on (requires Conductor course).',
   },
   {
     id: 'refinement',

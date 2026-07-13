@@ -8,7 +8,6 @@ import {
   acknowledgeTabIntro,
   acknowledgeStoryIntro,
   acknowledgeTutorialStep,
-  adjustCrewCap,
   adjustRoleCount,
   advanceTime,
   buyAgentSlot,
@@ -81,10 +80,6 @@ export function adjustRoleCountMsg(
   delta: number,
 ): GameMessage {
   return { at, apply: (state) => adjustRoleCount(state, projectId, job, delta, at) }
-}
-
-export function adjustCrewCapMsg(at: number, projectId: string, delta: number): GameMessage {
-  return { at, apply: (state) => adjustCrewCap(state, projectId, delta, at) }
 }
 
 export function toggleConductorMsg(at: number, projectId: string, enabled: boolean): GameMessage {
