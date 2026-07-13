@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { canRefineTask, pickCodingTask, taskLifecycleLabel } from '../projects'
+import {
+  canRefineTask,
+  pickCodingTask,
+  taskLifecycleLabel,
+} from '../projects'
 import { initialPlaying } from './_helpers/initialPlaying'
 import type { Task } from '../types'
 
@@ -36,7 +40,22 @@ describe('unsplittable-refine-passes-allow-coding', () => {
       refined: false,
     }
     const activeProject = { ...project, tasks: [task] }
+    const coder = {
+      id: 'coder-1',
+      name: 'coder-1',
+      job: 'code' as const,
+      projectId: project.id,
+      status: 'idle' as const,
+      taskId: null,
+      contextUsed: 0,
+      compactingRemainingSec: 0,
+      jobProgress: 0,
+      jobDuration: 0,
+      uptime: 0,
+      isAutomation: false,
+      personality: 'testy',
+    }
 
-    expect(pickCodingTask(activeProject, 'coder-1', [], 1)).toEqual(task)
+    expect(pickCodingTask(activeProject, 'coder-1', [coder], 1)).toEqual(task)
   })
 })

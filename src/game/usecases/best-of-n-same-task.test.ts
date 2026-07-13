@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buyVibingCourseMsg } from '../messages'
-import { pickCodingTask, pickReviewTask } from '../projects'
+import { buyVibingCourseMsg, timeElapsed } from '../messages'
+import {
+  dispatchCodingTask,
+  dispatchReviewTask,
+} from '../projects'
 import { BEST_OF_N_COURSE_ID, vibingCourseCost, VIBING_COURSES } from '../upgrades'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
@@ -82,7 +85,9 @@ describe('best-of-n-same-task', () => {
     }
     const agents = [codeAgent('coder-1', project.id, task.id), codeAgent('coder-2', project.id, null)]
 
-    expect(pickCodingTask({ ...project, tasks: [task] }, 'coder-2', agents, 1)).toBeNull()
+    const slots = new Map<string, number>()
+    expect(dispatchCodingTask({ ...project, tasks: [task] }, 'coder-1', agents, 1, slots)).toEqual(task)
+    expect(dispatchCodingTask({ ...project, tasks: [task] }, 'coder-2', agents, 1, slots)).toBeNull()
   })
 
   it('allows a second coder on the same task at Best-of-N tier 1', () => {
@@ -114,7 +119,9 @@ describe('best-of-n-same-task', () => {
     }
     const agents = [codeAgent('coder-1', project.id, task.id), codeAgent('coder-2', project.id, null)]
 
-    expect(pickCodingTask({ ...project, tasks: [task] }, 'coder-2', agents, 2)).toEqual(task)
+    const slots = new Map<string, number>()
+    expect(dispatchCodingTask({ ...project, tasks: [task] }, 'coder-1', agents, 2, slots)).toEqual(task)
+    expect(dispatchCodingTask({ ...project, tasks: [task] }, 'coder-2', agents, 2, slots)).toEqual(task)
   })
 
   it('allows a second reviewer on the same PR at Best-of-N tier 1', () => {
@@ -154,8 +161,12 @@ describe('best-of-n-same-task', () => {
       },
     ]
 
-    expect(pickReviewTask({ ...project, tasks: [task] }, 'rev-2', agents, 1)).toBeNull()
-    expect(pickReviewTask({ ...project, tasks: [task] }, 'rev-2', agents, 2)).toEqual(task)
+    const slots = new Map<string, number>()
+    expect(dispatchReviewTask({ ...project, tasks: [task] }, 'rev-1', agents, 1, slots)).toEqual(task)
+    expect(dispatchReviewTask({ ...project, tasks: [task] }, 'rev-2', agents, 1, slots)).toBeNull()
+    const slots2 = new Map<string, number>()
+    expect(dispatchReviewTask({ ...project, tasks: [task] }, 'rev-1', agents, 2, slots2)).toEqual(task)
+    expect(dispatchReviewTask({ ...project, tasks: [task] }, 'rev-2', agents, 2, slots2)).toEqual(task)
   })
 
   it('purchases Best-of-N up to nine tiers with exponential cost', () => {
@@ -174,5 +185,69 @@ describe('best-of-n-same-task', () => {
 
     const blocked = dispatchChain(state, [buyVibingCourseMsg(T0 + 10_000, BEST_OF_N_COURSE_ID)])
     expect(blocked.vibingCourseTiers[BEST_OF_N_COURSE_ID]).toBe(9)
+  })
+})
+
+function taskInProgress(projectId: string, requirementId: string): Task {
+  return {
+    id: 'task-code',
+    projectId,
+    requirementId,
+    title: 'Shared task',
+    storyPointsRequired: 20,
+    storyPointsEarned: 0,
+    complexity: 2,
+    refined: true,
+    status: 'in_progress',
+    assignedAgentId: null,
+    completedByAgentId: null,
+    parentTaskId: null,
+    prQuality: null,
+    prQualityStaging: 0,
+    hasUndiscoveredBug: false,
+    bugDiscovered: false,
+    isBugFix: false,
+    sourceTaskId: null,
+    isReviewComment: false,
+    reviewed: false,
+    testStoryPointsEarned: 0,
+  }
+}
+
+describe('best-of-n compaction', () => {
+  it('keeps task progress when one of two coders compacts', () => {
+    const base = initialPlaying()
+    const project = base.projects[0]!
+    const req = project.requirements[0]!
+    const task = taskInProgress(project.id, req.id)
+    const before = {
+      ...base,
+      vibingCourseTiers: { ...base.vibingCourseTiers, best_of_n: 1 },
+      projects: [
+        {
+          ...project,
+          tasks: [task],
+          roleCounts: { refine: 0, code: 2, review: 0, test: 0, conductor: 0 },
+        },
+      ],
+      agents: [
+        {
+          ...codeAgent('coder-1', project.id, task.id),
+          contextUsed: 15950,
+        },
+        codeAgent('coder-2', project.id, task.id),
+      ],
+    }
+
+    const afterCompact = dispatchChain(before, [timeElapsed(T0 + 100, 5)])
+    expect(afterCompact.agents[0]!.status).toBe('compacting')
+    const earnedWhilePeerDown = afterCompact.projects[0]!.tasks[0]!.storyPointsEarned
+    expect(earnedWhilePeerDown).toBeGreaterThan(0)
+
+    const afterReboot = dispatchChain(afterCompact, [timeElapsed(T0 + 200, 35)])
+    expect(afterReboot.agents[0]!.status).not.toBe('compacting')
+    expect(afterReboot.projects[0]!.tasks[0]!.storyPointsEarned).toBeGreaterThanOrEqual(
+      earnedWhilePeerDown,
+    )
   })
 })
