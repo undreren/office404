@@ -1183,9 +1183,8 @@ function reconcileProjectStaffing(
       const rolePriority = conductorRolePriority(syncedProject())
 
       for (const role of rolePriority) {
-        if (
+        while (
           projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
-          projectAgents(project.id, role, nextAgents).length === 0 &&
           (hasStaffableAgent(nextAgents) || canSpawnAgent({ ...state, agents: nextAgents }))
         ) {
           while (projectTeamSize(nextAgents, project.id) >= maxTeam) {
@@ -1195,7 +1194,7 @@ function reconcileProjectStaffing(
             nextProjects = evicted.projects
             noteWorkerReassignment()
           }
-          if (projectTeamSize(nextAgents, project.id) >= maxTeam) continue
+          if (projectTeamSize(nextAgents, project.id) >= maxTeam) break
           const staffed = staffAgentForRole(
             ctx,
             { ...state, agents: nextAgents },
@@ -1204,21 +1203,20 @@ function reconcileProjectStaffing(
             role,
             nextProjects,
           )
-          if (staffed) {
-            nextAgents = staffed.agents
-            nextProjects = staffed.projects
-            nextAgents = nextAgents.map((a) =>
-              a.id === staffed.agentId
-                ? {
-                    ...a,
-                    status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents, agentsPerTask)
-                      ? jobStatusFor(role)
-                      : 'idle',
-                  }
-                : a,
-            )
-            noteWorkerReassignment()
-          }
+          if (!staffed) break
+          nextAgents = staffed.agents
+          nextProjects = staffed.projects
+          nextAgents = nextAgents.map((a) =>
+            a.id === staffed.agentId
+              ? {
+                  ...a,
+                  status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents, agentsPerTask)
+                    ? jobStatusFor(role)
+                    : 'idle',
+                }
+              : a,
+          )
+          noteWorkerReassignment()
         }
       }
     }
