@@ -14,8 +14,6 @@ import {
   REFINE_SPEED_MULTIPLIER,
   REVIEW_CODE_TIME_FRACTION,
   SECONDS_PER_GAME_DAY,
-  LEAD_SPAWN_INTERVAL_DAYS,
-  LEAD_SPAWN_INTERVAL_MIN_DAYS,
   SP_PROGRESS_DAY_DIVISOR,
   SP_PROGRESS_PER_B_PARAM,
   TEST_SPEED_MULTIPLIER,
@@ -94,14 +92,6 @@ export function pickLeadTotalStoryPoints(rng: Rng, reputation: number): number {
   const { minTotal, maxTotal } = leadScopeForReputation(reputation)
   if (maxTotal <= minTotal) return minTotal
   return minTotal + rng.int(0, maxTotal - minTotal)
-}
-
-export function leadSpawnIntervalDays(reputation: number, gameDay: number, marketingLevel = 0): number {
-  const repFactor = 1 + Math.max(0, reputation) / 20
-  const dayFactor = 1 + Math.pow(gameDay / 90, 1.5) * 0.75
-  const marketingBoost = 1 + marketingLevel * 0.25
-  const interval = LEAD_SPAWN_INTERVAL_DAYS / (repFactor * dayFactor * marketingBoost)
-  return Math.max(LEAD_SPAWN_INTERVAL_MIN_DAYS, interval)
 }
 
 export function countActiveClientProjects(projects: Project[]): number {

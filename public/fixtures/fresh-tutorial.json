@@ -103,7 +103,6 @@
   "seenStoryIntro": false,
   "acknowledgedTutorialStep": -1,
   "seenTabIntros": [],
-  "leadSpawnCooldown": 4,
   "syntheticLeadCooldown": 4,
   "taxCodeCooldown": 10,
   "events": [

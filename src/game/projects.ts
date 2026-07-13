@@ -434,7 +434,6 @@ export function generateLead(
     payment,
     durationDays,
     totalStoryPoints: storyPoints,
-    daysToExpire: ctx.rng.int(3, 8),
     spawnedGameDay: gameDay,
     status: 'available',
     repRequired: source === 'synthetic' ? 0 : Math.max(0, ctx.rng.int(0, Math.floor(Math.max(0, reputation) * 0.6))),

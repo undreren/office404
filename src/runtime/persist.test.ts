@@ -45,7 +45,6 @@ describe('persist', () => {
       seenStoryIntro: true,
       acknowledgedTutorialStep: 3,
       seenTabIntros: [],
-      leadSpawnCooldown: 4,
       events: [],
       stats: {
         projectsCompleted: 0,

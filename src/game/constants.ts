@@ -26,7 +26,6 @@ export const PROMPT_ENGINEERING_PR_BOOST = 15
 
 export const LATE_FEE_PERCENT = 0.15
 export const LATE_REP_PENALTY_BASE = 3
-export const EXPIRED_LEAD_REP_PENALTY = 2
 export const ON_TIME_REP_BONUS = 4
 
 /** Real seconds to auto-compact and reset context after overflow (base; reducible via meta). */
@@ -35,8 +34,6 @@ export const COMPACT_DURATION_SEC = 30
 /** Story points earned per tick per effective billion model parameters. */
 export const SP_PROGRESS_PER_B_PARAM = 0.1
 
-export const LEAD_SPAWN_INTERVAL_DAYS = 4
-export const LEAD_SPAWN_INTERVAL_MIN_DAYS = 1.5
 export const MIN_PROJECT_DAYS = 14
 export const SP_PROGRESS_DAY_DIVISOR = 60
 

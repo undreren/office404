@@ -12,8 +12,7 @@ export function stateWithAcceptedProject(seed: number = SEED): GameState {
   const lead = generateLead(ctx, base.reputation, base.gameDay)
   const withLead = {
     ...base,
-    leads: [{ ...lead, daysToExpire: 30 }],
-    leadSpawnCooldown: 999,
+    leads: [lead],
   }
   return dispatchChain(withLead, [acceptLeadMsg(T0 + 2000, lead.id)])
 }

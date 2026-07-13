@@ -13,7 +13,7 @@ export function LeadsPanel() {
   return (
     <section className="panel leads-panel">
       <h2>Leads</h2>
-      <p className="panel__subtitle">Accept the pain. Reject professionally. Let expire for shame.</p>
+      <p className="panel__subtitle">Accept the pain. Reject professionally. Or don&apos;t — they&apos;ll wait.</p>
 
       {available.length === 0 && (
         <p
@@ -36,7 +36,6 @@ export function LeadsPanel() {
         const waitPenalty = lead.durationDays - effectiveDays
         const leadSummary = [
           lead.clientName,
-          `${Math.ceil(lead.daysToExpire)} days to respond`,
           `${effectiveDays} day deadline`,
           waitPenalty > 0 ? `minus ${waitPenalty} days for waiting` : null,
           `$${lead.payment} on completion`,
@@ -51,12 +50,6 @@ export function LeadsPanel() {
           <article key={lead.id} className="lead-card" aria-label={leadSummary}>
             <header>
               <h3>{lead.clientName}</h3>
-              <span
-                className={lead.daysToExpire < 2 ? 'text-danger' : ''}
-                aria-label={`${Math.ceil(lead.daysToExpire)} days to respond`}
-              >
-                {Math.ceil(lead.daysToExpire)}d to respond
-              </span>
             </header>
             {lead.clientTagline && (
               <p className="client-tagline" aria-label={`Client tagline: "${lead.clientTagline}"`}>

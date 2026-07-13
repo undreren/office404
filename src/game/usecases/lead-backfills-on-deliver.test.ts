@@ -24,7 +24,7 @@ describe('lead-backfills-on-deliver', () => {
     const waitingLead = generateLead(ctx, base.reputation, base.gameDay)
     const withLead = {
       ...base,
-      leads: [{ ...waitingLead, daysToExpire: 30 }],
+      leads: [{ ...waitingLead }],
     }
     const { state: ready, projectId } = stateWithDeliverableProject(withLead, 500)
 
