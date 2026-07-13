@@ -12,6 +12,7 @@ describe('buy-fine-tune-added-to-purchases', () => {
     const state = dispatchChain(before, [buyFineTuneMsg(T0 + 1000, 'tune-0-code')])
 
     expect(state.purchasedFineTunes).toContain('tune-0-code')
+    expect(state.fineTuneTiers['tune-0-code']).toBe(1)
     expect(state.cash).toBe(0)
   })
 })

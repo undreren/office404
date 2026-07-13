@@ -21,6 +21,7 @@ import {
   MRR_BASE_RATE,
 } from './constants'
 import { HOUSING_CONFIG } from './housing'
+import { FINE_TUNE_BONUS } from './models'
 import type { MetaProgress } from './meta'
 import { codeHallucinationParamMultiplier, effectiveModelParams, maxClientProjectSlots } from './prestige'
 import type { Agent, AgentJob, FineTuneRole, GameState, Project, Task } from './types'
@@ -387,11 +388,20 @@ export function agentTickSpeed(agents: Agent[], totalTicks: number): number {
   return totalTicks / active.length
 }
 
+export function getFineTuneLevel(
+  fineTuneTiers: Partial<Record<string, number>>,
+  purchasedFineTunes: string[],
+  fineTuneIdKey: string,
+): number {
+  return fineTuneTiers[fineTuneIdKey] ?? (purchasedFineTunes.includes(fineTuneIdKey) ? 1 : 0)
+}
+
 export function getAgentParameters(
   meta: MetaProgress,
   fineTunes: string[],
   job: AgentJob | null,
   modelTierIndex: number,
+  fineTuneTiers: Partial<Record<string, number>> = {},
 ): number {
   let base = effectiveModelParams(meta)
   if (!job || job === 'conductor' || agentIsAutomationJob(job)) return base
@@ -399,8 +409,9 @@ export function getAgentParameters(
     base *= codeHallucinationParamMultiplier(meta)
   }
   const tuneId = `tune-${modelTierIndex}-${job}`
-  if (fineTunes.includes(tuneId)) {
-    return base * (1 + 0.12)
+  const level = getFineTuneLevel(fineTuneTiers, fineTunes, tuneId)
+  if (level > 0) {
+    return base * (1 + FINE_TUNE_BONUS * level)
   }
   return base
 }
@@ -409,8 +420,13 @@ export function agentIsAutomationJob(job: AgentJob): boolean {
   return ['procurement', 'sales', 'marketing', 'customer', 'accounting', 'project_manager'].includes(job)
 }
 
-export function hasFineTune(fineTunes: string[], tierIndex: number, role: FineTuneRole): boolean {
-  return fineTunes.includes(`tune-${tierIndex}-${role}`)
+export function hasFineTune(
+  fineTunes: string[],
+  tierIndex: number,
+  role: FineTuneRole,
+  fineTuneTiers: Partial<Record<string, number>> = {},
+): boolean {
+  return getFineTuneLevel(fineTuneTiers, fineTunes, `tune-${tierIndex}-${role}`) > 0
 }
 
 export function averageDeliveryQuality(

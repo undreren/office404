@@ -1,3 +1,4 @@
+import type { GameState } from '../game/types'
 import { describe, expect, it } from 'vitest'
 import { SAVE_KEY } from '../game/constants'
 import { createDefaultMeta } from '../game/meta'
@@ -70,6 +71,18 @@ describe('persist', () => {
     expect(loaded!.agentSlotPurchases).toBeGreaterThanOrEqual(0)
     expect(loaded!.gpuTickPurchases).toBe(0)
     expect(loaded!.meta.retirementCount).toBe(0)
+  })
+
+  it('migrates purchased fine-tunes to tier 1', () => {
+    const legacy = createInitialState(0, 1)
+    legacy.purchasedFineTunes = ['tune-0-code']
+    delete (legacy as Partial<GameState>).fineTuneTiers
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({ version: 10, meta: createDefaultMeta(), state: legacy }),
+    )
+    const loaded = loadPersistedState()
+    expect(loaded?.fineTuneTiers['tune-0-code']).toBe(1)
   })
 
   it('partializeSave uses current version', () => {
