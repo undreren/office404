@@ -2,7 +2,6 @@ import type { Agent, AgentJob, Lead, LeadSource, Project, ProjectKind, Requireme
 import { MIN_PROJECT_DAYS, TUTORIAL_PAYMENT, MAX_CLIENT_TASK_SP } from './constants'
 import { pickJokeClient } from './clients'
 import {
-  agentIsBusy,
   FIBONACCI,
   fibIndex,
   isFibonacci,
@@ -760,66 +759,192 @@ export function taskLifecycleLabel(task: Task, project: Project): string {
   return task.status.replace('_', ' ')
 }
 
+type RefineQueueItem =
+  | ({ kind: 'requirement'; requirement: Requirement } & { id: string })
+  | ({ kind: 'task'; task: Task } & { id: string })
+
+/** Agents on a project role who can contribute output this tick (global roster order). */
+export function dispatchableAgents(agents: Agent[], projectId: string, job: AgentJob): Agent[] {
+  const rosterOrder = new Map(agents.map((a, i) => [a.id, i]))
+  return agents
+    .filter(
+      (a) =>
+        a.job === job &&
+        a.projectId === projectId &&
+        a.status !== 'compacting' &&
+        a.status !== 'compacted' &&
+        a.status !== 'crashed',
+    )
+    .sort((a, b) => (rosterOrder.get(a.id) ?? 0) - (rosterOrder.get(b.id) ?? 0))
+}
+
+function dispatchFillFirst<T extends { id: string }>(
+  project: Project,
+  agentId: string,
+  agents: Agent[],
+  job: AgentJob,
+  queue: T[],
+  maxPerTask: number,
+  slotsThisTick: Map<string, number>,
+): T | null {
+  const workers = dispatchableAgents(agents, project.id, job)
+  if (!workers.some((a) => a.id === agentId)) return null
+
+  for (const item of queue) {
+    const used = slotsThisTick.get(item.id) ?? 0
+    if (used < maxPerTask) {
+      slotsThisTick.set(item.id, used + 1)
+      return item
+    }
+  }
+  return null
+}
+
+function codingWorkQueue(project: Project): Task[] {
+  const openComments = project.tasks
+    .filter(
+      (t) =>
+        t.isReviewComment &&
+        (t.status === 'open' || t.status === 'in_progress') &&
+        t.storyPointsEarned < t.storyPointsRequired,
+    )
+    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+
+  const available = project.tasks
+    .filter(
+      (t) =>
+        !t.isReviewComment &&
+        (t.status === 'open' || t.status === 'in_progress') &&
+        !canRefineTask(t) &&
+        t.storyPointsEarned < t.storyPointsRequired,
+    )
+    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+
+  return [...openComments, ...available]
+}
+
+function refineWorkQueue(project: Project): RefineQueueItem[] {
+  const requirements = project.requirements
+    .filter(canRefineRequirement)
+    .sort((a, b) => b.storyPoints - a.storyPoints)
+    .map((requirement) => ({ kind: 'requirement' as const, requirement, id: requirement.id }))
+  const tasks = project.tasks
+    .filter(canRefineTask)
+    .sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
+    .map((task) => ({ kind: 'task' as const, task, id: task.id }))
+  return [...requirements, ...tasks]
+}
+
+function reviewWorkQueue(project: Project): Task[] {
+  return project.tasks.filter((t) => t.status === 'pr_ready' && !t.reviewed)
+}
+
+export function dispatchCodingTask(
+  project: Project,
+  agentId: string,
+  agents: Agent[],
+  maxPerTask: number,
+  slotsThisTick: Map<string, number>,
+): Task | null {
+  return dispatchFillFirst(
+    project,
+    agentId,
+    agents,
+    'code',
+    codingWorkQueue(project),
+    maxPerTask,
+    slotsThisTick,
+  )
+}
+
+export function dispatchReviewTask(
+  project: Project,
+  agentId: string,
+  agents: Agent[],
+  maxPerTask: number,
+  slotsThisTick: Map<string, number>,
+): Task | null {
+  return dispatchFillFirst(
+    project,
+    agentId,
+    agents,
+    'review',
+    reviewWorkQueue(project),
+    maxPerTask,
+    slotsThisTick,
+  )
+}
+
+export function dispatchRefineTarget(
+  project: Project,
+  agentId: string,
+  agents: Agent[],
+  maxPerTask: number,
+  slotsThisTick: Map<string, number>,
+): RefineTarget | null {
+  const item = dispatchFillFirst(
+    project,
+    agentId,
+    agents,
+    'refine',
+    refineWorkQueue(project),
+    maxPerTask,
+    slotsThisTick,
+  )
+  if (!item) return null
+  return item.kind === 'requirement'
+    ? { kind: 'requirement', requirement: item.requirement }
+    : { kind: 'task', task: item.task }
+}
+
+export function dispatchTestTask(
+  project: Project,
+  agentId: string,
+  agents: Agent[],
+  maxPerTask: number,
+  slotsThisTick: Map<string, number>,
+): Task | null {
+  return dispatchFillFirst(
+    project,
+    agentId,
+    agents,
+    'test',
+    untestedMergedTasks(project).sort((a, b) => a.storyPointsRequired - b.storyPointsRequired),
+    maxPerTask,
+    slotsThisTick,
+  )
+}
+
 export function pickRefineTarget(
   project: Project,
   agents: Agent[],
   agentId: string,
   maxPerTask = 1,
 ): RefineTarget | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'refine', agentId, maxPerTask)
-  const self = agents.find((a) => a.id === agentId)
-
-  if (self?.taskId) {
-    const req = project.requirements.find((r) => r.id === self.taskId && canRefineRequirement(r))
-    if (req) return { kind: 'requirement', requirement: req }
-    const task = project.tasks.find((t) => t.id === self.taskId && canRefineTask(t))
-    if (task) return { kind: 'task', task }
-  }
-
-  const openRequirements = project.requirements
-    .filter(canRefineRequirement)
-    .filter((r) => !claimed.has(r.id))
-    .sort((a, b) => b.storyPoints - a.storyPoints)
-  if (openRequirements[0]) {
-    return { kind: 'requirement', requirement: openRequirements[0] }
-  }
-
-  const refinableTasks = project.tasks
-    .filter(canRefineTask)
-    .filter((t) => !claimed.has(t.id))
-    .sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
-
-  return refinableTasks[0] ? { kind: 'task', task: refinableTasks[0] } : null
+  return dispatchRefineTarget(project, agentId, agents, maxPerTask, new Map())
 }
 
 export function projectHasRefineWork(project: Project): boolean {
   return project.requirements.some(canRefineRequirement) || project.tasks.some(canRefineTask)
 }
 
+/** @deprecated Progress is tick-dispatched; use dispatchableAgents + taskId for display. */
 export function agentsOnTaskForJob(
   agents: Agent[],
   projectId: string,
   job: AgentJob,
   taskId: string,
 ): Agent[] {
-  return agents.filter((a) => {
-    if (a.job !== job || a.projectId !== projectId || a.taskId !== taskId) return false
-    if (job === 'refine' && a.status === 'refining') return true
-    if (job === 'review' && a.status === 'reviewing') return true
-    if (job === 'test' && a.status === 'testing') return true
-    if (job === 'code' && a.status === 'working') return true
-    return agentIsBusy(a)
-  })
-}
-
-export function isTaskAtAgentCapacity(
-  agents: Agent[],
-  projectId: string,
-  job: AgentJob,
-  taskId: string,
-  maxPerTask: number,
-): boolean {
-  return agentsOnTaskForJob(agents, projectId, job, taskId).length >= maxPerTask
+  return agents.filter(
+    (a) =>
+      a.job === job &&
+      a.projectId === projectId &&
+      a.taskId === taskId &&
+      a.status !== 'compacting' &&
+      a.status !== 'compacted' &&
+      a.status !== 'crashed' &&
+      a.status !== 'idle',
+  )
 }
 
 export function codingAgentsOnTask(task: Task, agents: Agent[]): Agent[] {
@@ -830,54 +955,12 @@ export function reviewersOnTask(task: Task, agents: Agent[]): Agent[] {
   return agentsOnTaskForJob(agents, task.projectId, 'review', task.id)
 }
 
-export function jobClaimedTaskIds(
-  agents: Agent[],
-  projectId: string,
-  job: AgentJob,
-  exceptAgentId: string,
-  maxPerTask = 1,
-): Set<string> {
-  const counts = new Map<string, number>()
-  for (const agent of agents) {
-    if (agent.id === exceptAgentId) continue
-    if (agent.job !== job || agent.projectId !== projectId || !agent.taskId) continue
-    if (!agentIsBusy(agent) && agent.status !== 'refining') continue
-    counts.set(agent.taskId, (counts.get(agent.taskId) ?? 0) + 1)
-  }
-  const ids = new Set<string>()
-  for (const [taskId, count] of counts) {
-    if (count >= maxPerTask) ids.add(taskId)
-  }
-  return ids
-}
-
-/** True when a coder is still staffed on the project for this task assignment. */
-export function isCodingTaskActivelyAssigned(task: Task, agents: Agent[]): boolean {
-  return codingAgentsOnTask(task, agents).length > 0
-}
-
-export function isCodingTaskAtCapacity(task: Task, agents: Agent[], maxPerTask: number): boolean {
-  return codingAgentsOnTask(task, agents).length >= maxPerTask
-}
-
-export function isReviewTaskAtCapacity(task: Task, agents: Agent[], maxPerTask: number): boolean {
-  return reviewersOnTask(task, agents).length >= maxPerTask
-}
-
-export function repairStaleCodingAssignments(
-  projects: Project[],
-  agents: Agent[],
-): Project[] {
+export function repairStaleCodingAssignments(projects: Project[], _agents: Agent[]): Project[] {
   return projects.map((project) => ({
     ...project,
-    tasks: project.tasks.map((task) => {
-      const coders = codingAgentsOnTask(task, agents)
-      if (coders.length === 0) {
-        return task.assignedAgentId ? { ...task, assignedAgentId: null } : task
-      }
-      const primary = coders.find((a) => a.id === task.assignedAgentId) ?? coders[0]!
-      return task.assignedAgentId === primary.id ? task : { ...task, assignedAgentId: primary.id }
-    }),
+    tasks: project.tasks.map((task) =>
+      task.assignedAgentId ? { ...task, assignedAgentId: null } : task,
+    ),
   }))
 }
 
@@ -887,57 +970,12 @@ export function pickCodingTask(
   agents: Agent[],
   maxPerTask = 1,
 ): Task | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'code', agentId, maxPerTask)
-  const self = agents.find((a) => a.id === agentId)
-
-  const ownByAssignment = project.tasks.find(
-    (t) =>
-      t.assignedAgentId === agentId &&
-      (t.status === 'open' || t.status === 'in_progress') &&
-      !canRefineTask(t),
-  )
-  if (ownByAssignment) return ownByAssignment
-
-  const ownByTaskId = self?.taskId
-    ? project.tasks.find(
-        (t) =>
-          t.id === self.taskId &&
-          (t.status === 'open' || t.status === 'in_progress') &&
-          !canRefineTask(t),
-      )
-    : undefined
-  if (ownByTaskId) return ownByTaskId
-
-  const openComments = project.tasks
-    .filter(
-      (t) =>
-        t.isReviewComment &&
-        (t.status === 'open' || t.status === 'in_progress') &&
-        !isCodingTaskAtCapacity(t, agents, maxPerTask) &&
-        !claimed.has(t.id) &&
-        t.storyPointsEarned < t.storyPointsRequired,
-    )
-    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
-  if (openComments.length > 0) return openComments[0]
-
-  const available = project.tasks
-    .filter(
-      (t) =>
-        !t.isReviewComment &&
-        (t.status === 'open' || t.status === 'in_progress') &&
-        !canRefineTask(t) &&
-        !isCodingTaskAtCapacity(t, agents, maxPerTask) &&
-        !claimed.has(t.id) &&
-        t.storyPointsEarned < t.storyPointsRequired,
-    )
-    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
-
-  return available[0] ?? null
+  return dispatchCodingTask(project, agentId, agents, maxPerTask, new Map())
 }
 
-/** The review agent actively working a PR, if any (first busy match in roster order). */
+/** First reviewer dispatched to this PR this tick (roster order). */
 export function activeReviewerForTask(task: Task, agents: Agent[]): Agent | undefined {
-  return reviewersOnTask(task, agents)[0]
+  return dispatchableAgents(agents, task.projectId, 'review').find((a) => a.taskId === task.id)
 }
 
 export function pickReviewTask(
@@ -946,25 +984,7 @@ export function pickReviewTask(
   agents: Agent[],
   maxPerTask = 1,
 ): Task | null {
-  const self = agents.find((a) => a.id === agentId)
-
-  const own = self?.taskId
-    ? project.tasks.find(
-        (t) => t.id === self.taskId && t.status === 'pr_ready' && !t.reviewed,
-      )
-    : undefined
-  if (own) {
-    const onTask = reviewersOnTask(own, agents)
-    const slotIndex = onTask.findIndex((a) => a.id === agentId)
-    if (slotIndex >= 0 && slotIndex < maxPerTask) return own
-  }
-
-  return (
-    project.tasks.find((t) => {
-      if (t.status !== 'pr_ready' || t.reviewed) return false
-      return !isReviewTaskAtCapacity(t, agents, maxPerTask)
-    }) ?? null
-  )
+  return dispatchReviewTask(project, agentId, agents, maxPerTask, new Map())
 }
 
 export function reviewCommentsOnTask(project: Project, parentTaskId: string): Task[] {
@@ -1003,6 +1023,49 @@ export function createReviewCommentTasks(
   return comments
 }
 
+function roleWorkQueue(project: Project, job: StaffJob): { id: string }[] {
+  switch (job) {
+    case 'code':
+      return codingWorkQueue(project)
+    case 'review':
+      return reviewWorkQueue(project)
+    case 'refine':
+      return refineWorkQueue(project)
+    case 'test':
+      return untestedMergedTasks(project).sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+  }
+}
+
+export function roleHasDispatchableWork(
+  project: Project,
+  job: StaffJob,
+  agents: Agent[],
+  maxPerTask = 1,
+): boolean {
+  const queue = roleWorkQueue(project, job)
+  if (queue.length === 0) return false
+  const workers = dispatchableAgents(agents, project.id, job)
+  if (workers.length === 0) return true
+  const slots = new Map<string, number>()
+  for (const worker of workers) {
+    switch (job) {
+      case 'code':
+        if (dispatchCodingTask(project, worker.id, agents, maxPerTask, slots)) return true
+        break
+      case 'review':
+        if (dispatchReviewTask(project, worker.id, agents, maxPerTask, slots)) return true
+        break
+      case 'refine':
+        if (dispatchRefineTarget(project, worker.id, agents, maxPerTask, slots)) return true
+        break
+      case 'test':
+        if (dispatchTestTask(project, worker.id, agents, maxPerTask, slots)) return true
+        break
+    }
+  }
+  return false
+}
+
 export function projectRoleHasWork(
   project: Project,
   job: StaffJob,
@@ -1011,18 +1074,23 @@ export function projectRoleHasWork(
   maxPerTask = 1,
 ): boolean {
   if (project.status !== 'active') return false
+  const agent = agents.find((a) => a.id === agentId)
+  if (!agentId || !agent || agent.job !== job || agent.projectId !== project.id) {
+    return roleHasDispatchableWork(project, job, agents, maxPerTask)
+  }
+  const slots = new Map<string, number>()
   switch (job) {
     case 'code':
-      return pickCodingTask(project, agentId, agents, maxPerTask) !== null
+      return dispatchCodingTask(project, agentId, agents, maxPerTask, slots) !== null
     case 'review':
       return (
         project.tasks.some((t) => t.status === 'pr_ready' && !t.reviewed) &&
-        pickReviewTask(project, agentId, agents, maxPerTask) !== null
+        dispatchReviewTask(project, agentId, agents, maxPerTask, slots) !== null
       )
     case 'refine':
-      return pickRefineTarget(project, agents, agentId, maxPerTask) !== null
+      return dispatchRefineTarget(project, agentId, agents, maxPerTask, slots) !== null
     case 'test':
-      return projectHasTestWork(project) && pickTestTask(project, agentId, agents, maxPerTask) !== null
+      return projectHasTestWork(project) && dispatchTestTask(project, agentId, agents, maxPerTask, slots) !== null
   }
 }
 
@@ -1114,19 +1182,7 @@ export function pickTestTask(
   agents: Agent[],
   maxPerTask = 1,
 ): Task | null {
-  const claimed = jobClaimedTaskIds(agents, project.id, 'test', agentId, maxPerTask)
-  const self = agents.find((a) => a.id === agentId)
-
-  if (self?.taskId) {
-    const current = project.tasks.find((t) => t.id === self.taskId && taskNeedsTesting(t))
-    if (current) return current
-  }
-
-  const available = untestedMergedTasks(project)
-    .filter((t) => !claimed.has(t.id))
-    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
-
-  return available[0] ?? null
+  return dispatchTestTask(project, agentId, agents, maxPerTask, new Map())
 }
 
 export function createBugFixTask(ctx: SimCtx, source: Task): Task {

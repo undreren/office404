@@ -22,10 +22,10 @@ import {
   createReviewCommentTasks,
   createTutorialProject,
   generateLead,
-  pickCodingTask,
-  pickRefineTarget,
-  pickReviewTask,
-  pickTestTask,
+  dispatchCodingTask,
+  dispatchRefineTarget,
+  dispatchReviewTask,
+  dispatchTestTask,
   projectHasRefineWork,
   projectHasTestWork,
   projectRoleHasWork,
@@ -35,7 +35,6 @@ import {
   resolvedReviewComments,
   syncTestScope,
   taskIsTested,
-  taskNeedsTesting,
 } from '../projects'
 import { generateAgentName, generatePersonality } from '../personalities'
 import {
@@ -431,12 +430,6 @@ function unassignAgentFromRole(
   if (!victim) return null
 
   let nextProjects = projects
-  if (job === 'code' && victim.taskId) {
-    nextProjects = updateTask(nextProjects, victim.taskId, (t) => ({
-      ...t,
-      assignedAgentId: null,
-    }))
-  }
   if (job === 'refine' && victim.taskId && victim.jobDuration > 0) {
     const project = projects.find((p) => p.id === projectId)
     const isRequirement = project?.requirements.some((r) => r.id === victim.taskId)
@@ -511,16 +504,9 @@ function staffAgentForRole(
     const donor = next[idleIdx]!
     const oldJob = donor.job!
     const oldProjectId = donor.projectId!
-    let nextProjects =
-      oldJob === 'code' && donor.taskId
-        ? updateTask(projects, donor.taskId, (t) => ({
-            ...t,
-            assignedAgentId: null,
-          }))
-        : projects
     const assigned = assignAgentToRole(donor, projectId, job)
     next[idleIdx] = assigned
-    nextProjects = nextProjects.map((p) =>
+    const nextProjects = projects.map((p) =>
       p.id === oldProjectId && isProjectRole(oldJob)
         ? { ...p, roleCounts: { ...p.roleCounts, [oldJob]: Math.max(0, p.roleCounts[oldJob] - 1) } }
         : p,
@@ -660,7 +646,6 @@ function tryProgressTask(
       status,
       prQualityStaging,
       completedByAgentId: complete ? completedByAgentId : t.completedByAgentId,
-      assignedAgentId: complete ? null : t.assignedAgentId,
     }
   })
   return { projects: next, becameDone, becamePrReady }
@@ -1002,6 +987,17 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   nextEvents = conductorTick.events
   nextStats = conductorTick.stats
 
+  const dispatchSlots = new Map<string, Map<string, number>>()
+  const slotsFor = (projectId: string, role: StaffJob): Map<string, number> => {
+    const key = `${projectId}:${role}`
+    let slots = dispatchSlots.get(key)
+    if (!slots) {
+      slots = new Map()
+      dispatchSlots.set(key, slots)
+    }
+    return slots
+  }
+
   for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
     let agent = nextAgents[agentIdx]
     if (agent.status === 'compacting') {
@@ -1030,15 +1026,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     const params = agentParamsFor(state, agent.job)
 
     const overflow = () => {
-      if (agent.job === 'code' && agent.taskId) {
-        const taskId = agent.taskId
-        nextProjects = updateTask(nextProjects, taskId, (t) => ({
-          ...t,
-          assignedAgentId: null,
-          status: t.storyPointsEarned > 0 ? 'in_progress' : 'open',
-        }))
-        agent.taskId = null
-      }
+      agent.taskId = null
+      agent.jobProgress = 0
+      agent.jobDuration = 0
       agent.status = 'compacting'
       agent.compactingRemainingSec = compactDuration
       agent.contextUsed = contextTokens
@@ -1060,30 +1050,30 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
-              let taskRef = agent.taskId ? findTask(nextProjects, agent.taskId) : null
-              if (
-                !taskRef ||
-                taskRef.task.status === 'merged' ||
-                taskRef.task.status === 'pr_ready' ||
-                (taskRef.task.isReviewComment && taskRef.task.status === 'done')
-              ) {
-                const nextTask = pickCodingTask(project, agent.id, nextAgents, agentsPerTask)
-                if (!nextTask) {
-                  agent.status = 'idle'
-                  nextAgents[agentIdx] = agent
-                  continue
-                }
-                agent.status = 'working'
-                agent.taskId = nextTask.id
-                nextProjects = updateTask(nextProjects, nextTask.id, (t) => ({
-                  ...t,
-                  assignedAgentId: agent.id,
-                  status: t.status === 'open' ? 'in_progress' : t.status,
-                }))
-                taskRef = { project, task: nextTask }
+              const nextTask = dispatchCodingTask(
+                project,
+                agent.id,
+                nextAgents,
+                agentsPerTask,
+                slotsFor(project.id, 'code'),
+              )
+              if (!nextTask) {
+                agent.status = 'idle'
+                agent.taskId = null
+                nextAgents[agentIdx] = agent
+                continue
               }
 
               agent.status = 'working'
+              agent.taskId = nextTask.id
+              if (nextTask.status === 'open') {
+                nextProjects = updateTask(nextProjects, nextTask.id, (t) => ({
+                  ...t,
+                  status: 'in_progress',
+                }))
+              }
+              const taskRef = { project, task: nextTask }
+
               fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
               if (agent.contextUsed >= contextTokens) {
                 overflow()
@@ -1092,7 +1082,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
               const result = tryProgressTask(
                 nextProjects,
-                agent.taskId!,
+                nextTask.id,
                 agent.id,
                 params,
                 gameDay,
@@ -1149,39 +1139,49 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
-              if (!project.tasks.some((t) => t.status === 'pr_ready' && !t.reviewed)) {
-                agent.status = 'idle'
-                agent.taskId = null
-                nextAgents[agentIdx] = agent
-                continue
-              }
-
-              const task = pickReviewTask(project, agent.id, nextAgents, agentsPerTask)
+              const task = dispatchReviewTask(
+                project,
+                agent.id,
+                nextAgents,
+                agentsPerTask,
+                slotsFor(project.id, 'review'),
+              )
               if (!task) {
                 agent.status = 'idle'
                 agent.taskId = null
                 agent.jobProgress = 0
+                agent.jobDuration = 0
                 nextAgents[agentIdx] = agent
                 continue
               }
 
               agent.status = 'reviewing'
-              if (agent.taskId !== task.id) {
-                agent.taskId = task.id
-                agent.jobProgress = task.reviewJobProgress ?? 0
-                agent.jobDuration =
-                  task.reviewJobDuration ?? reviewJobDurationDays(task.storyPointsRequired, params)
-                nextAgents[agentIdx] = agent
-              }
+              agent.taskId = task.id
+              const reviewDuration =
+                task.reviewJobDuration ?? reviewJobDurationDays(task.storyPointsRequired, params)
+              let reviewProgress = task.reviewJobProgress ?? 0
 
               fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
               if (agent.contextUsed >= contextTokens) {
+                nextProjects = updateTask(nextProjects, task.id, (t) => ({
+                  ...t,
+                  reviewJobProgress: reviewProgress,
+                  reviewJobDuration: reviewDuration,
+                }))
                 overflow()
                 continue
               }
 
-              agent.jobProgress += dayProgress * baseSpeed
-              if (agent.jobProgress >= agent.jobDuration) {
+              reviewProgress += dayProgress * baseSpeed
+              nextProjects = updateTask(nextProjects, task.id, (t) => ({
+                ...t,
+                reviewJobProgress: reviewProgress,
+                reviewJobDuration: reviewDuration,
+              }))
+              agent.jobProgress = reviewProgress
+              agent.jobDuration = reviewDuration
+
+              if (reviewProgress >= reviewDuration) {
                 const comments = createReviewCommentTasks(ctx, task, reviewHallucinationLevel(meta))
                 nextProjects = nextProjects.map((p) =>
                   p.id === project.id
@@ -1232,11 +1232,18 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
-              const target = pickRefineTarget(project, nextAgents, agent.id, agentsPerTask)
+              const target = dispatchRefineTarget(
+                project,
+                agent.id,
+                nextAgents,
+                agentsPerTask,
+                slotsFor(project.id, 'refine'),
+              )
               if (!target) {
                 agent.status = 'idle'
                 agent.taskId = null
                 agent.jobProgress = 0
+                agent.jobDuration = 0
                 nextAgents[agentIdx] = agent
                 continue
               }
@@ -1261,24 +1268,50 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                     }
 
               agent.status = 'refining'
-
-              if (agent.taskId !== targetId) {
-                agent.taskId = targetId
-                agent.jobProgress = savedProgress.refineJobProgress ?? 0
-                agent.jobDuration =
-                  savedProgress.refineJobDuration ??
-                  refineJobDurationDays(targetSp, params, target.kind === 'task')
-                nextAgents[agentIdx] = agent
-              }
+              agent.taskId = targetId
+              const refineDuration =
+                savedProgress.refineJobDuration ??
+                refineJobDurationDays(targetSp, params, target.kind === 'task')
+              let refineProgress = savedProgress.refineJobProgress ?? 0
+              agent.jobProgress = refineProgress
+              agent.jobDuration = refineDuration
 
               fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
               if (agent.contextUsed >= contextTokens) {
+                if (target.kind === 'requirement') {
+                  nextProjects = updateRequirement(nextProjects, targetId, (r) => ({
+                    ...r,
+                    refineJobProgress: refineProgress,
+                    refineJobDuration: refineDuration,
+                  }))
+                } else {
+                  nextProjects = updateTask(nextProjects, targetId, (t) => ({
+                    ...t,
+                    refineJobProgress: refineProgress,
+                    refineJobDuration: refineDuration,
+                  }))
+                }
                 overflow()
                 continue
               }
 
-              agent.jobProgress += dayProgress * baseSpeed
-              if (agent.jobProgress >= agent.jobDuration) {
+              refineProgress += dayProgress * baseSpeed
+              agent.jobProgress = refineProgress
+              if (target.kind === 'requirement') {
+                nextProjects = updateRequirement(nextProjects, targetId, (r) => ({
+                  ...r,
+                  refineJobProgress: refineProgress,
+                  refineJobDuration: refineDuration,
+                }))
+              } else {
+                nextProjects = updateTask(nextProjects, targetId, (t) => ({
+                  ...t,
+                  refineJobProgress: refineProgress,
+                  refineJobDuration: refineDuration,
+                }))
+              }
+
+              if (refineProgress >= refineDuration) {
                 const newTasks =
                   target.kind === 'requirement'
                     ? refineRequirementToTasks(ctx, target.requirement, { refinementTier: refineTier })
@@ -1326,27 +1359,25 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
-              if (!projectHasTestWork(project)) {
+              const testTask = dispatchTestTask(
+                project,
+                agent.id,
+                nextAgents,
+                agentsPerTask,
+                slotsFor(project.id, 'test'),
+              )
+              if (!testTask) {
                 agent.status = 'idle'
                 agent.taskId = null
                 nextAgents[agentIdx] = agent
                 continue
               }
 
-              let testTask = agent.taskId
-                ? project.tasks.find((t) => t.id === agent.taskId && taskNeedsTesting(t)) ?? null
-                : null
+              const prevTestTaskId = agent.taskId
+              agent.status = 'testing'
+              agent.taskId = testTask.id
               let instantQa = false
-              if (!testTask) {
-                testTask = pickTestTask(project, agent.id, nextAgents, agentsPerTask)
-                if (!testTask) {
-                  agent.status = 'idle'
-                  agent.taskId = null
-                  nextAgents[agentIdx] = agent
-                  continue
-                }
-                agent.status = 'testing'
-                agent.taskId = testTask.id
+              if (prevTestTaskId !== testTask.id) {
                 const instantChance = instantTestHallucinationChance(meta)
                 if (instantChance > 0 && ctx.rng.float() < instantChance) {
                   instantQa = true

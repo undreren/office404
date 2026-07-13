@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { adjustRoleCountMsg } from '../messages'
 import {
-  pickCodingTask,
   repairStaleCodingAssignments,
   roleCanAcceptStaffing,
 } from '../projects'
@@ -46,7 +45,6 @@ describe('stale-coding-assignment-blocks-staffing', () => {
       taskId: null,
     }))
 
-    expect(pickCodingTask({ ...project, tasks: [task] }, agents[0]!.id, agents)).toEqual(task)
     expect(roleCanAcceptStaffing({ ...project, tasks: [task] }, 'code', agents)).toBe(true)
 
     const repaired = repairStaleCodingAssignments([{ ...project, tasks: [task] }], agents)

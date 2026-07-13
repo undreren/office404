@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { timeElapsed } from '../messages'
-import { activeReviewerForTask, pickReviewTask } from '../projects'
+import { activeReviewerForTask, dispatchReviewTask } from '../projects'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { T0 } from './_helpers/testConstants'
@@ -62,8 +62,9 @@ describe('single-reviewer-per-pr', () => {
     ]
 
     expect(activeReviewerForTask(task, agents)?.id).toBe('rev-1')
-    expect(pickReviewTask({ ...project, tasks: [task] }, 'rev-1', agents)).toEqual(task)
-    expect(pickReviewTask({ ...project, tasks: [task] }, 'rev-2', agents)).toBeNull()
+    const slots = new Map<string, number>()
+    expect(dispatchReviewTask({ ...project, tasks: [task] }, 'rev-1', agents, 1, slots)).toEqual(task)
+    expect(dispatchReviewTask({ ...project, tasks: [task] }, 'rev-2', agents, 1, slots)).toBeNull()
   })
 
   it('second staffed reviewer idles when only one PR is ready', () => {
