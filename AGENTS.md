@@ -28,6 +28,8 @@ Follow `.agents/skills/create-pr/SKILL.md` before shipping.
 
 Non-trivial changes: run **grilling** skill first; wait for Kasper's go-ahead (`go`, `ship it`, etc.).
 
+Bug fixes: follow **vermin-slayer** — write a failing test that documents the bug before patching code.
+
 Branch: `cursor/<descriptive-name>-<suffix>`
 
 Merge when CI is green — no diff review expected.
