@@ -108,6 +108,9 @@ export interface Requirement {
   status: RequirementStatus
   /** Extra refinement passes used on this requirement */
   refinePassesUsed?: number
+  /** Saved refine progress when no agent is staffed on this requirement */
+  refineJobProgress?: number
+  refineJobDuration?: number
 }
 
 export interface Task {
@@ -132,6 +135,9 @@ export interface Task {
   isReviewComment: boolean
   reviewed: boolean
   testStoryPointsEarned: number
+  /** Saved review progress when no reviewer is staffed on this PR */
+  reviewJobProgress?: number
+  reviewJobDuration?: number
   /** Refinement splits remaining for this task */
   refinePassesRemaining?: number
 }

@@ -87,7 +87,7 @@
       "lateCount": 0,
       "crewCap": 1,
       "roleCounts": {
-        "refine": 0,
+        "refine": 1,
         "code": 0,
         "review": 0,
         "test": 0,

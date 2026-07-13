@@ -578,8 +578,16 @@ export function requirementRefineProgressPct(
       a.taskId === requirement.id &&
       a.jobDuration > 0,
   )
-  if (!refiner) return null
-  return Math.min(100, (refiner.jobProgress / refiner.jobDuration) * 100)
+  if (refiner) {
+    return Math.min(100, (refiner.jobProgress / refiner.jobDuration) * 100)
+  }
+  if (requirement.refineJobDuration && requirement.refineJobDuration > 0) {
+    return Math.min(
+      100,
+      ((requirement.refineJobProgress ?? 0) / requirement.refineJobDuration) * 100,
+    )
+  }
+  return null
 }
 
 export function taskLifecycleProgressPct(
@@ -599,6 +607,9 @@ export function taskLifecycleProgressPct(
     const reviewer = agents.find((a) => a.job === 'review' && a.taskId === task.id)
     if (reviewer && reviewer.jobDuration > 0 && !task.reviewed) {
       return Math.min(100, (reviewer.jobProgress / reviewer.jobDuration) * 100)
+    }
+    if (task.reviewJobDuration && task.reviewJobDuration > 0 && !task.reviewed) {
+      return Math.min(100, ((task.reviewJobProgress ?? 0) / task.reviewJobDuration) * 100)
     }
     const comments = reviewCommentsOnTask(project, task.id)
     if (comments.length > 0) {
