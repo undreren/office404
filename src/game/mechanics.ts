@@ -170,10 +170,9 @@ export function reviewJobDurationDays(taskSp: number, agentParams: number): numb
   return Math.max(PLAYER_ACTION_BASE_DAYS / 10, days)
 }
 
-export function refineJobDurationDays(taskSp: number, agentParams: number, splitMode = false): number {
+export function refineJobDurationDays(taskSp: number, agentParams: number): number {
   const spPenalty = Math.max(0.25, Math.sqrt(paramsSpSpeedMultiplier(agentParams, taskSp, 2)))
-  const base = agentJobDurationDays(taskSp, agentParams) / REFINE_SPEED_MULTIPLIER / spPenalty
-  return splitMode ? base * 3 : base
+  return agentJobDurationDays(taskSp, agentParams) / REFINE_SPEED_MULTIPLIER / spPenalty
 }
 
 export function reviewCommentSpawnCount(
