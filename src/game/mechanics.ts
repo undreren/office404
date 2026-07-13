@@ -408,6 +408,10 @@ export function hasConductorCourse(vibingCourses: string[]): boolean {
   return vibingCourses.includes('conductor')
 }
 
+export function hasAutoConductorCourse(vibingCourses: string[]): boolean {
+  return vibingCourses.includes('auto_conductor')
+}
+
 export function refinementTier(
   tiers: Partial<Record<string, number>>,
   vibingCourses: string[],

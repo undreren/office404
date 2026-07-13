@@ -42,7 +42,6 @@ describe('conductor-gains-context-on-reassignment', () => {
           ...project,
           useConductor: true,
           roleCounts: { refine: 0, code: 0, review: 0, test: 0, conductor: 1 },
-          crewCap: 3,
         },
       ],
       agents: [conductor, bench],

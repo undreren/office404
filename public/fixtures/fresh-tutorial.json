@@ -85,7 +85,6 @@
       ],
       "tasks": [],
       "lateCount": 0,
-      "crewCap": 1,
       "roleCounts": {
         "refine": 1,
         "code": 0,

@@ -165,7 +165,6 @@ export interface Project {
   kind: ProjectKind
   lateCount: number
   repPenaltyMultiplier: number
-  crewCap: number
   roleCounts: ProjectRoleCounts
   useConductor: boolean
   /** PM hallucination: completing this also completes duplicateProjectId */
