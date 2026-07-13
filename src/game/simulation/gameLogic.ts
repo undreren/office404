@@ -1721,11 +1721,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   }, ctx, at)
 
   if (vibingCourses.includes('sales') && hasActiveAutomationAgent(tickState.agents, 'sales')) {
-    for (;;) {
-      const deliverable = tickState.projects.find((p) => isReadyToDeliver(p))
-      if (!deliverable) break
-      tickState = deliverProject(tickState, deliverable.id, at)
-    }
+    tickState = runSalesAutomation(tickState, at)
   }
 
   return tickState
@@ -1920,6 +1916,49 @@ export function deliverProject(state: GameState, projectId: string, at: number):
     events: nextEvents,
     tutorialDone,
   }, ctx, at)
+}
+
+function salesAutoAcceptSources(meta: MetaProgress): Set<'real' | 'synthetic'> {
+  const sources = new Set<'real' | 'synthetic'>(['real'])
+  if (getHallucinationLevel(meta, 'sales') > 0) {
+    sources.add('synthetic')
+  }
+  return sources
+}
+
+function findAutoAcceptableLead(state: GameState): string | null {
+  const sources = salesAutoAcceptSources(state.meta)
+  const lead = state.leads.find(
+    (l) => l.status === 'available' && sources.has(l.source) && state.reputation >= l.repRequired,
+  )
+  return lead?.id ?? null
+}
+
+/** Auto-accept eligible leads and auto-deliver completed projects while Sales is on duty. */
+function runSalesAutomation(state: GameState, at: number): GameState {
+  let tickState = state
+  for (;;) {
+    let changed = false
+
+    for (;;) {
+      const leadId = findAutoAcceptableLead(tickState)
+      if (!leadId) break
+      const projectsBefore = tickState.projects.length
+      tickState = acceptLead(tickState, leadId, at)
+      if (tickState.projects.length <= projectsBefore) break
+      changed = true
+    }
+
+    for (;;) {
+      const deliverable = tickState.projects.find((p) => isReadyToDeliver(p))
+      if (!deliverable) break
+      tickState = deliverProject(tickState, deliverable.id, at)
+      changed = true
+    }
+
+    if (!changed) break
+  }
+  return tickState
 }
 
 export function adjustRoleCount(state: GameState, projectId: string, job: AgentJob, delta: number, at: number): GameState {
