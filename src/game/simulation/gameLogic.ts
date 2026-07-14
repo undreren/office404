@@ -118,6 +118,7 @@ import { createDefaultMeta } from '../meta'
 import { mrrOnShip } from '../product'
 import { formatCash } from '../cash'
 import { derangeText, unhingedPrefix, unhingedTier } from '../unhinged'
+import { findCheapestProcurementPurchase, procurementEventMessage } from '../procurement'
 import { VIBING_COURSES, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
@@ -1452,6 +1453,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     gameDay,
     rentDueInDays,
     apartmentLeaseRemaining,
+    apartment,
     agents,
     projects,
     leads,
@@ -1459,12 +1461,18 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     stats,
     selectedTaskId,
     vibingCourses,
+    vibingCourseTiers,
+    purchasedFineTunes,
+    fineTuneTiers,
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
     meta,
   } = {
     ...state,
+    vibingCourseTiers: { ...state.vibingCourseTiers },
+    fineTuneTiers: { ...state.fineTuneTiers },
+    purchasedFineTunes: [...state.purchasedFineTunes],
     projects: repairStaleCodingAssignments(state.projects, state.agents),
   }
 
@@ -1509,31 +1517,57 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   }
 
   if (isAutomationAgentUnlocked({ vibingCourses, meta }, 'procurement') && hasActiveAutomationAgent(nextAgents, 'procurement')) {
-    const budget = cash * PROCUREMENT_CASH_FRACTION
-    const slotCost = ramSlotCost(agentSlotPurchases)
-    const tickCost = gpuTickCost(gpuTickPurchases)
-    const maxSlots = maxAgentSlotPurchases(state.apartment)
-    const maxTicks = maxGpuTickPurchases(state.apartment)
-    if (agentSlotPurchases < maxSlots && slotCost <= budget && cash >= slotCost) {
-      cash -= slotCost
-      agentSlotPurchases += 1
-      nextEvents = pushEvent(
-        ctx,
-        meta,
-        nextEvents,
-        'milestone',
-        `Procurement auto-bought +1 RAM for ${formatCash(slotCost)}.`,
-        at,
+    while (true) {
+      const budget = cash * PROCUREMENT_CASH_FRACTION
+      const purchase = findCheapestProcurementPurchase(
+        {
+          apartment,
+          agentSlotPurchases,
+          gpuTickPurchases,
+          vibingCourses,
+          vibingCourseTiers,
+          purchasedFineTunes,
+          fineTuneTiers,
+          meta,
+        },
+        budget,
+        cash,
       )
-    } else if (gpuTickPurchases < maxTicks && tickCost <= budget && cash >= tickCost) {
-      cash -= tickCost
-      gpuTickPurchases += 1
+      if (!purchase) break
+
+      cash -= purchase.cost
+      switch (purchase.kind) {
+        case 'ram':
+          agentSlotPurchases += 1
+          break
+        case 'gpu':
+          gpuTickPurchases += 1
+          break
+        case 'housing':
+          apartment = purchase.next
+          apartmentLeaseRemaining = RENT_INTERVAL_DAYS
+          rentDueInDays = RENT_INTERVAL_DAYS
+          break
+        case 'fine_tune':
+          fineTuneTiers[purchase.id] = purchase.newTier
+          if (purchase.newTier === 1) {
+            purchasedFineTunes = [...purchasedFineTunes, purchase.id]
+          }
+          break
+        case 'vibing_course':
+          vibingCourseTiers[purchase.courseId] = purchase.newTier
+          if (!vibingCourses.includes(purchase.courseId)) {
+            vibingCourses = [...vibingCourses, purchase.courseId]
+          }
+          break
+      }
+
       nextEvents = pushEvent(
         ctx,
         meta,
         nextEvents,
         'milestone',
-        `Procurement auto-bought +1 GPU for ${formatCash(tickCost)}.`,
+        procurementEventMessage(purchase),
         at,
       )
     }
@@ -2077,6 +2111,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     gameDay,
     rentDueInDays,
     apartmentLeaseRemaining,
+    apartment,
     agents: nextAgents,
     projects: nextProjects,
     leads: nextLeads,
@@ -2087,6 +2122,10 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
+    vibingCourses,
+    vibingCourseTiers,
+    purchasedFineTunes,
+    fineTuneTiers,
     tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
   }, ctx, at)
 

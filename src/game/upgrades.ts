@@ -99,7 +99,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'One-click regret purchases.',
     cost: 275,
     description:
-      'Specialist auto-buys +1 RAM or +1 GPU each tick when price ≤10% of cash (prefers RAM). Assign via Status.',
+      'Specialist auto-buys any shop upgrade each tick when price ≤10% of cash — housing, RAM, GPU, fine-tunes, and vibing courses (cheapest first). Assign via Status.',
   },
   {
     id: BEST_OF_N_COURSE_ID,
@@ -121,6 +121,28 @@ export const VIBING_COURSES: VibingCourse[] = [
 
 export function vibingCourseCost(course: VibingCourse, tier: number): number {
   return Math.round(course.cost * Math.pow(1.8, tier))
+}
+
+export function cheapestAffordableVibingCourse(
+  vibingCourses: string[],
+  vibingCourseTiers: Partial<Record<string, number>>,
+  budget: number,
+  cash: number,
+): { course: VibingCourse; cost: number; newTier: number } | null {
+  let best: { course: VibingCourse; cost: number; newTier: number } | null = null
+  for (const course of VIBING_COURSES) {
+    const currentTier =
+      vibingCourseTiers[course.id] ?? (vibingCourses.includes(course.id) ? 1 : 0)
+    const maxTier = course.maxTier ?? 1
+    if (currentTier >= maxTier) continue
+    const cost = vibingCourseCost(course, currentTier)
+    if (cost <= budget && cash >= cost) {
+      if (!best || cost < best.cost) {
+        best = { course, cost, newTier: currentTier + 1 }
+      }
+    }
+  }
+  return best
 }
 
 export function hasVibingCourse(courses: string[], id: string): boolean {

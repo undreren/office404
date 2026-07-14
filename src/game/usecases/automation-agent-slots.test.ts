@@ -6,6 +6,7 @@ import {
   timeElapsed,
   toggleSpecialistRoleMsg,
 } from '../messages'
+import { fineTuneId } from '../models'
 import { agentCapacity } from '../simulation/gameLogic'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
@@ -145,9 +146,17 @@ describe('automation-agent-slots', () => {
   })
 
   it('auto-buys RAM when procurement specialist is assigned and cash allows', () => {
-    const before = stateWithCash(initialPlaying(), 5000)
-    const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'procurement')])
-    const assigned = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 1500, 'procurement', true)])
+    const before = stateWithCash(initialPlaying(), 800)
+    const withHallucination: GameState = {
+      ...before,
+      meta: {
+        ...before.meta,
+        hallucinationLevels: { ...before.meta.hallucinationLevels, procurement: 1 },
+      },
+    }
+    const assigned = dispatchChain(withHallucination, [
+      toggleSpecialistRoleMsg(T0 + 1500, 'procurement', true),
+    ])
 
     const after = dispatchChain(assigned, [timeElapsed(T0 + 2000, 1)])
 
@@ -155,8 +164,69 @@ describe('automation-agent-slots', () => {
     expect(after.events.some((e) => e.message.includes('Procurement auto-bought +1 RAM'))).toBe(true)
   })
 
+  it('auto-buys housing when price is within 10% of cash and cheaper shop items are maxed', () => {
+    const fineTuneIds = (['code', 'review', 'refine', 'test'] as const).map((role) => fineTuneId(0, role))
+    const before: GameState = {
+      ...stateWithCash(initialPlaying(), 1400),
+      agentSlotPurchases: 1,
+      gpuTickPurchases: 1,
+      purchasedFineTunes: [...fineTuneIds],
+      fineTuneTiers: Object.fromEntries(fineTuneIds.map((id) => [id, 4])),
+      meta: {
+        ...initialPlaying().meta,
+        hallucinationLevels: { procurement: 1 },
+      },
+      tutorialDone: true,
+    }
+    const assigned = dispatchChain(before, [toggleSpecialistRoleMsg(T0 + 1500, 'procurement', true)])
+
+    const after = dispatchChain(assigned, [timeElapsed(T0 + 2000, 1)])
+
+    expect(after.apartment).toBe('shared_1br')
+    expect(after.events.some((e) => e.message.includes('Procurement auto-moved to Shared 1BR'))).toBe(true)
+  })
+
+  it('auto-buys vibing courses when price is within 10% of cash and hardware is maxed', () => {
+    const fineTuneIds = (['code', 'review', 'refine', 'test'] as const).map((role) => fineTuneId(0, role))
+    const ownedUnderPm = [
+      'prompt_engineering',
+      'context_optimization',
+      'refinement',
+      'auto_conductor',
+      'sales',
+      'marketing',
+      'conductor',
+      'accounting',
+      'procurement',
+    ]
+    const before: GameState = {
+      ...stateWithCash(initialPlaying(), 4100),
+      apartment: 'loft',
+      agentSlotPurchases: 7,
+      gpuTickPurchases: 7,
+      purchasedFineTunes: [...fineTuneIds],
+      fineTuneTiers: Object.fromEntries(fineTuneIds.map((id) => [id, 4])),
+      vibingCourses: ownedUnderPm,
+      vibingCourseTiers: Object.fromEntries(ownedUnderPm.map((id) => [id, 1])),
+      meta: {
+        ...initialPlaying().meta,
+        hallucinationLevels: { procurement: 1 },
+      },
+      tutorialDone: true,
+    }
+    const assigned = dispatchChain(before, [toggleSpecialistRoleMsg(T0 + 1500, 'procurement', true)])
+
+    const after = dispatchChain(assigned, [timeElapsed(T0 + 2000, 1)])
+
+    expect(after.vibingCourses).toContain('project_manager')
+    expect(after.vibingCourseTiers.project_manager).toBe(1)
+    expect(after.events.some((e) => e.message.includes('Procurement auto-enrolled in Project Manager'))).toBe(
+      true,
+    )
+  })
+
   it('auto-buys via hallucination unlock without vibing course', () => {
-    const before = stateWithCash(initialPlaying(), 5000)
+    const before = stateWithCash(initialPlaying(), 800)
     const withHallucination: GameState = {
       ...before,
       meta: {
