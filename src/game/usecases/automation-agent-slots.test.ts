@@ -155,6 +155,37 @@ describe('automation-agent-slots', () => {
     expect(after.events.some((e) => e.message.includes('Procurement auto-bought +1 RAM'))).toBe(true)
   })
 
+  it('auto-buys vibing courses when price is within 10% of cash and hardware is maxed', () => {
+    const ownedUnderPm = [
+      'prompt_engineering',
+      'context_optimization',
+      'refinement',
+      'auto_conductor',
+      'sales',
+      'marketing',
+      'conductor',
+      'accounting',
+    ]
+    const before: GameState = {
+      ...stateWithCash(initialPlaying(), 5140),
+      agentSlotPurchases: 1,
+      gpuTickPurchases: 1,
+      vibingCourses: ownedUnderPm,
+      vibingCourseTiers: Object.fromEntries(ownedUnderPm.map((id) => [id, 1])),
+      tutorialDone: true,
+    }
+    const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'procurement')])
+    const assigned = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 1500, 'procurement', true)])
+
+    const after = dispatchChain(assigned, [timeElapsed(T0 + 2000, 1)])
+
+    expect(after.vibingCourses).toContain('project_manager')
+    expect(after.vibingCourseTiers.project_manager).toBe(1)
+    expect(after.events.some((e) => e.message.includes('Procurement auto-enrolled in Project Manager'))).toBe(
+      true,
+    )
+  })
+
   it('auto-buys via hallucination unlock without vibing course', () => {
     const before = stateWithCash(initialPlaying(), 5000)
     const withHallucination: GameState = {

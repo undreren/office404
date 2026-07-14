@@ -85,7 +85,7 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   procurement: {
     label: 'Procurement AI',
     tagline: 'One-click regret purchases.',
-    description: 'Unlock the procurement specialist. Auto-buys +1 RAM or +1 GPU when price ≤10% of cash (prefers RAM).',
+    description: 'Unlock the procurement specialist. Auto-buys RAM, GPU, or vibing courses when price ≤10% of cash.',
   },
   customer: {
     label: 'Customer agent',

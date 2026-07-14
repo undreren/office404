@@ -118,7 +118,7 @@ import { createDefaultMeta } from '../meta'
 import { mrrOnShip } from '../product'
 import { formatCash } from '../cash'
 import { derangeText, unhingedPrefix, unhingedTier } from '../unhinged'
-import { VIBING_COURSES, vibingCourseCost } from '../upgrades'
+import { cheapestAffordableVibingCourse, VIBING_COURSES, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
 
@@ -1459,12 +1459,14 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     stats,
     selectedTaskId,
     vibingCourses,
+    vibingCourseTiers,
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
     meta,
   } = {
     ...state,
+    vibingCourseTiers: { ...state.vibingCourseTiers },
     projects: repairStaleCodingAssignments(state.projects, state.agents),
   }
 
@@ -1536,6 +1538,31 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
         `Procurement auto-bought +1 GPU for ${formatCash(tickCost)}.`,
         at,
       )
+    } else {
+      const coursePurchase = cheapestAffordableVibingCourse(
+        vibingCourses,
+        vibingCourseTiers,
+        budget,
+        cash,
+      )
+      if (coursePurchase) {
+        const { course, cost, newTier } = coursePurchase
+        cash -= cost
+        vibingCourseTiers[course.id] = newTier
+        if (!vibingCourses.includes(course.id)) {
+          vibingCourses = [...vibingCourses, course.id]
+        }
+        const maxTier = course.maxTier ?? 1
+        const tierNote = maxTier > 1 ? ` T${newTier}/${maxTier}` : ''
+        nextEvents = pushEvent(
+          ctx,
+          meta,
+          nextEvents,
+          'milestone',
+          `Procurement auto-enrolled in ${course.label}${tierNote} for ${formatCash(cost)}.`,
+          at,
+        )
+      }
     }
   }
 
@@ -2087,6 +2114,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
+    vibingCourses,
+    vibingCourseTiers,
     tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
   }, ctx, at)
 
