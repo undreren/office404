@@ -144,6 +144,35 @@ describe('automation-agent-slots', () => {
     expect(state.agents.some((a) => a.projectId === project.id && a.job === 'refine')).toBe(false)
   })
 
+  it('auto-buys RAM when procurement specialist is assigned and cash allows', () => {
+    const before = stateWithCash(initialPlaying(), 5000)
+    const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'procurement')])
+    const assigned = dispatchChain(unlocked, [toggleSpecialistRoleMsg(T0 + 1500, 'procurement', true)])
+
+    const after = dispatchChain(assigned, [timeElapsed(T0 + 2000, 1)])
+
+    expect(after.agentSlotPurchases).toBe(1)
+    expect(after.events.some((e) => e.message.includes('Procurement auto-bought +1 RAM'))).toBe(true)
+  })
+
+  it('auto-buys via hallucination unlock without vibing course', () => {
+    const before = stateWithCash(initialPlaying(), 5000)
+    const withHallucination: GameState = {
+      ...before,
+      meta: {
+        ...before.meta,
+        hallucinationLevels: { ...before.meta.hallucinationLevels, procurement: 1 },
+      },
+    }
+    const assigned = dispatchChain(withHallucination, [
+      toggleSpecialistRoleMsg(T0 + 1500, 'procurement', true),
+    ])
+
+    const after = dispatchChain(assigned, [timeElapsed(T0 + 2000, 1)])
+
+    expect(after.agentSlotPurchases).toBe(1)
+  })
+
   it('pauses procurement automation when the procurement specialist is unassigned', () => {
     const before = stateWithCash(initialPlaying(), 5000)
     const withSlot = dispatchChain(before, [buyAgentSlotMsg(T0 + 500)])

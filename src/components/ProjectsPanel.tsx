@@ -3,13 +3,14 @@ import {
   bestOfNTier,
   countRosterIdleAgents,
   formatAgentProjectViewDutyLabel,
+  formatPercent,
   formatStoryPoints,
   hasConductorCourse,
   maxAgentsPerTask,
   maxConductorTeamSize,
 } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
-import { MODEL_TIERS } from '../game/models'
+import { MODEL_TIERS, contextSizeForLevel } from '../game/models'
 import {
   allImplementationMerged,
   requirementRefineProgressPct,
@@ -112,7 +113,7 @@ function taskAccessibleSummary(
   resolvedComments: number,
 ): string {
   const parts = [
-    `${phase}, ${Math.floor(pct)}%, ${formatStoryPoints(task.storyPointsRequired)} story points`,
+    `${phase}, ${formatPercent(pct)}%, ${formatStoryPoints(task.storyPointsRequired)} story points`,
   ]
   if (task.isBugFix) parts.push('bug fix')
   if (task.bugDiscovered && !task.isBugFix) parts.push('bug found')
@@ -181,7 +182,7 @@ function TaskCard({
           />
         </div>
         <p className="task-sp">
-          {Math.floor(pct)}% · {formatStoryPoints(task.storyPointsRequired)} SP
+          {formatPercent(pct)}% · {formatStoryPoints(task.storyPointsRequired)} SP
           {refining && ' · refining'}
           {refining && refiner && ` · ${refiner.name}`}
           {task.isBugFix && ' · bug fix'}
@@ -208,7 +209,7 @@ function TaskCard({
 
             const commentSummary = [
               `Review comment: "${comment.title}"`,
-              addressed ? 'addressed' : `${Math.floor(commentPct)}% complete`,
+              addressed ? 'addressed' : `${formatPercent(commentPct)}% complete`,
               `${formatStoryPoints(comment.storyPointsRequired)} story points`,
               commentCoder ? `${commentCoder.name} fixing` : null,
             ]
@@ -233,7 +234,7 @@ function TaskCard({
                   />
                 </div>
                 <span className="task-sp">
-                  {Math.floor(commentPct)}% · {formatStoryPoints(comment.storyPointsRequired)} SP
+                  {formatPercent(commentPct)}% · {formatStoryPoints(comment.storyPointsRequired)} SP
                   {commentCoder && ` · ${commentCoder.name} fixing`}
                 </span>
               </li>
@@ -266,9 +267,9 @@ function RequirementBlock({
     `${formatStoryPoints(requirement.storyPoints)} story points`,
     requirement.status,
     requirement.status === 'open' && refinePct !== null
-      ? `refining ${Math.floor(refinePct)}%`
+      ? `refining ${formatPercent(refinePct)}%`
       : null,
-    hasRefinedTasks ? `QA coverage ${Math.floor(testPct)}%` : null,
+    hasRefinedTasks ? `QA coverage ${formatPercent(testPct)}%` : null,
   ]
     .filter(Boolean)
     .join(', ')
@@ -297,7 +298,7 @@ function RequirementBlock({
               style={{ width: `${refinePct ?? 0}%` }}
             />
           </div>
-          <span>{Math.floor(refinePct ?? 0)}%</span>
+          <span>{formatPercent(refinePct ?? 0)}%</span>
         </div>
       )}
 
@@ -310,7 +311,7 @@ function RequirementBlock({
               style={{ width: `${Math.min(100, testPct)}%` }}
             />
           </div>
-          <span>{Math.floor(testPct)}%</span>
+          <span>{formatPercent(testPct)}%</span>
         </div>
       )}
 
@@ -335,15 +336,17 @@ function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
   const { meta } = useGameState()
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
+  const contextLevel = getHallucinationLevel(meta, 'context')
+  const contextSizeK = contextSizeForLevel(model.contextSize, contextLevel)
   const task = agent.taskId ? project.tasks.find((t) => t.id === agent.taskId) : undefined
   const duty = formatAgentProjectViewDutyLabel(agent, task?.title)
-  const fill = agentContextDisplayPct(agent, model.contextSize)
+  const fill = agentContextDisplayPct(agent, contextSizeK)
   const isCompacting = agent.status === 'compacting'
 
   const agentSummary = [
     agent.name,
     duty,
-    `${Math.floor(fill)}% context`,
+    `${formatPercent(fill)}% context`,
     isCompacting ? 'compacting' : null,
   ]
     .filter(Boolean)
@@ -357,7 +360,7 @@ function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
       <span className="crew-agent-name">{agent.name}</span>
       {duty && <span className="crew-agent-duty">{duty}</span>}
       <span className={`crew-agent-ctx${isCompacting ? ' crew-agent-ctx--draining' : ''}`}>
-        {Math.floor(fill)}% ctx
+        {formatPercent(fill)}% ctx
       </span>
     </div>
   )
@@ -480,7 +483,7 @@ function ProjectCard({ project }: { project: Project }) {
     project.clientName,
     `$${project.payment}`,
     `${Math.ceil(project.daysRemaining)} days left`,
-    `delivery quality ${Math.floor(synced.deliveryQuality)}%`,
+    `delivery quality ${formatPercent(synced.deliveryQuality)}%`,
     `progress ${merged}/${totalTasks || 0} merged`,
   ].join(', ')
 
@@ -519,7 +522,7 @@ function ProjectCard({ project }: { project: Project }) {
       <div
         className="meter-row"
         role="group"
-        aria-label={`Delivery Quality (avg PR): ${Math.floor(synced.deliveryQuality)}%`}
+        aria-label={`Delivery Quality (avg PR): ${formatPercent(synced.deliveryQuality)}%`}
       >
         <label>Delivery Quality (avg PR)</label>
         <div className="meter">
@@ -528,13 +531,13 @@ function ProjectCard({ project }: { project: Project }) {
             style={{ width: `${synced.deliveryQuality}%` }}
           />
         </div>
-        <span>{Math.floor(synced.deliveryQuality)}%</span>
+        <span>{formatPercent(synced.deliveryQuality)}%</span>
       </div>
 
       <div
         className="meter-row"
         role="group"
-        aria-label={`Progress: ${merged}/${totalTasks || 0} merged, ${Math.floor(progress)}%`}
+        aria-label={`Progress: ${merged}/${totalTasks || 0} merged, ${formatPercent(progress)}%`}
       >
         <label>Progress ({merged}/{totalTasks || '—'} merged)</label>
         <div className="meter">

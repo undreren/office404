@@ -20,6 +20,8 @@ export const HALLUCINATION_TRACKS = [
   'context',
   'compaction',
   'starting_capital',
+  'starting_ram',
+  'starting_gpu',
   'in_house',
   'procurement',
   'customer',
@@ -48,47 +50,57 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   model: {
     label: 'Model tier',
     tagline: 'Bigger brains. Bigger invoices.',
-    description: 'Unlock the next prestige model tier — more parameters, faster story points, wider context.',
+    description: '+1B effective parameters per level (4B base → 5B, 6B, …). Faster story points and larger context windows.',
   },
   context: {
     label: 'Context window',
     tagline: "It's not forgetting — it's prioritizing.",
-    description: '+4k context per level before agents compact and reboot mid-sentence.',
+    description: '+4k tokens per level on top of your model tier base (e.g. 16k → 20k → 24k at 4B).',
   },
   compaction: {
     label: 'Faster compaction',
     tagline: 'Turn the existential crisis down to a brisk panic.',
-    description: 'Agents recover from context overflow faster after each reboot.',
+    description: '−5s reboot time per level after context overflow (30s base, 5s minimum).',
   },
   starting_capital: {
     label: 'Starting capital',
     tagline: 'Inherited trauma, inherited liquidity.',
     description: '+$500 starting cash per level on every new run after retirement.',
   },
+  starting_ram: {
+    label: 'Starting RAM',
+    tagline: 'Pre-installed headcount. No interview loop.',
+    description: '+1 roster slot (RAM) per level on every new prestige run. Counts toward housing caps.',
+  },
+  starting_gpu: {
+    label: 'Starting GPU',
+    tagline: 'Silicon you definitely paid for. Probably.',
+    description: '+1 GPU work unit per level on every new prestige run. Split across active coders, reviewers, refiners, and testers.',
+  },
   in_house: {
     label: 'In-house product',
     tagline: 'Build your own pyramid scheme. Call it a platform.',
-    description: 'Unlock the Product tab and ship features for recurring MRR.',
+    description: 'Unlock the Product tab. Ship features for MRR (√SP × $8/day base, scaled by housing).',
   },
   procurement: {
     label: 'Procurement AI',
     tagline: 'One-click regret purchases.',
-    description: 'Hallucinate new upgrade categories the procurement agent can auto-buy.',
+    description: 'Unlock the procurement specialist. Auto-buys +1 RAM or +1 GPU when price ≤10% of cash (prefers RAM).',
   },
   customer: {
     label: 'Customer agent',
     tagline: 'The leads are coming from inside the GPU.',
-    description: 'Synthetic lead multiplier and deeper customer-agent psychosis.',
+    description: 'Unlock customer specialist. Synthetic leads, negotiate bonuses, deeper psychosis at higher levels.',
   },
   project_manager: {
     label: 'Project manager',
     tagline: 'Agile ceremonies, but the stand-up is just you crying.',
-    description: 'Duplicate client projects, parallel requirements, extra product slots.',
+    description: 'Unlock PM specialist. +1 concurrent client gig per assigned PM (course tier). Duplicate projects at higher hallucination levels.',
   },
   project_slots: {
     label: 'Client project slots',
     tagline: 'More Jira boards. Same amount of sleep.',
-    description: '+1 concurrent client project per level.',
+    description: '+1 concurrent client project slot per level (no PM required for the bonus slot).',
   },
   refine: {
     label: 'Idealized requirements',
@@ -119,17 +131,17 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   sales: {
     label: 'Sales automation',
     tagline: 'Closed-Won Bot 3000.',
-    description: 'Auto-accept synthetic leads and hallucinate deliverable ghost gigs.',
+    description: 'Unlock sales specialist. Auto-accept real leads and auto-deliver completed client projects.',
   },
   marketing: {
     label: 'Marketing boost',
     tagline: 'Our funnel is optimized. We do not discuss the funnel.',
-    description: 'Faster synthetic lead spawn and bigger marketing hallucinations.',
+    description: 'Unlock marketing specialist. Faster lead spawn and larger project scopes.',
   },
   accounting: {
     label: 'Accounting tricks',
     tagline: 'Creative deductions since Tuesday.',
-    description: 'Unlock tax-code in-house mini-gigs and juicier payment hallucinations.',
+    description: 'Unlock accounting specialist. Boost client payments; tax-code windfalls with hallucinations.',
   },
   super_conductor: {
     label: 'Super conductor',
@@ -143,6 +155,8 @@ const TRACK_BASE_COST: Record<HallucinationTrack, number> = {
   context: 1,
   compaction: 2,
   starting_capital: 1,
+  starting_ram: 2,
+  starting_gpu: 2,
   in_house: 3,
   procurement: 2,
   project_manager: 2,
@@ -258,6 +272,14 @@ export function effectiveModelParams(meta: MetaProgress): number {
 
 export function startingCapitalBonus(meta: MetaProgress): number {
   return getHallucinationLevel(meta, 'starting_capital') * 500
+}
+
+export function startingRamBonus(meta: MetaProgress): number {
+  return getHallucinationLevel(meta, 'starting_ram')
+}
+
+export function startingGpuBonus(meta: MetaProgress): number {
+  return getHallucinationLevel(meta, 'starting_gpu')
 }
 
 export function compactionDurationSec(meta: MetaProgress): number {

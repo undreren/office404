@@ -7,8 +7,8 @@ import {
 import { initialPlaying } from './_helpers/initialPlaying'
 import type { Task } from '../types'
 
-describe('unsplittable-refine-passes-allow-coding', () => {
-  it('does not treat 1-SP tasks with refine passes as refinable', () => {
+describe('unsplittable-refine-passes-require-refining', () => {
+  it('treats 1-SP tasks with refine passes as refinable', () => {
     const base = initialPlaying()
     const project = base.projects[0]!
     const task: Task = {
@@ -22,11 +22,11 @@ describe('unsplittable-refine-passes-allow-coding', () => {
       refined: false,
     }
 
-    expect(canRefineTask(task)).toBe(false)
-    expect(taskLifecycleLabel(task, { ...project, tasks: [task] })).toBe('coding')
+    expect(canRefineTask(task)).toBe(true)
+    expect(taskLifecycleLabel(task, { ...project, tasks: [task] })).toBe('refining')
   })
 
-  it('lets coders pick 1-SP tasks that cannot be refined', () => {
+  it('does not let coders pick 1-SP tasks that still need refine passes', () => {
     const base = initialPlaying()
     const project = base.projects[0]!
     const task: Task = {
@@ -56,6 +56,6 @@ describe('unsplittable-refine-passes-allow-coding', () => {
       personality: 'testy',
     }
 
-    expect(pickCodingTask(activeProject, 'coder-1', [coder], 1)).toEqual(task)
+    expect(pickCodingTask(activeProject, 'coder-1', [coder], 1)).toBeNull()
   })
 })

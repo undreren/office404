@@ -1,4 +1,5 @@
-export const TICK_INTERVAL_MS = 1000
+/** Simulation tick interval — 30 Hz for fluid UI; pacing scales via deltaSec. */
+export const TICK_INTERVAL_MS = 1000 / 30
 export const SAVE_KEY = 'office404-save-v8'
 export const MAX_EVENTS = 50
 

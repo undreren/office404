@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { timeElapsed } from '../messages'
 import {
-  canRefineTask,
   refineRequirementToTasks,
   taskLifecycleLabel,
   taskNeedsRefinement,
@@ -74,7 +73,7 @@ describe('refine-passes-before-coding', () => {
       for (const task of shippable) {
         expect(task.status).not.toBe('pr_ready')
         expect(taskLifecycleLabel(task, current)).not.toBe('review')
-        if (taskNeedsRefinement(task) && canRefineTask(task)) {
+        if (taskNeedsRefinement(task)) {
           expect(taskLifecycleLabel(task, current)).toBe('refining')
         } else {
           expect(taskLifecycleLabel(task, current)).toBe('coding')
