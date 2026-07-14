@@ -118,7 +118,8 @@ import { createDefaultMeta } from '../meta'
 import { mrrOnShip } from '../product'
 import { formatCash } from '../cash'
 import { derangeText, unhingedPrefix, unhingedTier } from '../unhinged'
-import { cheapestAffordableVibingCourse, VIBING_COURSES, vibingCourseCost } from '../upgrades'
+import { findCheapestProcurementPurchase, procurementEventMessage } from '../procurement'
+import { VIBING_COURSES, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
 
@@ -1452,6 +1453,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     gameDay,
     rentDueInDays,
     apartmentLeaseRemaining,
+    apartment,
     agents,
     projects,
     leads,
@@ -1460,6 +1462,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     selectedTaskId,
     vibingCourses,
     vibingCourseTiers,
+    purchasedFineTunes,
+    fineTuneTiers,
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
@@ -1467,6 +1471,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   } = {
     ...state,
     vibingCourseTiers: { ...state.vibingCourseTiers },
+    fineTuneTiers: { ...state.fineTuneTiers },
+    purchasedFineTunes: [...state.purchasedFineTunes],
     projects: repairStaleCodingAssignments(state.projects, state.agents),
   }
 
@@ -1511,58 +1517,59 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   }
 
   if (isAutomationAgentUnlocked({ vibingCourses, meta }, 'procurement') && hasActiveAutomationAgent(nextAgents, 'procurement')) {
-    const budget = cash * PROCUREMENT_CASH_FRACTION
-    const slotCost = ramSlotCost(agentSlotPurchases)
-    const tickCost = gpuTickCost(gpuTickPurchases)
-    const maxSlots = maxAgentSlotPurchases(state.apartment)
-    const maxTicks = maxGpuTickPurchases(state.apartment)
-    if (agentSlotPurchases < maxSlots && slotCost <= budget && cash >= slotCost) {
-      cash -= slotCost
-      agentSlotPurchases += 1
-      nextEvents = pushEvent(
-        ctx,
-        meta,
-        nextEvents,
-        'milestone',
-        `Procurement auto-bought +1 RAM for ${formatCash(slotCost)}.`,
-        at,
-      )
-    } else if (gpuTickPurchases < maxTicks && tickCost <= budget && cash >= tickCost) {
-      cash -= tickCost
-      gpuTickPurchases += 1
-      nextEvents = pushEvent(
-        ctx,
-        meta,
-        nextEvents,
-        'milestone',
-        `Procurement auto-bought +1 GPU for ${formatCash(tickCost)}.`,
-        at,
-      )
-    } else {
-      const coursePurchase = cheapestAffordableVibingCourse(
-        vibingCourses,
-        vibingCourseTiers,
+    while (true) {
+      const budget = cash * PROCUREMENT_CASH_FRACTION
+      const purchase = findCheapestProcurementPurchase(
+        {
+          apartment,
+          agentSlotPurchases,
+          gpuTickPurchases,
+          vibingCourses,
+          vibingCourseTiers,
+          purchasedFineTunes,
+          fineTuneTiers,
+          meta,
+        },
         budget,
         cash,
       )
-      if (coursePurchase) {
-        const { course, cost, newTier } = coursePurchase
-        cash -= cost
-        vibingCourseTiers[course.id] = newTier
-        if (!vibingCourses.includes(course.id)) {
-          vibingCourses = [...vibingCourses, course.id]
-        }
-        const maxTier = course.maxTier ?? 1
-        const tierNote = maxTier > 1 ? ` T${newTier}/${maxTier}` : ''
-        nextEvents = pushEvent(
-          ctx,
-          meta,
-          nextEvents,
-          'milestone',
-          `Procurement auto-enrolled in ${course.label}${tierNote} for ${formatCash(cost)}.`,
-          at,
-        )
+      if (!purchase) break
+
+      cash -= purchase.cost
+      switch (purchase.kind) {
+        case 'ram':
+          agentSlotPurchases += 1
+          break
+        case 'gpu':
+          gpuTickPurchases += 1
+          break
+        case 'housing':
+          apartment = purchase.next
+          apartmentLeaseRemaining = RENT_INTERVAL_DAYS
+          rentDueInDays = RENT_INTERVAL_DAYS
+          break
+        case 'fine_tune':
+          fineTuneTiers[purchase.id] = purchase.newTier
+          if (purchase.newTier === 1) {
+            purchasedFineTunes = [...purchasedFineTunes, purchase.id]
+          }
+          break
+        case 'vibing_course':
+          vibingCourseTiers[purchase.courseId] = purchase.newTier
+          if (!vibingCourses.includes(purchase.courseId)) {
+            vibingCourses = [...vibingCourses, purchase.courseId]
+          }
+          break
       }
+
+      nextEvents = pushEvent(
+        ctx,
+        meta,
+        nextEvents,
+        'milestone',
+        procurementEventMessage(purchase),
+        at,
+      )
     }
   }
 
@@ -2104,6 +2111,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     gameDay,
     rentDueInDays,
     apartmentLeaseRemaining,
+    apartment,
     agents: nextAgents,
     projects: nextProjects,
     leads: nextLeads,
@@ -2116,6 +2124,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     gpuTickPurchases,
     vibingCourses,
     vibingCourseTiers,
+    purchasedFineTunes,
+    fineTuneTiers,
     tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
   }, ctx, at)
 

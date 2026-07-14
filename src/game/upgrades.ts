@@ -99,7 +99,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'One-click regret purchases.',
     cost: 275,
     description:
-      'Specialist auto-buys +1 RAM, +1 GPU, or vibing courses each tick when price ≤10% of cash (prefers RAM, then GPU, then cheapest course). Assign via Status.',
+      'Specialist auto-buys any shop upgrade each tick when price ≤10% of cash — housing, RAM, GPU, fine-tunes, and vibing courses (cheapest first). Assign via Status.',
   },
   {
     id: BEST_OF_N_COURSE_ID,
