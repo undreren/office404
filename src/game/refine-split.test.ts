@@ -29,10 +29,10 @@ describe('refineRequirementToTasks', () => {
     expect(tasks.every((t) => (t.refinePassesRemaining ?? 0) === 0)).toBe(true)
   })
 
-  it('adds 25% auto-split chance per refinement tier', () => {
+  it('adds 20% auto-split chance per refinement tier', () => {
     expect(refinementAutoSplitChance(0)).toBe(0)
-    expect(refinementAutoSplitChance(1)).toBe(0.25)
-    expect(refinementAutoSplitChance(4)).toBe(1)
+    expect(refinementAutoSplitChance(1)).toBe(0.2)
+    expect(refinementAutoSplitChance(4)).toBe(0.8)
     expect(refinementAutoSplitChance(5)).toBe(1)
   })
 })

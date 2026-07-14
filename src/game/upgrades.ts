@@ -53,7 +53,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'Split it once. Maybe twice if the vibes align.',
     cost: 250,
     description:
-      'Each tier adds +25% auto-split chance when refining requirements (max 100% at T4). Unsplit tasks get that many extra refine passes before coding.',
+      'Each tier adds +20% auto-split chance when refining requirements (max 100% at T5). Unsplit tasks get that many extra refine passes before coding.',
     maxTier: REFINEMENT_MAX_TIER,
   },
   {

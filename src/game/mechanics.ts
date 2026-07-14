@@ -561,10 +561,10 @@ export function refinementTier(
   return tiers.refinement ?? (vibingCourses.includes('refinement') ? 1 : 0)
 }
 
-/** Auto-split chance when refining requirements (25% per tier, capped at 100%). */
+/** Auto-split chance when refining requirements (20% per tier, capped at 100%). */
 export function refinementAutoSplitChance(refinementTierLevel: number): number {
   if (refinementTierLevel <= 0) return 0
-  return Math.min(1, refinementTierLevel * 0.25)
+  return Math.min(1, refinementTierLevel * 0.2)
 }
 
 export function conductorTier(
