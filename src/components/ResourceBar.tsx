@@ -1,6 +1,6 @@
 import { formatCash } from '../game/cash'
 import { HOUSING_CONFIG } from '../game/housing'
-import { formatGameClock } from '../game/mechanics'
+import { formatGameClock, formatPercent } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
 import { personalRetirementThreshold } from '../game/prestige'
@@ -32,7 +32,7 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
         `reputation ${Math.floor(reputation)}`,
         `home ${housing.label}`,
         `agents ${used}/${max}`,
-        `${agentSlots} slots · ${gpuTicks} GPU ticks`,
+        `${agentSlots} RAM · ${gpuTicks} GPU`,
         `model ${model.displayName}`,
         `rent ${formatCash(rentAmount)} due in ${Math.ceil(rentDueInDays)} days`,
         paused ? 'paused' : null,
@@ -64,7 +64,7 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
 
         <div
           className="resource"
-          aria-label={`Retire goal: ${formatCash(cash)} of ${formatCash(retireThreshold)} (${Math.floor(retirePct)}%)`}
+          aria-label={`Retire goal: ${formatCash(cash)} of ${formatCash(retireThreshold)} (${formatPercent(retirePct)}%)`}
         >
           <label>Retire Goal</label>
           <div className="meter">
@@ -101,11 +101,11 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
 
             <div
               className="resource resource--inline"
-              aria-label={`${agentSlots} agent slots, ${gpuTicks} GPU ticks`}
+              aria-label={`${agentSlots} RAM, ${gpuTicks} GPU`}
             >
-              <label>Slots / GPU</label>
+              <label>RAM / GPU</label>
               <span className="value value--sm">
-                {agentSlots} · {gpuTicks} tick{gpuTicks === 1 ? '' : 's'}
+                {agentSlots} · {gpuTicks}
               </span>
             </div>
 

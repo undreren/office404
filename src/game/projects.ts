@@ -593,11 +593,7 @@ export function taskNeedsRefinement(task: Task): boolean {
 }
 
 export function canRefineTask(task: Task): boolean {
-  return (
-    taskNeedsRefinement(task) &&
-    task.storyPointsRequired >= 2 &&
-    splitStoryPoints(task.storyPointsRequired) !== null
-  )
+  return taskNeedsRefinement(task)
 }
 
 export function taskRefineProgressPct(
@@ -742,7 +738,7 @@ export function taskLifecycleProgressPct(
 }
 
 export function taskLifecycleLabel(task: Task, project: Project): string {
-  if (canRefineTask(task)) return 'refining'
+  if (taskNeedsRefinement(task)) return 'refining'
   if (task.status === 'open' || task.status === 'in_progress') return 'coding'
   if (task.status === 'pr_ready') {
     const comments = reviewCommentsOnTask(project, task.id)
@@ -811,7 +807,7 @@ function codingWorkQueue(project: Project): Task[] {
       (t) =>
         !t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
-        !canRefineTask(t) &&
+        !taskNeedsRefinement(t) &&
         t.storyPointsEarned < t.storyPointsRequired,
     )
     .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)

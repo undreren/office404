@@ -44,6 +44,10 @@ export function formatStoryPoints(sp: number): string {
   return sp % 1 === 0 ? String(sp) : sp.toFixed(1)
 }
 
+export function formatPercent(value: number, decimals = 1): string {
+  return value.toFixed(decimals)
+}
+
 export function spProgressTimeMultiplier(gameDay: number): number {
   const t = gameDay / SP_PROGRESS_DAY_DIVISOR
   return 1 + t * t
@@ -70,10 +74,11 @@ export function storyPointIncrement(
   earned: number,
   effectiveParams: number,
   gameDay = 0,
+  deltaSec = 1,
 ): number {
   const remaining = required - earned
   if (remaining <= 0) return 0
-  const step = storyPointProgressPerTick(effectiveParams, gameDay, required)
+  const step = storyPointProgressPerTick(effectiveParams, gameDay, required) * deltaSec
   return Math.min(remaining, step)
 }
 
@@ -223,10 +228,11 @@ export function testStoryPointIncrement(
   earned: number,
   effectiveParams: number,
   gameDay = 0,
+  deltaSec = 1,
 ): number {
   const remaining = required - earned
   if (remaining <= 0) return 0
-  const step = storyPointProgressPerTick(effectiveParams, gameDay, required) * TEST_SPEED_MULTIPLIER
+  const step = storyPointProgressPerTick(effectiveParams, gameDay, required) * TEST_SPEED_MULTIPLIER * deltaSec
   return Math.min(remaining, step)
 }
 

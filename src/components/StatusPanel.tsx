@@ -3,13 +3,14 @@ import {
   agentRoleLabel,
   countAssignedPmAgents,
   formatAgentDutyLabel,
+  formatPercent,
   maxAgents,
   maxAssignablePmAgents,
   unlockedAutomationJobs,
   type AutomationAgentJob,
 } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
-import { MODEL_TIERS } from '../game/models'
+import { MODEL_TIERS, contextSizeForLevel } from '../game/models'
 import type { Agent, Project, Task } from '../game/types'
 import { toggleSpecialistRoleMsg } from '../game/messages'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
@@ -49,7 +50,7 @@ function AgentMiniCard({
   const agentSummary = [
     agent.name,
     duty,
-    `${Math.floor(fill)}% context`,
+    `${formatPercent(fill)}% context`,
     isCompacting ? 'compacting' : null,
   ]
     .filter(Boolean)
@@ -65,7 +66,7 @@ function AgentMiniCard({
       <span
         className={`agent-mini-card__ctx${isCompacting ? ' agent-mini-card__ctx--draining' : ''}`}
       >
-        {Math.floor(fill)}% ctx
+        {formatPercent(fill)}% ctx
       </span>
     </li>
   )
@@ -217,6 +218,7 @@ export function StatusPanel() {
   const dispatchAt = useGameDispatchAt()
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
+  const contextSizeK = contextSizeForLevel(model.contextSize, getHallucinationLevel(meta, 'context'))
 
   const specialistJobs = unlockedAutomationJobs({ vibingCourses, meta })
   const regularAgents = agents.filter((agent) => !agent.isAutomation)
@@ -247,7 +249,7 @@ export function StatusPanel() {
                     rosterFull={rosterFull}
                     canYeetForSlot={canYeetForSlot}
                     agents={agents}
-                    modelContextSize={model.contextSize}
+                    modelContextSize={contextSizeK}
                     projects={projects}
                     onAdjust={(enabled) =>
                       dispatchAt((at) => toggleSpecialistRoleMsg(at, job, enabled))
@@ -261,7 +263,7 @@ export function StatusPanel() {
                     rosterFull={rosterFull}
                     canYeetForSlot={canYeetForSlot}
                     agent={agents.find((a) => a.isAutomation && a.automationJob === job)}
-                    modelContextSize={model.contextSize}
+                    modelContextSize={contextSizeK}
                     projects={projects}
                     onToggle={(enabled) =>
                       dispatchAt((at) => toggleSpecialistRoleMsg(at, job, enabled))
@@ -291,7 +293,7 @@ export function StatusPanel() {
             {regularAgents.map((agent) => {
               const project = projects.find((p) => p.id === agent.projectId)
               const task = findTask(projects, agent.taskId)
-              const fill = agentContextDisplayPct(agent, model.contextSize)
+              const fill = agentContextDisplayPct(agent, contextSizeK)
               const duty = formatAgentDutyLabel(agent, project?.clientName, task?.title)
               const isCompacting = agent.status === 'compacting'
 

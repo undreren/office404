@@ -109,6 +109,8 @@ import {
   refineHallucinationLevel,
   reviewHallucinationLevel,
   startingCapitalBonus,
+  startingGpuBonus,
+  startingRamBonus,
   type HallucinationTrack,
 } from '../prestige'
 import { createDefaultMeta } from '../meta'
@@ -587,8 +589,8 @@ export function createInitialState(
     rentDueInDays: RENT_INTERVAL_DAYS,
     apartment: 'cardboard',
     apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
-    agentSlotPurchases: 0,
-    gpuTickPurchases: 0,
+    agentSlotPurchases: includeTutorial ? 0 : startingRamBonus(meta),
+    gpuTickPurchases: includeTutorial ? 0 : startingGpuBonus(meta),
     mrr: 0,
     productFeaturesShipped: 0,
     purchasedFineTunes: [],
@@ -686,7 +688,8 @@ function projectAgents(projectId: string, job: AgentJob, agents: Agent[]): Agent
   return agents.filter((a) => a.projectId === projectId && a.job === job)
 }
 
-const ONE_TICK_SEC = TICK_INTERVAL_MS / 1000
+/** Context fill granted per conductor worker reassignment (one logical beat, not frame-scaled). */
+const CONDUCTOR_REASSIGN_CONTEXT_SEC = 1
 
 type ConductorReassignmentTick = {
   simCtx: SimCtx
@@ -720,7 +723,7 @@ function gainConductorContextOnReassignment(
   }
 
   const agent = { ...conductor }
-  fillAgentContext(agent, tick.contextSize, tick.baseSpeed, ONE_TICK_SEC, tick.ctxMult)
+  fillAgentContext(agent, tick.contextSize, tick.baseSpeed, CONDUCTOR_REASSIGN_CONTEXT_SEC, tick.ctxMult)
   if (agent.contextUsed >= tick.contextTokens) {
     agent.contextUsed = tick.contextTokens
     agent.status = 'compacting'
@@ -1079,6 +1082,7 @@ function tryProgressTask(
   gameDay: number,
   promptEngineering = false,
   progressScale = 1,
+  deltaSec = 1,
 ): { projects: Project[]; becameDone: boolean; becamePrReady: boolean } {
   let becameDone = false
   let becamePrReady = false
@@ -1090,6 +1094,7 @@ function tryProgressTask(
       t.storyPointsEarned,
       authorParams * progressScale,
       gameDay,
+      deltaSec,
     )
     const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + increment)
     const complete = earned >= t.storyPointsRequired
@@ -1467,7 +1472,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     )
   }
 
-  if (vibingCourses.includes('procurement') && hasActiveAutomationAgent(nextAgents, 'procurement')) {
+  if (isAutomationAgentUnlocked({ vibingCourses, meta }, 'procurement') && hasActiveAutomationAgent(nextAgents, 'procurement')) {
     const budget = cash * PROCUREMENT_CASH_FRACTION
     const slotCost = ramSlotCost(agentSlotPurchases)
     const tickCost = gpuTickCost(gpuTickPurchases)
@@ -1481,7 +1486,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
         meta,
         nextEvents,
         'milestone',
-        `Procurement auto-bought +1 agent slot for ${formatCash(slotCost)}.`,
+        `Procurement auto-bought +1 RAM for ${formatCash(slotCost)}.`,
         at,
       )
     } else if (gpuTickPurchases < maxTicks && tickCost <= budget && cash >= tickCost) {
@@ -1492,7 +1497,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
         meta,
         nextEvents,
         'milestone',
-        `Procurement auto-bought +1 GPU tick for ${formatCash(tickCost)}.`,
+        `Procurement auto-bought +1 GPU for ${formatCash(tickCost)}.`,
         at,
       )
     }
@@ -1653,6 +1658,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 gameDay,
                 hasPromptEngineering(vibingCourses),
                 baseSpeed,
+                deltaSec,
               )
               nextProjects = result.projects
               if (result.becamePrReady) {
@@ -1965,6 +1971,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                         testTask.testStoryPointsEarned,
                         params * baseSpeed,
                         gameDay,
+                        deltaSec,
                       ),
                   )
               const taskFullyTested = testEarned >= testTask.storyPointsRequired
@@ -2408,7 +2415,7 @@ export function buyAgentSlot(state: GameState, at: number): GameState {
           state.meta,
           state.events,
           'milestone',
-          `Bought +1 agent slot for ${formatCash(cost)}. HR pretends this is normal.`,
+          `Bought +1 RAM for ${formatCash(cost)}. HR pretends this is normal.`,
           at,
         ),
       },
@@ -2435,7 +2442,7 @@ export function buyGpuTick(state: GameState, at: number): GameState {
       state.meta,
       state.events,
       'milestone',
-      `Bought +1 GPU tick for ${formatCash(cost)}. Fans spin. Morale does not.`,
+      `Bought +1 GPU for ${formatCash(cost)}. Fans spin. Morale does not.`,
       at,
     ),
   }, ctx, at)

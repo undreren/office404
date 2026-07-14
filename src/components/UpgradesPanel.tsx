@@ -95,7 +95,16 @@ function HousingSection() {
         Unlocks hardware tiers. Currently: {housing.label}
       </p>
       {nextApt && (
-        <button
+        <article className="vendor-card">
+          <header>
+            <h4>{HOUSING_CONFIG[nextApt].label}</h4>
+          </header>
+          <p className="vendor-tagline">&ldquo;{HOUSING_CONFIG[nextApt].tagline}&rdquo;</p>
+          <p className="hint">
+            Rent ${HOUSING_CONFIG[nextApt].rent}/30d · up to {HOUSING_CONFIG[nextApt].maxRamPurchases} RAM &amp;{' '}
+            {HOUSING_CONFIG[nextApt].maxGpuPurchases} GPU total · MRR ×{HOUSING_CONFIG[nextApt].mrrMultiplier}
+          </p>
+          <button
           type="button"
           className="btn btn--deploy"
           aria-label={`Move to ${HOUSING_CONFIG[nextApt].label} for ${formatCash(HOUSING_CONFIG[nextApt].upgradeCost)}`}
@@ -104,6 +113,7 @@ function HousingSection() {
         >
           Move to {HOUSING_CONFIG[nextApt].label} ({formatCash(HOUSING_CONFIG[nextApt].upgradeCost)})
         </button>
+        </article>
       )}
     </div>
   )
@@ -124,28 +134,27 @@ function MetaFaceMarketspaceSection({ showMaxedUpgrades }: { showMaxedUpgrades: 
 
   return (
     <div className="market-section">
-      <p className="hint" aria-label={`${agentSlots} agent slots and ${gpuTicks} GPU ticks`}>
-        {agentSlots} agent slot{agentSlots === 1 ? '' : 's'} · {gpuTicks} GPU tick
-        {gpuTicks === 1 ? '' : 's'} shared across active workers.
+      <p className="hint" aria-label={`${agentSlots} RAM and ${gpuTicks} GPU`}>
+        {agentSlots} RAM · {gpuTicks} GPU shared across active workers.
       </p>
 
       <div className="vendor-list">
         {(showMaxedUpgrades || !ramAtMax) && (
           <article
             className={vendorCardClassName(ramAtMax)}
-            aria-label={`+1 agent slot for ${formatCash(ramCost)}`}
+            aria-label={`RAM upgrade for ${formatCash(ramCost)}`}
           >
             <header>
-              <h4>+1 Agent Slot</h4>
+              <h4>RAM</h4>
               <span>{agentSlots} total</span>
             </header>
             <p className="vendor-tagline">HR calls it headcount. You call it hope.</p>
-            <p className="hint">More seats on the roster. Housing caps how many you can buy.</p>
+            <p className="hint">+1 roster slot. Housing caps how many you can buy ({maxRamPurchases} purchasable here).</p>
             <button
               type="button"
               className="btn btn--small"
               aria-label={
-                ramAtMax ? 'Agent slot purchases maxed for housing' : `Buy +1 agent slot for ${formatCash(ramCost)}`
+                ramAtMax ? 'RAM purchases maxed for housing' : `Buy +1 RAM for ${formatCash(ramCost)}`
               }
               disabled={ramAtMax || cash < ramCost}
               onClick={() => dispatchPurchase(buyAgentSlotMsg(Date.now()))}
@@ -158,19 +167,22 @@ function MetaFaceMarketspaceSection({ showMaxedUpgrades }: { showMaxedUpgrades: 
         {(showMaxedUpgrades || !gpuAtMax) && (
           <article
             className={vendorCardClassName(gpuAtMax)}
-            aria-label={`+1 GPU tick for ${formatCash(gpuCost)}`}
+            aria-label={`GPU upgrade for ${formatCash(gpuCost)}`}
           >
             <header>
-              <h4>+1 GPU Tick</h4>
+              <h4>GPU</h4>
               <span>{gpuTicks} total</span>
             </header>
             <p className="vendor-tagline">Fans spin. Morale does not.</p>
-            <p className="hint">More ticks per second split across every agent burning GPU time.</p>
+            <p className="hint">
+              +1 work unit/sec to the global pool, split across coders, reviewers, refiners, and testers (
+              {maxGpuPurchases} purchasable here).
+            </p>
             <button
               type="button"
               className="btn btn--small"
               aria-label={
-                gpuAtMax ? 'GPU tick purchases maxed for housing' : `Buy +1 GPU tick for ${formatCash(gpuCost)}`
+                gpuAtMax ? 'GPU purchases maxed for housing' : `Buy +1 GPU for ${formatCash(gpuCost)}`
               }
               disabled={gpuAtMax || cash < gpuCost}
               onClick={() => dispatchPurchase(buyGpuTickMsg(Date.now()))}
