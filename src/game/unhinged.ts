@@ -13,15 +13,21 @@ export function unhingedTier(totalHallucinationsEarned: number): UnhingedTier {
 
 const GLITCH_CHARS = '█▓▒░@#$%&*~?'
 
+function positiveMod(value: number, mod: number): number {
+  return ((value % mod) + mod) % mod
+}
+
 export function derangeText(text: string, tier: UnhingedTier, seed = 0): string {
   if (tier === 0) return text
+  if (typeof text !== 'string') return ''
   const rate = tier * 0.04
+  const seedU = seed >>> 0
   let out = ''
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i]
-    const hash = (i * 31 + seed) % 100
+    const ch = text[i]!
+    const hash = positiveMod(i * 31 + seedU, 100)
     if (ch !== ' ' && hash < rate * 100) {
-      out += GLITCH_CHARS[hash % GLITCH_CHARS.length]
+      out += GLITCH_CHARS[positiveMod(hash, GLITCH_CHARS.length)]!
     } else {
       out += ch
     }

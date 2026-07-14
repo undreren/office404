@@ -216,7 +216,8 @@ function isProjectRole(job: AgentJob): job is ProjectRole {
 
 function eventMessage(ctx: SimCtx, meta: MetaProgress, message: string): string {
   const tier = unhingedTier(meta.totalHallucinationsEarned)
-  return unhingedPrefix(tier) + derangeText(message, tier, ctx.rng.state)
+  const text = typeof message === 'string' ? message : ''
+  return unhingedPrefix(tier) + derangeText(text, tier, ctx.rng.state)
 }
 
 function pushEvent(
