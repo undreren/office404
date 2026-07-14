@@ -504,7 +504,7 @@ function splitStoryPoints(total: number): [number, number] | null {
 }
 
 function passesAfterRefine(task: Task): number {
-  return Math.max(0, (task.refinePassesRemaining ?? 1) - 1)
+  return Math.max(0, (task.refinePassesRemaining ?? 0) - 1)
 }
 
 function splitOptionsForTier(refinementTierLevel: number): { autoSplitChance: number } {
@@ -587,8 +587,7 @@ export function taskNeedsRefinement(task: Task): boolean {
     (task.refinePassesRemaining ?? 0) > 0 &&
     !task.isBugFix &&
     !task.isReviewComment &&
-    (task.status === 'open' || task.status === 'in_progress') &&
-    task.storyPointsEarned === 0
+    (task.status === 'open' || task.status === 'in_progress')
   )
 }
 

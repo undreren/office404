@@ -35,6 +35,7 @@ import {
   resolvedReviewComments,
   syncTestScope,
   taskIsTested,
+  taskNeedsRefinement,
 } from '../projects'
 import { generateAgentName, generatePersonality } from '../personalities'
 import {
@@ -1089,6 +1090,7 @@ function tryProgressTask(
   const next = updateTask(projects, taskId, (t) => {
     if (t.status === 'merged' || t.status === 'pr_ready') return t
     if (t.isReviewComment && t.status === 'done') return t
+    if (!t.isReviewComment && taskNeedsRefinement(t)) return t
     const increment = storyPointIncrement(
       t.storyPointsRequired,
       t.storyPointsEarned,
