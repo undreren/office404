@@ -10,6 +10,7 @@ import { fineTuneId } from '../models'
 import { agentCapacity } from '../simulation/gameLogic'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
+import { stateAtAgentCapacity } from './_helpers/stateAtAgentCapacity'
 import { stateWithCash } from './_helpers/stateWithCash'
 import { T0 } from './_helpers/testConstants'
 import type { GameState } from '../types'
@@ -39,7 +40,7 @@ describe('automation-agent-slots', () => {
   })
 
   it('yeets a project agent when assigning a specialist on a full roster', () => {
-    const before = stateWithCash(initialPlaying(), 350)
+    const before = stateWithCash(stateAtAgentCapacity(), 350)
     const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
     const project = unlocked.projects[0]!
 
@@ -47,17 +48,19 @@ describe('automation-agent-slots', () => {
 
     expect(assigned.assignedSpecialistRoles).toContain('marketing')
     expect(assigned.agents.some((a) => a.isAutomation && a.automationJob === 'marketing')).toBe(true)
-    expect(assigned.agents.some((a) => a.projectId === project.id && a.job === 'refine')).toBe(false)
-    expect(assigned.projects[0]!.roleCounts.refine).toBe(0)
-    expect(agentCapacity(assigned).used).toBe(1)
+    expect(assigned.agents.some((a) => a.projectId === project.id && a.job === 'code')).toBe(false)
+    expect(assigned.projects[0]!.roleCounts.code).toBe(0)
+    expect(agentCapacity(assigned).used).toBe(2)
   })
 
   it('blocks assigning a specialist when the roster is full and no project agents can be yeeted', () => {
-    const before = stateWithCash(initialPlaying(), 350)
+    const capped = stateAtAgentCapacity()
+    const before = stateWithCash(capped, 350)
     const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
     const onlyAgent = unlocked.agents[0]!
     const automationOnly: GameState = {
       ...unlocked,
+      contextRamLevel: 6,
       agents: [
         {
           ...onlyAgent,
@@ -65,7 +68,7 @@ describe('automation-agent-slots', () => {
           automationJob: 'procurement',
           job: 'procurement',
           projectId: null,
-          status: 'idle',
+          status: 'procuring',
         },
       ],
       assignedSpecialistRoles: ['procurement'],
@@ -122,7 +125,7 @@ describe('automation-agent-slots', () => {
         {
           ...project,
           useConductor: true,
-          roleCounts: { refine: 1, code: 0, review: 0, test: 0, conductor: 1 },
+          roleCounts: { refine: 0, code: 0, review: 0, test: 0, conductor: 1 },
         },
       ],
       agents: [
@@ -142,7 +145,7 @@ describe('automation-agent-slots', () => {
     const state = dispatchChain(before, [timeElapsed(T0 + 1000, 1)])
 
     expect(state.agents.some((a) => a.isAutomation)).toBe(false)
-    expect(state.agents.some((a) => a.projectId === project.id && a.job === 'refine')).toBe(false)
+    expect(state.assignedSpecialistRoles).not.toContain('marketing')
   })
 
   it('auto-buys RAM when procurement specialist is assigned and cash allows', () => {
@@ -165,7 +168,9 @@ describe('automation-agent-slots', () => {
   })
 
   it('auto-buys housing when price is within 10% of cash and cheaper shop items are maxed', () => {
-    const fineTuneIds = (['code', 'review', 'refine', 'test'] as const).map((role) => fineTuneId(0, role))
+    const fineTuneIds = (['code', 'review', 'refine', 'test', 'conductor'] as const).map((role) =>
+      fineTuneId(0, role),
+    )
     const before: GameState = {
       ...stateWithCash(initialPlaying(), 1400),
       agentSlotPurchases: 1,
@@ -187,12 +192,13 @@ describe('automation-agent-slots', () => {
   })
 
   it('auto-buys vibing courses when price is within 10% of cash and hardware is maxed', () => {
-    const fineTuneIds = (['code', 'review', 'refine', 'test'] as const).map((role) => fineTuneId(0, role))
+    const fineTuneIds = (['code', 'review', 'refine', 'test', 'conductor'] as const).map((role) =>
+      fineTuneId(0, role),
+    )
     const ownedUnderPm = [
       'prompt_engineering',
       'context_optimization',
       'refinement',
-      'auto_conductor',
       'sales',
       'marketing',
       'conductor',

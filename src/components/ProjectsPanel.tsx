@@ -1,17 +1,18 @@
 import {
   agentContextDisplayPct,
-  bestOfNTier,
+  agentContextTokenCapacity,
   countRosterIdleAgents,
   formatAgentProjectViewDutyLabel,
   formatPercent,
   formatStoryPoints,
   hasConductorCourse,
-  maxAgentsPerTask,
   maxConductorTeamSize,
+  taskEarnedTokens,
+  taskTokensRequired,
 } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
-import { MODEL_TIERS, contextSizeForLevel } from '../game/models'
 import {
+  agentsPerTaskForProject,
   allImplementationMerged,
   requirementRefineProgressPct,
   requirementTestPercent,
@@ -111,10 +112,9 @@ function taskAccessibleSummary(
   pct: number,
   commentCount: number,
   resolvedComments: number,
+  tokenLabel: string,
 ): string {
-  const parts = [
-    `${phase}, ${formatPercent(pct)}%, ${formatStoryPoints(task.storyPointsRequired)} story points`,
-  ]
+  const parts = [`${phase}, ${formatPercent(pct)}%, ${tokenLabel}`]
   if (task.isBugFix) parts.push('bug fix')
   if (task.bugDiscovered && !task.isBugFix) parts.push('bug found')
   if (task.status === 'merged' && task.prQuality !== null) {
@@ -157,10 +157,14 @@ function TaskCard({
   const isSelected = selectedTaskId === task.id
   const comments = reviewCommentsOnTask(project, task.id)
   const resolved = resolvedReviewComments(project, task.id).length
+  const workRole = refining ? 'refine' : task.isReviewComment ? 'code' : task.status === 'done' || task.status === 'merged' ? 'test' : 'code'
+  const tokenRequired = taskTokensRequired(task.storyPointsRequired, workRole)
+  const tokenEarned = Math.min(tokenRequired, taskEarnedTokens(task, workRole))
+  const tokenLabel = `${Math.round(tokenEarned)}/${Math.round(tokenRequired)} tok · ${formatStoryPoints(task.storyPointsRequired)} SP`
   const refiner = refining
     ? agents.find((a) => a.job === 'refine' && a.projectId === project.id && a.taskId === task.id)
     : undefined
-  const statusSummary = taskAccessibleSummary(task, phase, pct, comments.length, resolved)
+  const statusSummary = taskAccessibleSummary(task, phase, pct, comments.length, resolved, tokenLabel)
 
   return (
     <li
@@ -182,7 +186,7 @@ function TaskCard({
           />
         </div>
         <p className="task-sp">
-          {formatPercent(pct)}% · {formatStoryPoints(task.storyPointsRequired)} SP
+          {formatPercent(pct)}% · {tokenLabel}
           {refining && ' · refining'}
           {refining && refiner && ` · ${refiner.name}`}
           {task.isBugFix && ' · bug fix'}
@@ -333,14 +337,11 @@ function RequirementBlock({
 }
 
 function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
-  const { meta } = useGameState()
-  const modelLevel = getHallucinationLevel(meta, 'model')
-  const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
-  const contextLevel = getHallucinationLevel(meta, 'context')
-  const contextSizeK = contextSizeForLevel(model.contextSize, contextLevel)
+  const { meta, contextRamLevel } = useGameState()
+  const contextTokens = agentContextTokenCapacity(contextRamLevel ?? 0, getHallucinationLevel(meta, 'context'))
   const task = agent.taskId ? project.tasks.find((t) => t.id === agent.taskId) : undefined
   const duty = formatAgentProjectViewDutyLabel(agent, task?.title)
-  const fill = agentContextDisplayPct(agent, contextSizeK)
+  const fill = agentContextDisplayPct(agent, contextTokens)
   const isCompacting = agent.status === 'compacting'
 
   const agentSummary = [
@@ -459,7 +460,6 @@ function ProjectCard({ project }: { project: Project }) {
   const dispatchAt = useGameDispatchAt()
 
   const conductorUnlocked = hasConductorCourse(vibingCourses)
-  const agentsPerTask = maxAgentsPerTask(bestOfNTier(vibingCourseTiers))
   const { used: rosterUsed, max: rosterMax } = agentCapacity(state)
   const idleAgents = countRosterIdleAgents(agents)
 
@@ -633,7 +633,12 @@ function ProjectCard({ project }: { project: Project }) {
                 idleAgents={idleAgents}
                 rosterUsed={rosterUsed}
                 rosterMax={rosterMax}
-                hasRoleWork={roleCanAcceptStaffing(synced, job, agents, agentsPerTask)}
+                hasRoleWork={roleCanAcceptStaffing(
+                  synced,
+                  job,
+                  agents,
+                  agentsPerTaskForProject(synced, job, agents, vibingCourseTiers),
+                )}
               />
             ))}
           </>
@@ -651,7 +656,12 @@ function ProjectCard({ project }: { project: Project }) {
               idleAgents={idleAgents}
               rosterUsed={rosterUsed}
               rosterMax={rosterMax}
-              hasRoleWork={roleCanAcceptStaffing(synced, job, agents, agentsPerTask)}
+              hasRoleWork={roleCanAcceptStaffing(
+                synced,
+                job,
+                agents,
+                agentsPerTaskForProject(synced, job, agents, vibingCourseTiers),
+              )}
             />
           ))
         )}

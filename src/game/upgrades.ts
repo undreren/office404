@@ -37,15 +37,8 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'Someone has to watch them. Might as well be someone fake.',
     cost: 350,
     description:
-      'Toggle Conductor per project — auto-staffs refine, code, review, and test. Team cap 3 +1 per tier (max 6 at T4).',
+      'Toggle Conductor per project — auto-staffs refine, code, review, and test (big tasks first). Team cap 3 +1 per tier (max 6 at T4). Moves cost 20 tokens.',
     maxTier: CONDUCTOR_MAX_TIER,
-  },
-  {
-    id: 'auto_conductor',
-    label: 'Auto Conductor',
-    tagline: 'Every project gets a babysitter. Whether it wants one or not.',
-    cost: 275,
-    description: 'New client projects start with Conductor mode on (requires Conductor course).',
   },
   {
     id: REFINEMENT_COURSE_ID,
@@ -62,15 +55,14 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'Agile ceremonies, but the stand-up is just you crying.',
     cost: 400,
     description:
-      'Assign up to one PM specialist per tier (max 3). Each assigned PM unlocks +1 concurrent client gig and deadline warnings.',
-    maxTier: 3,
+      'Toggle on: auto-delivers completed gigs, enables Conductor on new projects, and deadline warnings.',
   },
   {
     id: 'sales',
     label: 'Sales Agent',
     tagline: 'Closed-Won Bot 3000.',
     cost: 300,
-    description: 'Specialist auto-accepts real leads and auto-delivers completed client projects.',
+    description: 'Specialist auto-accepts eligible real leads (and synthetic with prestige).',
   },
   {
     id: 'marketing',
@@ -106,8 +98,17 @@ export const VIBING_COURSES: VibingCourse[] = [
     label: 'Best-of-N',
     tagline: 'Hallucinatory cooperation, real infighting.',
     cost: 400,
-    description: '+1 max agent on the same task per tier (2 at T1 → 5 at T4). Coders, reviewers, refiners, and testers can pile on.',
+    description:
+      '+1 max agent on the same task per tier (2 at T1 → 5 at T4). Extra agents on a task produce at ×0.75^n. Conductors spread before stacking.',
     maxTier: BEST_OF_N_MAX_TIER,
+  },
+  {
+    id: 'hot_swapping',
+    label: 'Hot Swapping',
+    tagline: 'Swap the compacting brain for a fresh one. Like devops, but sadder.',
+    cost: 450,
+    description:
+      'Conductors auto-swap agents that start compacting with a benched agent (lowest context first).',
   },
   {
     id: 'offline',

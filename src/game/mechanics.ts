@@ -1,15 +1,18 @@
 import {
   AGENT_SKILL_REFERENCE_PARAMS,
-  BASE_AGENT_SLOTS,
+  BASE_CONTEXT_TOKENS,
   BASE_GPU_TICKS,
+  BASE_RAM_GB,
+  BEST_OF_N_DECAY,
   COMPACT_DURATION_SEC,
-  CONTEXT_FILL_SECONDS,
+  CONDUCTOR_MOVE_TOKEN_COST,
   GPU_TICK_BASE_COST,
   GPU_TICK_COST_MULT,
   MAX_CLIENT_TASK_SP,
   PLAYER_ACTION_BASE_DAYS,
   PR_QUALITY_PER_COMMENT,
   PROMPT_ENGINEERING_PR_BOOST,
+  RAM_PER_UPGRADE_GB,
   RAM_SLOT_BASE_COST,
   RAM_SLOT_COST_MULT,
   REFINE_SPEED_MULTIPLIER,
@@ -26,7 +29,7 @@ import { FINE_TUNE_BONUS } from './models'
 import type { MetaProgress } from './meta'
 import { getHallucinationLevel } from './meta'
 import { codeHallucinationParamMultiplier, effectiveModelParams, maxClientProjectSlots } from './prestige'
-import type { Agent, AgentJob, FineTuneRole, GameState, Project, Task } from './types'
+import type { Agent, AgentJob, FineTuneRole, GameState, Project, Task, TaskWorkRole } from './types'
 import type { Rng } from './rng'
 
 export const FIBONACCI = [0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
@@ -48,38 +51,118 @@ export function formatPercent(value: number, decimals = 1): string {
   return value.toFixed(decimals)
 }
 
+export function taskBaseTokenCost(sp: number): number {
+  return Math.pow(5 + sp, 2)
+}
+
+export function roleTokenDivisor(role: TaskWorkRole): number {
+  switch (role) {
+    case 'refine':
+      return REFINE_SPEED_MULTIPLIER
+    case 'test':
+      return TEST_SPEED_MULTIPLIER
+    case 'review':
+      return 1 / REVIEW_CODE_TIME_FRACTION
+    case 'code':
+      return 1
+  }
+}
+
+export function taskTokensRequired(sp: number, role: TaskWorkRole): number {
+  return taskBaseTokenCost(sp) / roleTokenDivisor(role)
+}
+
+export function bestOfNStackMultiplier(stackIndex: number): number {
+  if (stackIndex <= 0) return 1
+  return Math.pow(BEST_OF_N_DECAY, stackIndex)
+}
+
+export function fineTuneMultiplier(level: number): number {
+  if (level <= 0) return 1
+  return Math.pow(1 + FINE_TUNE_BONUS, level)
+}
+
+export function agentTokensPerSec(
+  effectiveParams: number,
+  fineTuneLevel: number,
+  gpuShare: number,
+): number {
+  return effectiveParams * fineTuneMultiplier(fineTuneLevel) * gpuShare
+}
+
+export function gpuShareForAgents(agents: Agent[], totalGpus: number): number {
+  const active = agents.filter(agentUsesGpu)
+  if (active.length === 0) return totalGpus
+  return totalGpus / active.length
+}
+
+export function tokenProgressIncrement(
+  required: number,
+  earned: number,
+  tokensPerSec: number,
+  deltaSec: number,
+  stackMultiplier = 1,
+): number {
+  const remaining = required - earned
+  if (remaining <= 0) return 0
+  const step = tokensPerSec * stackMultiplier * deltaSec
+  return Math.min(remaining, step)
+}
+
+export function taskEarnedTokens(
+  task: Pick<Task, 'storyPointsRequired' | 'storyPointsEarned' | 'testStoryPointsEarned'>,
+  role: TaskWorkRole,
+): number {
+  return role === 'test' ? task.testStoryPointsEarned : task.storyPointsEarned
+}
+
+export function taskMeetsTokenGoal(task: Task, role: TaskWorkRole): boolean {
+  const required = taskTokensRequired(task.storyPointsRequired, role)
+  return taskEarnedTokens(task, role) >= required
+}
+
+/** @deprecated Story-point pacing removed — use taskTokensRequired. */
 export function spProgressTimeMultiplier(gameDay: number): number {
   const t = gameDay / SP_PROGRESS_DAY_DIVISOR
   return 1 + t * t
 }
 
-/** Quadratic penalty when model params < task SP. */
+/** @deprecated Story-point pacing removed. */
 export function paramsSpSpeedMultiplier(effectiveParams: number, taskSp: number, power = 2): number {
   if (taskSp <= 0) return 1
   const ratio = effectiveParams / taskSp
   return Math.min(1, Math.pow(ratio, power))
 }
 
+/** @deprecated Use agentTokensPerSec — kept for legacy duration estimates in tests. */
 export function storyPointProgressPerTick(
   effectiveParams: number,
-  gameDay = 0,
-  taskSp = 4,
+  _gameDay = 0,
+  _taskSp = 4,
 ): number {
-  const base = effectiveParams * SP_PROGRESS_PER_B_PARAM * spProgressTimeMultiplier(gameDay)
-  return base * paramsSpSpeedMultiplier(effectiveParams, taskSp, 2)
+  return effectiveParams * SP_PROGRESS_PER_B_PARAM
 }
 
+/** @deprecated Use tokenProgressIncrement. */
 export function storyPointIncrement(
   required: number,
   earned: number,
   effectiveParams: number,
-  gameDay = 0,
+  _gameDay = 0,
   deltaSec = 1,
 ): number {
-  const remaining = required - earned
-  if (remaining <= 0) return 0
-  const step = storyPointProgressPerTick(effectiveParams, gameDay, required) * deltaSec
-  return Math.min(remaining, step)
+  return tokenProgressIncrement(required, earned, effectiveParams, deltaSec)
+}
+
+/** @deprecated Use tokenProgressIncrement. */
+export function testStoryPointIncrement(
+  required: number,
+  earned: number,
+  effectiveParams: number,
+  _gameDay = 0,
+  deltaSec = 1,
+): number {
+  return tokenProgressIncrement(required, earned, effectiveParams, deltaSec)
 }
 
 export function leadScopeForReputation(reputation: number): { minTotal: number; maxTotal: number } {
@@ -119,17 +202,17 @@ export function countAssignedPmAgents(agents: Agent[]): number {
   return agents.filter((a) => a.isAutomation && a.automationJob === 'project_manager').length
 }
 
-/** True when another client gig can be accepted (requires an assigned PM per extra slot). */
+/** True when another client gig can be accepted. */
 export function hasOpenClientProjectSlot(
   meta: MetaProgress,
-  agents: Agent[],
+  _agents: Agent[],
   projects: Project[],
 ): boolean {
-  const maxSlots = maxClientProjectSlots(meta, countAssignedPmAgents(agents))
+  const maxSlots = maxClientProjectSlots(meta)
   return countActiveClientProjects(projects) < maxSlots
 }
 
-/** How many PM specialists the player may assign (course tier, or 1 if hallucination-unlocked). */
+/** How many PM specialists the player may assign (on/off). */
 export function maxAssignablePmAgents(
   state: Pick<GameState, 'vibingCourses' | 'vibingCourseTiers' | 'meta'>,
 ): number {
@@ -137,22 +220,26 @@ export function maxAssignablePmAgents(
   const courseTier =
     state.vibingCourseTiers.project_manager ??
     (state.vibingCourses.includes('project_manager') ? 1 : 0)
-  if (courseTier > 0) return courseTier
+  if (courseTier > 0) return 1
   return getHallucinationLevel(state.meta, 'project_manager') > 0 ? 1 : 0
 }
 
 /** How many available leads we want — one per empty client project slot. */
 export function clientLeadPipelineTarget(
   meta: MetaProgress,
-  assignedPmAgents: number,
+  _assignedPmAgents: number,
   projects: Project[],
 ): number {
-  const maxSlots = maxClientProjectSlots(meta, assignedPmAgents)
+  const maxSlots = maxClientProjectSlots(meta)
   return Math.max(0, maxSlots - countActiveClientProjects(projects))
 }
 
-export function formatSpPerTick(effectiveParams: number, gameDay = 0, taskSp = 4): string {
-  return `${storyPointProgressPerTick(effectiveParams, gameDay, taskSp).toFixed(2)} SP/tick`
+export function formatTokensPerSec(tokensPerSec: number): string {
+  return `${tokensPerSec.toFixed(1)} tok/s`
+}
+
+export function formatSpPerTick(effectiveParams: number, _gameDay = 0, _taskSp = 4): string {
+  return formatTokensPerSec(agentTokensPerSec(effectiveParams, 0, 1))
 }
 
 const GAME_DAY_START_HOUR = 8
@@ -223,47 +310,45 @@ export function reviewCommentSpawnCount(
   return Math.max(0, rolled - Math.max(0, reviewHallucinationLevel))
 }
 
-export function testStoryPointIncrement(
-  required: number,
-  earned: number,
-  effectiveParams: number,
-  gameDay = 0,
-  deltaSec = 1,
-): number {
-  const remaining = required - earned
-  if (remaining <= 0) return 0
-  const step = storyPointProgressPerTick(effectiveParams, gameDay, required) * TEST_SPEED_MULTIPLIER * deltaSec
-  return Math.min(remaining, step)
+export function fillAgentContextFromOutput(
+  agent: Agent,
+  outputTokens: number,
+  contextMultiplier = 1,
+): void {
+  agent.contextUsed += outputTokens * contextMultiplier
 }
 
+/** @deprecated Time-based context fill removed — use fillAgentContextFromOutput. */
 export function fillAgentContext(
   agent: Agent,
-  contextSizeK: number,
-  baseSpeed: number,
-  deltaSec: number,
+  _contextSizeK: number,
+  tokensProduced: number,
+  _deltaSec: number,
   contextMultiplier = 1,
 ): number {
-  const contextTokens = contextSizeK * 1000
-  const tok = (contextTokens / CONTEXT_FILL_SECONDS) * baseSpeed * deltaSec * contextMultiplier
-  agent.contextUsed += tok
-  return contextFillPct(agent.contextUsed, contextSizeK)
+  fillAgentContextFromOutput(agent, tokensProduced, contextMultiplier)
+  return agent.contextUsed
 }
 
-export function contextFillPct(contextUsed: number, contextSizeK: number): number {
-  const contextTokens = contextSizeK * 1000
+export function agentContextTokenCapacity(contextRamLevel: number, prestigeContextLevel: number): number {
+  const multiplier = 1 + contextRamLevel + prestigeContextLevel
+  return BASE_CONTEXT_TOKENS * multiplier
+}
+
+export function contextFillPct(contextUsed: number, contextTokens: number): number {
   if (contextTokens <= 0) return 0
   return (contextUsed / contextTokens) * 100
 }
 
 export function agentContextDisplayPct(
   agent: Pick<Agent, 'status' | 'contextUsed' | 'compactingRemainingSec'>,
-  contextSizeK: number,
+  contextTokens: number,
   compactDuration = COMPACT_DURATION_SEC,
 ): number {
   if (agent.status === 'compacting' && compactDuration > 0) {
     return (agent.compactingRemainingSec / compactDuration) * 100
   }
-  return contextFillPct(agent.contextUsed, contextSizeK)
+  return contextFillPct(agent.contextUsed, contextTokens)
 }
 
 export function agentIsBusy(agent: Agent): boolean {
@@ -287,7 +372,11 @@ export function countRosterIdleAgents(agents: Agent[]): number {
 }
 
 export function agentUsesGpu(agent: Agent): boolean {
-  return agentIsWorking(agent) && agent.job !== 'conductor'
+  if (agent.isAutomation) return false
+  if (agent.job === 'conductor') {
+    return (agent.conductorMoveRemaining ?? 0) > 0
+  }
+  return agentIsWorking(agent)
 }
 
 export function jobStatusFor(job: Agent['job']): Agent['status'] {
@@ -351,19 +440,26 @@ export function agentRoleLabel(job: AgentJob): string {
 }
 
 export function agentWorkProgressPct(
-  agent: Pick<Agent, 'job' | 'status' | 'jobProgress' | 'jobDuration'>,
+  agent: Pick<Agent, 'job' | 'status' | 'jobProgress' | 'jobDuration' | 'conductorMoveRemaining'>,
   task: Pick<Task, 'storyPointsRequired' | 'storyPointsEarned' | 'testStoryPointsEarned'> | null,
+  role?: TaskWorkRole,
 ): number | null {
+  if (agent.conductorMoveRemaining && agent.conductorMoveRemaining > 0) {
+    return Math.min(
+      100,
+      ((CONDUCTOR_MOVE_TOKEN_COST - agent.conductorMoveRemaining) / CONDUCTOR_MOVE_TOKEN_COST) * 100,
+    )
+  }
   if (agent.status === 'idle' || agent.status === 'compacting' || agent.job === 'conductor') {
     return null
   }
-  if (agent.job === 'code' && task) {
-    return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
+  if (!task || !role) return null
+  const required = taskTokensRequired(task.storyPointsRequired, role)
+  const earned = taskEarnedTokens(task, role)
+  if (agent.job === 'code' || agent.job === 'test' || agent.job === 'review') {
+    return required > 0 ? Math.min(100, (earned / required) * 100) : null
   }
-  if (agent.job === 'test' && task) {
-    return Math.min(100, (task.testStoryPointsEarned / task.storyPointsRequired) * 100)
-  }
-  if ((agent.job === 'refine' || agent.job === 'review') && agent.jobDuration > 0) {
+  if (agent.job === 'refine' && agent.jobDuration > 0) {
     return Math.min(100, (agent.jobProgress / agent.jobDuration) * 100)
   }
   return null
@@ -402,8 +498,28 @@ export function formatAgentProjectViewDutyLabel(
   return null
 }
 
-export function totalAgentSlots(state: Pick<GameState, 'agentSlotPurchases'>): number {
-  return BASE_AGENT_SLOTS + state.agentSlotPurchases
+export function totalRamGb(state: Pick<GameState, 'agentSlotPurchases' | 'meta'>): number {
+  return BASE_RAM_GB + state.agentSlotPurchases * RAM_PER_UPGRADE_GB
+}
+
+export function agentRamGb(effectiveParams: number, contextRamLevel: number): number {
+  return effectiveParams + contextRamLevel
+}
+
+export function rosterAgentRamGb(
+  agents: Agent[],
+  contextRamLevel: number,
+  paramsFor: (agent: Agent) => number,
+): number {
+  return agents.reduce((sum, agent) => sum + agentRamGb(paramsFor(agent), contextRamLevel), 0)
+}
+
+export function availableRamGb(state: GameState, paramsFor: (agent: Agent) => number): number {
+  return totalRamGb(state) - rosterAgentRamGb(state.agents, state.contextRamLevel ?? 0, paramsFor)
+}
+
+export function totalAgentSlots(state: Pick<GameState, 'agentSlotPurchases' | 'meta'>): number {
+  return totalRamGb(state)
 }
 
 export function totalGpuTicks(state: Pick<GameState, 'gpuTickPurchases'>): number {
@@ -419,7 +535,7 @@ export function gpuTickCost(purchases: number): number {
 }
 
 export function maxAgentSlotPurchases(apartment: GameState['apartment']): number {
-  return HOUSING_CONFIG[apartment].maxRamPurchases - BASE_AGENT_SLOTS
+  return HOUSING_CONFIG[apartment].maxRamPurchases
 }
 
 export function maxGpuTickPurchases(apartment: GameState['apartment']): number {
@@ -427,13 +543,23 @@ export function maxGpuTickPurchases(apartment: GameState['apartment']): number {
 }
 
 export function maxAgents(state: GameState): number {
-  return totalAgentSlots(state)
+  const params = effectiveModelParams(state.meta)
+  const perAgent = agentRamGb(params, state.contextRamLevel ?? 0)
+  if (perAgent <= 0) return state.agents.length
+  return state.agents.length + Math.max(0, Math.floor(availableRamGb(state, () => params) / perAgent))
 }
 
+export function canFitAgentRam(
+  state: GameState,
+  additionalParams: number,
+  paramsFor: (agent: Agent) => number,
+): boolean {
+  return availableRamGb(state, paramsFor) >= agentRamGb(additionalParams, state.contextRamLevel ?? 0)
+}
+
+/** @deprecated Use gpuShareForAgents. */
 export function agentTickSpeed(agents: Agent[], totalTicks: number): number {
-  const active = agents.filter(agentUsesGpu)
-  if (active.length === 0) return totalTicks
-  return totalTicks / active.length
+  return gpuShareForAgents(agents, totalTicks)
 }
 
 export function getFineTuneLevel(
@@ -452,14 +578,18 @@ export function getAgentParameters(
   fineTuneTiers: Partial<Record<string, number>> = {},
 ): number {
   let base = effectiveModelParams(meta)
-  if (!job || job === 'conductor' || agentIsAutomationJob(job)) return base
+  if (!job || agentIsAutomationJob(job)) return base
   if (job === 'code') {
     base *= codeHallucinationParamMultiplier(meta)
   }
-  const tuneId = `tune-${modelTierIndex}-${job}`
+  const tuneRole = job === 'conductor' ? 'conductor' : job
+  if (tuneRole === 'procurement' || tuneRole === 'sales' || tuneRole === 'marketing' || tuneRole === 'customer' || tuneRole === 'accounting' || tuneRole === 'project_manager' || tuneRole === 'offline') {
+    return base
+  }
+  const tuneId = `tune-${modelTierIndex}-${tuneRole}`
   const level = getFineTuneLevel(fineTuneTiers, fineTunes, tuneId)
   if (level > 0) {
-    return base * (1 + FINE_TUNE_BONUS * level)
+    return base * fineTuneMultiplier(level)
   }
   return base
 }
@@ -498,12 +628,20 @@ export function hasActiveAutomationAgent(agents: Agent[], job: AutomationAgentJo
   return agents.some((a) => a.isAutomation && a.automationJob === job && a.job === job)
 }
 
+export function hasHotSwappingCourse(vibingCourses: string[]): boolean {
+  return vibingCourses.includes('hot_swapping')
+}
+
+export function hasProjectManagerActive(agents: Agent[]): boolean {
+  return hasActiveAutomationAgent(agents, 'project_manager')
+}
+
 export function automationAgentDutyLabel(job: AutomationAgentJob): string {
   switch (job) {
     case 'procurement':
       return 'Procuring upgrades'
     case 'sales':
-      return 'Closing leads & shipping'
+      return 'Closing leads'
     case 'marketing':
       return 'Marketing funnel crimes'
     case 'customer':
@@ -511,7 +649,7 @@ export function automationAgentDutyLabel(job: AutomationAgentJob): string {
     case 'accounting':
       return 'Creative accounting'
     case 'project_manager':
-      return 'Portfolio ceremonies'
+      return 'Auto-delivering & conducting'
     case 'offline':
       return 'Hallucinating elapsed time'
   }

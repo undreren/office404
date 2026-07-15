@@ -35,8 +35,19 @@ export const CONTEXT_FILL_SECONDS = 120
 /** Real seconds to auto-compact and reset context after overflow (base; reducible via meta). */
 export const COMPACT_DURATION_SEC = 30
 
-/** Story points earned per tick per effective billion model parameters. */
+/** @deprecated Story-point pacing removed; kept for save migration estimates only. */
 export const SP_PROGRESS_PER_B_PARAM = 0.1
+
+/** Starting RAM (GB) at new game. */
+export const BASE_RAM_GB = 10
+/** RAM (GB) added per shop upgrade. */
+export const RAM_PER_UPGRADE_GB = 10
+/** Base context window (tokens) before RAM / prestige multipliers. */
+export const BASE_CONTEXT_TOKENS = 4000
+/** Tokens a conductor must produce to complete one reassignment. */
+export const CONDUCTOR_MOVE_TOKEN_COST = 20
+/** Output multiplier for the nth stacked agent on a task (n = 0 is first extra). */
+export const BEST_OF_N_DECAY = 0.75
 
 export const MIN_PROJECT_DAYS = 14
 export const SP_PROGRESS_DAY_DIVISOR = 60

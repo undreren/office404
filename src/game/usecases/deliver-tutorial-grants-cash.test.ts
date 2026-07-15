@@ -4,20 +4,22 @@ import { deliverProjectMsg } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { T0 } from './_helpers/testConstants'
-import type { GameState, Task } from '../types'
+import type { GameState } from '../types'
+import { fullyShippableTask } from './_helpers/taskTokens'
+import { taskTokensRequired } from '../mechanics'
 
 describe('deliver-tutorial-grants-cash', () => {
   it('matches use case invariants', () => {
     const base = initialPlaying()
     const project = base.projects[0]!
     const req = project.requirements[0]!
-    const task: Task = {
+    const task = fullyShippableTask({
       id: 'task-tutorial',
       projectId: project.id,
       requirementId: req.id,
       title: 'Tutorial task',
       storyPointsRequired: 2,
-      storyPointsEarned: 2,
+      storyPointsEarned: 0,
       complexity: 2,
       refined: true,
       status: 'merged',
@@ -32,8 +34,9 @@ describe('deliver-tutorial-grants-cash', () => {
       sourceTaskId: null,
       isReviewComment: false,
       reviewed: true,
-      testStoryPointsEarned: 2,
-    }
+      testStoryPointsEarned: 0,
+    })
+    const testTok = taskTokensRequired(2, 'test')
     const before: GameState = {
       ...base,
       cash: 0,
@@ -43,8 +46,8 @@ describe('deliver-tutorial-grants-cash', () => {
           payment: TUTORIAL_PAYMENT,
           requirements: [{ ...req, status: 'refined' }],
           tasks: [task],
-          testStoryPointsRequired: 2,
-          testStoryPointsCompleted: 2,
+          testStoryPointsRequired: testTok,
+          testStoryPointsCompleted: testTok,
           totalStoryPoints: 2,
         },
       ],

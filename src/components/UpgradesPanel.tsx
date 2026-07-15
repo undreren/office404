@@ -11,6 +11,7 @@ import {
   fineTuneId,
 } from '../game/models'
 import { formatCash } from '../game/cash'
+import { RAM_PER_UPGRADE_GB } from '../game/constants'
 import { getFineTuneLevel, gpuTickCost, maxAgentSlotPurchases, maxGpuTickPurchases, ramSlotCost } from '../game/mechanics'
 import {
   buyAgentSlotMsg,
@@ -149,7 +150,7 @@ function MetaFaceMarketspaceSection({ showMaxedUpgrades }: { showMaxedUpgrades: 
               <span>{agentSlots} total</span>
             </header>
             <p className="vendor-tagline">HR calls it headcount. You call it hope.</p>
-            <p className="hint">+1 roster slot. Housing caps how many you can buy ({maxRamPurchases} purchasable here).</p>
+            <p className="hint">+{RAM_PER_UPGRADE_GB} GB RAM. Housing caps how many you can buy ({maxRamPurchases} purchasable here).</p>
             <button
               type="button"
               className="btn btn--small"

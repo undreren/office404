@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { CONTEXT_FILL_SECONDS } from '../constants'
 import { applyOfflineProgressMsg, buyVibingCourseMsg, timeElapsed } from '../messages'
-import { contextFillPct } from '../mechanics'
-import { contextSizeForLevel, getModelTier } from '../models'
+import { agentContextTokenCapacity, contextFillPct } from '../mechanics'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { stateWithCash } from './_helpers/stateWithCash'
@@ -77,11 +75,9 @@ describe('offline-progress-simulates-work', () => {
   })
 
   it('does not leave staffed coders at full context with zero task progress', () => {
-    const awaySec = CONTEXT_FILL_SECONDS - 1
+    const awaySec = 30
     const before = codingAgentState()
-    const model = getModelTier(0)!
-    const contextSizeK = contextSizeForLevel(model.contextSize, 0)
-    const contextTokens = contextSizeK * 1000
+    const contextTokens = agentContextTokenCapacity(0, 0)
 
     const after = dispatchChain(before, [applyOfflineProgressMsg(T0 + awaySec * 1000, awaySec)])
     const agent = after.agents.find((a) => a.job === 'code')!
@@ -90,6 +86,6 @@ describe('offline-progress-simulates-work', () => {
     expect(earned).toBeGreaterThan(0)
     expect(agent.contextUsed).toBeLessThan(contextTokens)
     expect(agent.status).not.toBe('compacting')
-    expect(contextFillPct(agent.contextUsed, contextSizeK)).toBeLessThan(100)
+    expect(contextFillPct(agent.contextUsed, contextTokens)).toBeLessThan(100)
   })
 })

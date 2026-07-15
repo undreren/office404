@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { BASE_RAM_GB, RAM_PER_UPGRADE_GB } from '../constants'
 import { createInitialState, agentCapacity } from '../simulation/gameLogic'
 import { createDefaultMeta, setHallucinationLevel } from '../meta'
 
@@ -12,7 +13,7 @@ describe('starting-ram-gpu-hallucinations', () => {
 
     expect(state.agentSlotPurchases).toBe(2)
     expect(state.gpuTickPurchases).toBe(1)
-    expect(agentCapacity(state).agentSlots).toBe(3)
+    expect(agentCapacity(state).agentSlots).toBe(BASE_RAM_GB + 2 * RAM_PER_UPGRADE_GB)
     expect(agentCapacity(state).gpuTicks).toBe(2)
   })
 
