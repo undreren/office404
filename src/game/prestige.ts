@@ -65,7 +65,7 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   starting_capital: {
     label: 'Starting capital',
     tagline: 'Inherited trauma, inherited liquidity.',
-    description: '+$500 starting cash per level on every new run after retirement.',
+    description: '+$2,500 starting cash per level on every new run after retirement.',
   },
   starting_ram: {
     label: 'Starting RAM',
@@ -272,7 +272,7 @@ export function effectiveModelParams(meta: MetaProgress): number {
 }
 
 export function startingCapitalBonus(meta: MetaProgress): number {
-  return getHallucinationLevel(meta, 'starting_capital') * 500
+  return getHallucinationLevel(meta, 'starting_capital') * 2500
 }
 
 export function startingRamBonus(meta: MetaProgress): number {
