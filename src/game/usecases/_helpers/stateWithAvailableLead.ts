@@ -13,7 +13,7 @@ export function stateWithAvailableLead(seed: number = SEED): GameState {
     agents: [],
   }
   const ctx = ctxFrom(state)
-  const lead = generateLead(ctx, state.reputation, state.gameDay)
+  const lead = generateLead(ctx, state.reputation, state.gameDay, 0)
   return {
     ...state,
     leads: [lead],

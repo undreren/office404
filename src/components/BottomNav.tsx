@@ -6,7 +6,6 @@ const TABS: { id: TabId; icon: string; label: string }[] = [
   { id: 'status', icon: '📊', label: 'Status' },
   { id: 'shop', icon: '🛒', label: 'Shop' },
   { id: 'projects', icon: '📦', label: 'Projects' },
-  { id: 'leads', icon: '📨', label: 'Leads' },
   { id: 'hallucinations', icon: '✨', label: 'Hallucinations' },
 ]
 
@@ -18,7 +17,7 @@ export function BottomNav() {
   const hasDeliverable = projects.some((p) => isReadyToDeliver(p))
 
   function badgeFor(tab: TabId): number | 'dot' | null {
-    if (tab === 'leads' && availableLeads > 0) return availableLeads
+    if (tab === 'projects' && availableLeads > 0) return availableLeads
     if (tab === 'projects' && hasDeliverable) return 'dot'
     return null
   }

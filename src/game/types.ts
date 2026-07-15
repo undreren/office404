@@ -45,7 +45,7 @@ export type LeadSource = 'real' | 'synthetic'
 
 export type GamePhase = 'playing' | 'singularity'
 
-export type MainTabId = 'status' | 'shop' | 'projects' | 'leads' | 'product' | 'hallucinations'
+export type MainTabId = 'status' | 'shop' | 'projects' | 'product' | 'hallucinations'
 
 export type ApartmentTier =
   | 'cardboard'
@@ -201,6 +201,8 @@ export interface Project {
   /** Parked when client project cap drops (e.g. PM unassigned) — no work or staffing */
   isLocked?: boolean
   mrrContribution: number
+  /** Client project column on the Projects board (0-based). */
+  slotIndex: number
 }
 
 export interface Lead {
@@ -218,6 +220,8 @@ export interface Lead {
   /** Estimated $/SP for customer agent UI */
   estimatedDollarsPerSp?: number
   ghostRisk?: number
+  /** Column on the Projects board where this lead appears (0-based). */
+  slotIndex: number
 }
 
 export interface ProductBacklogItem {

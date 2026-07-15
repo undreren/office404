@@ -48,11 +48,7 @@ export const TAB_INTRO_COPY: Record<
   },
   projects: {
     title: 'Projects',
-    body: 'Active client work. Requirements refine into tasks, agents push them through code → review → QA, then you deliver for payment. Miss deadlines at your own peril.',
-  },
-  leads: {
-    title: 'Leads',
-    body: 'New business opportunities. Accept to add a project or reject to stay sane.',
+    body: 'Your client pipeline in columns. Each column holds an incoming lead or active project — accept in place, ship when ready, and the column refills with the next lead.',
   },
   product: {
     title: 'Product',
@@ -86,6 +82,6 @@ export const TUTORIAL_STEP_COPY: Record<TutorialStep, { title: string; body: str
   },
   3: {
     title: 'Step 4 — Deliver',
-    body: 'When every task is merged and QA is complete, hit Deliver to ship the tutorial project and collect your first payment. Leads unlock after this.',
+    body: 'When every task is merged and QA is complete, hit Deliver to ship the tutorial project and collect your first payment. Your first client lead appears in the same column.',
   },
 }

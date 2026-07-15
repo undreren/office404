@@ -70,6 +70,9 @@ import {
   bestOfNTier,
   bestOfNStackMultiplier,
   canFitAgentRam,
+  clientSlotsNeedingLeads,
+  isClientSlotOccupiedByProject,
+  availableLeadInSlot,
   clientLeadPipelineTarget,
   computePrBaseQuality,
   conductorTier,
@@ -444,7 +447,7 @@ export function createInitialState(
     tutorialDone = false
     dayZeroMessage = 'Day 0. $0. One agent. One laptop. Infinite audacity.'
   } else {
-    leads = [generateLead(ctx, INITIAL_REPUTATION, 0)]
+    leads = [generateLead(ctx, INITIAL_REPUTATION, 0, 0)]
     dayZeroMessage = `Day 0. ${formatCash(cash)}. No tutorial. One lead on the board.`
   }
 
@@ -1432,12 +1435,12 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     countAssignedPmAgents(state.agents),
     nextProjects,
   )
-  if (
-    state.tutorialDone &&
-    availableLeadCount(nextLeads) < pipelineTarget
-  ) {
-    nextLeads = [generateLead(ctx, reputation, gameDay), ...nextLeads]
-    nextEvents = pushEvent(ctx, meta, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
+  if (state.tutorialDone) {
+    const slotsNeeding = clientSlotsNeedingLeads(meta, nextProjects, nextLeads)
+    if (slotsNeeding.length > 0 && availableLeadCount(nextLeads) < pipelineTarget) {
+      nextLeads = [generateLead(ctx, reputation, gameDay, slotsNeeding[0]!), ...nextLeads]
+      nextEvents = pushEvent(ctx, meta, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
+    }
   }
 
   for (const project of nextProjects) {
@@ -2049,6 +2052,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   if (!lead || lead.status !== 'available') return state
   if (state.reputation < lead.repRequired) return state
   if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects)) return state
+  if (isClientSlotOccupiedByProject(state.projects, lead.slotIndex)) return state
 
   const project = createProjectFromLead(
     ctx,
@@ -2160,8 +2164,9 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   const tutorialDone = state.tutorialDone || !nextProjects.some((p) => p.isTutorial)
 
   let nextLeads = state.leads
+  const freedSlot = project.slotIndex
   if (tutorialJustCompleted) {
-    nextLeads = [generateLead(ctx, reputation, state.gameDay)]
+    nextLeads = [generateLead(ctx, reputation, state.gameDay, freedSlot)]
     nextEvents = pushEvent(
       ctx,
       state.meta,
@@ -2170,23 +2175,16 @@ export function deliverProject(state: GameState, projectId: string, at: number):
       'New client lead appeared. They want it yesterday.',
       at,
     )
-  } else if (tutorialDone) {
-    const pipelineTarget = clientLeadPipelineTarget(
+  } else if (tutorialDone && !availableLeadInSlot(nextLeads, freedSlot)) {
+    nextLeads = [generateLead(ctx, reputation, state.gameDay, freedSlot), ...nextLeads]
+    nextEvents = pushEvent(
+      ctx,
       state.meta,
-      countAssignedPmAgents(state.agents),
-      nextProjects,
+      nextEvents,
+      'lead',
+      'New client lead appeared. They want it yesterday.',
+      at,
     )
-    if (availableLeadCount(nextLeads) < pipelineTarget) {
-      nextLeads = [generateLead(ctx, reputation, state.gameDay), ...nextLeads]
-      nextEvents = pushEvent(
-        ctx,
-        state.meta,
-        nextEvents,
-        'lead',
-        'New client lead appeared. They want it yesterday.',
-        at,
-      )
-    }
   }
 
   return withCtx({
@@ -2215,9 +2213,12 @@ function salesAutoAcceptSources(meta: MetaProgress): Set<'real' | 'synthetic'> {
 function findAutoAcceptableLead(state: GameState): string | null {
   if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects)) return null
   const sources = salesAutoAcceptSources(state.meta)
-  const lead = state.leads.find(
-    (l) => l.status === 'available' && sources.has(l.source) && state.reputation >= l.repRequired,
-  )
+  const lead = state.leads
+    .filter(
+      (l) =>
+        l.status === 'available' && sources.has(l.source) && state.reputation >= l.repRequired,
+    )
+    .sort((a, b) => a.slotIndex - b.slotIndex)[0]
   return lead?.id ?? null
 }
 

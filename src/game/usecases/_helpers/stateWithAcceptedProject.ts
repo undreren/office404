@@ -9,7 +9,7 @@ import { SEED, T0 } from './testConstants'
 export function stateWithAcceptedProject(seed: number = SEED): GameState {
   const base = { ...initialPlaying(seed), tutorialDone: true, projects: [] }
   const ctx = ctxFrom(base)
-  const lead = generateLead(ctx, base.reputation, base.gameDay)
+  const lead = generateLead(ctx, base.reputation, base.gameDay, 0)
   const withLead = {
     ...base,
     leads: [lead],

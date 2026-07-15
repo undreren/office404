@@ -21,7 +21,7 @@ describe('lead-backfills-on-deliver', () => {
   it('does not spawn an extra lead when the inbox already matches empty slots', () => {
     const base = { ...initialPlaying(), tutorialDone: true, projects: [] }
     const ctx = ctxFrom(base)
-    const waitingLead = generateLead(ctx, base.reputation, base.gameDay)
+    const waitingLead = generateLead(ctx, base.reputation, base.gameDay, 0)
     const withLead = {
       ...base,
       leads: [{ ...waitingLead }],

@@ -378,6 +378,7 @@ export function defaultProjectFields(
     useConductor: false,
     duplicateProjectId: null,
     mrrContribution: 0,
+    slotIndex: 0,
   }
 }
 
@@ -408,6 +409,7 @@ export function generateLead(
   ctx: SimCtx,
   reputation: number,
   gameDay: number,
+  slotIndex: number,
   source: LeadSource = 'real',
   syntheticPayMult = 1,
 ): Lead {
@@ -444,6 +446,7 @@ export function generateLead(
     source,
     estimatedDollarsPerSp: payment / Math.max(1, storyPoints),
     ghostRisk: source === 'synthetic' ? 0.1 : 0,
+    slotIndex,
   }
 }
 
@@ -481,6 +484,7 @@ export function createProjectFromLead(
     isSynthetic: lead.source === 'synthetic',
     repPenaltyMultiplier: 1 + effectiveDuration / 40,
     ...defaultProjectFields(ctx, projectId, sp, 'client', maxChunkSp),
+    slotIndex: lead.slotIndex,
   }
 }
 
