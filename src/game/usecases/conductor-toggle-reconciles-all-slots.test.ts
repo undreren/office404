@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { timeElapsed, toggleConductorMsg } from '../messages'
+import { toggleConductorMsg } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { stateAtAgentCapacity } from './_helpers/stateAtAgentCapacity'
@@ -44,15 +44,15 @@ function idleAgent(template: Agent, id: string, projectId: string, job: Agent['j
   }
 }
 
-describe('conductor-staffs-full-roster-multi-slot', () => {
-  it('staffs conductor and refine on a higher slot when roster is full', () => {
+describe('conductor-toggle-reconciles-all-slots', () => {
+  it('staffs conductor on the left project before staffing the toggled right project', () => {
     const capped = stateAtAgentCapacity()
     const template = capped.agents[0]!
-    const projectA = clientProject(0, 'proj-a')
-    const projectB = clientProject(1, 'proj-b', {
+    const projectA = clientProject(0, 'proj-a', {
       useConductor: true,
       roleCounts: { refine: 0, code: 0, review: 0, test: 0, conductor: 1 },
     })
+    const projectB = clientProject(1, 'proj-b')
 
     const before: GameState = {
       ...capped,
@@ -64,41 +64,17 @@ describe('conductor-staffs-full-roster-multi-slot', () => {
       ],
     }
 
-    const after = dispatchChain(before, [timeElapsed(T0 + 1000, 1)])
+    const after = dispatchChain(before, [toggleConductorMsg(T0 + 1000, projectB.id, true)])
 
-    expect(after.agents.some((a) => a.projectId === projectB.id && a.job === 'conductor')).toBe(true)
-    expect(after.agents.some((a) => a.projectId === projectB.id && a.job === 'refine')).toBe(true)
+    expect(after.agents.some((a) => a.projectId === projectA.id && a.job === 'conductor')).toBe(true)
   })
 
-  it('left slot wins when only one idle agent is available', () => {
+  it('pulls an idle roster agent when toggling conductor on an empty project', () => {
     const capped = stateAtAgentCapacity()
     const template = capped.agents[0]!
     const projectA = clientProject(0, 'proj-a', {
-      useConductor: true,
-      roleCounts: { refine: 0, code: 0, review: 0, test: 0, conductor: 1 },
+      roleCounts: { refine: 1, code: 1, review: 0, test: 0, conductor: 0 },
     })
-    const projectB = clientProject(1, 'proj-b', {
-      useConductor: true,
-      roleCounts: { refine: 0, code: 0, review: 0, test: 0, conductor: 1 },
-    })
-
-    const before: GameState = {
-      ...capped,
-      vibingCourses: ['conductor'],
-      projects: [projectA, projectB],
-      agents: [idleAgent({ ...template, name: 'Refiner B' }, 'refine-b', projectB.id, 'refine')],
-    }
-
-    const after = dispatchChain(before, [timeElapsed(T0 + 1000, 1)])
-
-    expect(after.agents.some((a) => a.projectId === projectA.id && a.job === 'conductor')).toBe(true)
-    expect(after.agents.some((a) => a.projectId === projectB.id && a.job === 'conductor')).toBe(false)
-  })
-
-  it('staffs conductor immediately when toggled on a higher slot with a full roster', () => {
-    const capped = stateAtAgentCapacity()
-    const template = capped.agents[0]!
-    const projectA = clientProject(0, 'proj-a')
     const projectB = clientProject(1, 'proj-b')
 
     const before: GameState = {

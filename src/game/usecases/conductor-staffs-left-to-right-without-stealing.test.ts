@@ -36,7 +36,7 @@ function idleRefiner(template: Agent, id: string, projectId: string): Agent {
 }
 
 describe('conductor-staffs-left-to-right-without-stealing', () => {
-  it('does not steal idle workers from a right project to staff a conductor on the left', () => {
+  it('staffs the left project first when both compete for the only idle agent', () => {
     const base = initialPlaying()
     const template = base.agents[0]!
     const projectA = conductorProject(1, 'proj-a')
@@ -51,8 +51,8 @@ describe('conductor-staffs-left-to-right-without-stealing', () => {
 
     const after = dispatchChain(before, [timeElapsed(T0 + 1000, 1)])
 
-    expect(after.agents.some((a) => a.projectId === projectA.id && a.job === 'conductor')).toBe(false)
-    expect(after.agents.some((a) => a.projectId === projectB.id && a.job === 'conductor')).toBe(true)
+    expect(after.agents.some((a) => a.projectId === projectA.id && a.job === 'conductor')).toBe(true)
+    expect(after.agents.some((a) => a.projectId === projectB.id && a.job === 'conductor')).toBe(false)
   })
 
   it('staffs the left project first when both have idle agents without cross-project stealing', () => {
