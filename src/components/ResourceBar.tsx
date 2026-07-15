@@ -49,8 +49,11 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
             OFFICE 404
           </span>
           <small aria-label={`Game clock: ${formatGameClock(gameDay)}${paused ? ', paused' : ''}`}>
-            Intelligence Not Found · {formatGameClock(gameDay)}
-            {paused && <span className="resource-bar__paused"> · Paused</span>}
+            <span className="resource-bar__tagline">Intelligence Not Found</span>
+            <span className="resource-bar__clock">
+              {formatGameClock(gameDay)}
+              {paused && <span className="resource-bar__paused"> · Paused</span>}
+            </span>
           </small>
         </div>
         <NewGameButton />
