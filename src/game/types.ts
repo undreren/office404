@@ -250,8 +250,6 @@ export interface GameState {
   apartmentLeaseRemaining: number
   /** Purchased +10 GB RAM upgrades */
   agentSlotPurchases: number
-  /** Global extra GB per agent spent on context window (all roster agents). */
-  contextRamLevel: number
   /** Purchased +1 GPU tick upgrades */
   gpuTickPurchases: number
   mrr: number

@@ -25,7 +25,6 @@ import {
   resetGame,
   retire,
   selectTask,
-  setContextRamLevel,
   syncOfflineSpecialist,
   toggleSpecialistRole,
   toggleConductor,
@@ -90,10 +89,6 @@ export function adjustRoleCountMsg(
   delta: number,
 ): GameMessage {
   return { at, apply: (state) => adjustRoleCount(state, projectId, job, delta, at) }
-}
-
-export function setContextRamLevelMsg(at: number, level: number): GameMessage {
-  return { at, apply: (state) => setContextRamLevel(state, level, at) }
 }
 
 export function toggleConductorMsg(at: number, projectId: string, enabled: boolean): GameMessage {

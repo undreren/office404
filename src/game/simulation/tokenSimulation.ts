@@ -17,11 +17,8 @@ import { getHallucinationLevel } from '../prestige'
 import type { Agent, AgentJob, GameState, Project, Task, TaskWorkRole } from '../types'
 import { dispatchableAgents } from '../projects'
 
-export function contextTokensForState(state: Pick<GameState, 'meta' | 'contextRamLevel'>): number {
-  return agentContextTokenCapacity(
-    state.contextRamLevel ?? 0,
-    getHallucinationLevel(state.meta, 'context'),
-  )
+export function contextTokensForState(state: Pick<GameState, 'meta'>): number {
+  return agentContextTokenCapacity(getHallucinationLevel(state.meta, 'context'))
 }
 
 export function agentOutputTokensPerSec(

@@ -341,8 +341,8 @@ function RequirementBlock({
 }
 
 function AgentCrewRow({ agent, project }: { agent: Agent; project: Project }) {
-  const { meta, contextRamLevel } = useGameState()
-  const contextTokens = agentContextTokenCapacity(contextRamLevel ?? 0, getHallucinationLevel(meta, 'context'))
+  const { meta } = useGameState()
+  const contextTokens = agentContextTokenCapacity(getHallucinationLevel(meta, 'context'))
   const task = agent.taskId ? project.tasks.find((t) => t.id === agent.taskId) : undefined
   const duty = formatAgentProjectViewDutyLabel(agent, task?.title)
   const fill = agentContextDisplayPct(agent, contextTokens)

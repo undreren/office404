@@ -38,10 +38,13 @@ function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
 }
 
 function normalizeLoadedState(state: GameState): GameState {
-  const ctx = ctxFrom(state)
+  const { contextRamLevel: _removed, ...withoutContextRam } = state as GameState & {
+    contextRamLevel?: number
+  }
+  const ctx = ctxFrom(withoutContextRam as GameState)
   const migrated = migrateAssignedSpecialistRoles(
     repairDuplicateTaskIds({
-      ...state,
+      ...(withoutContextRam as GameState),
       seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
       seenCompactionIntro: state.seenCompactionIntro ?? false,
       fineTuneTiers: state.fineTuneTiers ?? {},
@@ -135,14 +138,16 @@ function migrateState(state: GameState, fromVersion: number): GameState {
   if (fromVersion < 13) {
     next = {
       ...next,
-      contextRamLevel: next.contextRamLevel ?? 0,
       vibingCourses: next.vibingCourses.filter((id) => id !== 'auto_conductor'),
       assignedSpecialistRoles: next.assignedSpecialistRoles.filter(
         (role, idx, arr) => role !== 'project_manager' || arr.indexOf('project_manager') === idx,
       ),
     }
   }
-  return next
+  const { contextRamLevel: _removed, ...withoutContextRam } = next as GameState & {
+    contextRamLevel?: number
+  }
+  return withoutContextRam as GameState
 }
 
 export function partializeSave(state: GameState): PersistedSave {
