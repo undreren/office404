@@ -774,12 +774,12 @@ function LeadColumnCard({
 }
 
 export function ProjectsPanel() {
-  const { projects, leads, reputation, gameDay, tutorialDone, meta, agents } = useGameState()
+  const { projects, leads, reputation, gameDay, tutorialDone, meta, agents, vibingCourseTiers } = useGameState()
   const { projectIndex, setProjectIndex, acceptLead } = useTabNav()
   const dispatchAt = useGameDispatchAt()
-  const maxSlots = maxClientProjectSlots(meta)
+  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
   const columnCount = tutorialDone ? maxSlots : 1
-  const canAcceptLeads = hasOpenClientProjectSlot(meta, agents, projects)
+  const canAcceptLeads = hasOpenClientProjectSlot(meta, agents, projects, vibingCourseTiers)
 
   return (
     <section className="panel projects-panel">

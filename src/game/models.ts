@@ -51,7 +51,7 @@ export const FINE_TUNE_BASE_COST = 90
 /** @deprecated Use fineTuneCost() — kept for imports that expect a flat base. */
 export const FINE_TUNE_COST = FINE_TUNE_BASE_COST
 export const FINE_TUNE_COST_MULT = 1.8
-export const FINE_TUNE_MAX_TIER = 10
+export const FINE_TUNE_MAX_TIER = 20
 
 export const FINE_TUNE_ROLES = ['code', 'review', 'refine', 'test', 'conductor'] as const
 

@@ -71,6 +71,9 @@ export const PLATEAU_HOURS = 2
 export const LADDER_BASE_CASH = 1_000_000
 export const PRESTIGE_START_CASH = 200
 
+/** Sublinear exponent for client lead total payment (1 = linear; lower = flatter $/SP at high SP). */
+export const CLIENT_PAY_SP_EXPONENT = 0.75
+
 export const REP_ZERO_PAY_MULT = 0.5
 export const REP_ZERO_MAX_TASK_SP = 3
 
