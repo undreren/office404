@@ -2,7 +2,6 @@ export const BEST_OF_N_COURSE_ID = 'best_of_n'
 export const BEST_OF_N_MAX_TIER = 4
 
 export const CONDUCTOR_COURSE_ID = 'conductor'
-export const CONDUCTOR_MAX_TIER = 4
 
 export const REFINEMENT_COURSE_ID = 'refinement'
 export const REFINEMENT_MAX_TIER = 5
@@ -37,8 +36,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'Someone has to watch them. Might as well be someone fake.',
     cost: 350,
     description:
-      'Toggle Conductor per project — auto-staffs refine, code, review, and test (big tasks first). Team cap 3 +1 per tier (max 6 at T4). Moves cost 20 tokens.',
-    maxTier: CONDUCTOR_MAX_TIER,
+      'Toggle Conductor per project — auto-staffs refine, code, review, and test (big tasks first). No per-project agent cap. Moves cost 20 tokens.',
   },
   {
     id: REFINEMENT_COURSE_ID,
