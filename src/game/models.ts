@@ -51,15 +51,16 @@ export const FINE_TUNE_BASE_COST = 90
 /** @deprecated Use fineTuneCost() — kept for imports that expect a flat base. */
 export const FINE_TUNE_COST = FINE_TUNE_BASE_COST
 export const FINE_TUNE_COST_MULT = 1.8
-export const FINE_TUNE_MAX_TIER = 4
+export const FINE_TUNE_MAX_TIER = 10
 
-export const FINE_TUNE_ROLES = ['code', 'review', 'refine', 'test'] as const
+export const FINE_TUNE_ROLES = ['code', 'review', 'refine', 'test', 'conductor'] as const
 
 export const FINE_TUNE_LABELS: Record<(typeof FINE_TUNE_ROLES)[number], string> = {
   code: 'Code-tuned',
   review: 'Review-tuned',
   refine: 'Refine-tuned',
   test: 'Test-tuned',
+  conductor: 'Conduct-tuned',
 }
 
 export const FINE_TUNE_TAGLINES: Record<(typeof FINE_TUNE_ROLES)[number], string> = {
@@ -67,13 +68,15 @@ export const FINE_TUNE_TAGLINES: Record<(typeof FINE_TUNE_ROLES)[number], string
   review: 'Nitpicks with confidence and a thesaurus.',
   refine: 'Splits tasks until Jira weeps.',
   test: 'Finds bugs in your test suite.',
+  conductor: 'Reassignments complete faster. Agents still argue.',
 }
 
 export const FINE_TUNE_DESCRIPTIONS: Record<(typeof FINE_TUNE_ROLES)[number], string> = {
-  code: `+12% effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on coding tasks for the current model tier.`,
-  review: `+12% effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on review tasks for the current model tier.`,
-  refine: `+12% effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on refinement tasks for the current model tier.`,
-  test: `+12% effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on QA tasks for the current model tier.`,
+  code: `×1.12 effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on coding output.`,
+  review: `×1.12 effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on review output.`,
+  refine: `×1.12 effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on refinement output.`,
+  test: `×1.12 effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on QA output.`,
+  conductor: `×1.12 effective parameters per level (max T${FINE_TUNE_MAX_TIER}) on conductor move speed.`,
 }
 
 export const MODEL_ID_MIGRATION: Record<string, string> = {

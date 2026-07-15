@@ -233,21 +233,30 @@ describe('best-of-n compaction', () => {
       agents: [
         {
           ...codeAgent('coder-1', project.id, task.id),
-          contextUsed: 15950,
+          contextUsed: 3995,
         },
         codeAgent('coder-2', project.id, task.id),
       ],
     }
 
-    const afterCompact = dispatchChain(before, [timeElapsed(T0 + 100, 5)])
+    const withProgress = dispatchChain(before, [timeElapsed(T0 + 50, 2)])
+    const beforeCompact = {
+      ...withProgress,
+      agents: withProgress.agents.map((a, i) =>
+        i === 0 ? { ...a, contextUsed: 3995 } : a,
+      ),
+    }
+
+    const afterCompact = dispatchChain(beforeCompact, [timeElapsed(T0 + 100, 5)])
     expect(afterCompact.agents[0]!.status).toBe('compacting')
     const earnedWhilePeerDown = afterCompact.projects[0]!.tasks[0]!.storyPointsEarned
     expect(earnedWhilePeerDown).toBeGreaterThan(0)
 
     const afterReboot = dispatchChain(afterCompact, [timeElapsed(T0 + 200, 35)])
+    const earnedBeforeReboot = afterCompact.projects[0]!.tasks[0]!.storyPointsEarned
     expect(afterReboot.agents[0]!.status).not.toBe('compacting')
     expect(afterReboot.projects[0]!.tasks[0]!.storyPointsEarned).toBeGreaterThanOrEqual(
-      earnedWhilePeerDown,
+      earnedBeforeReboot,
     )
   })
 })

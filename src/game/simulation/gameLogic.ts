@@ -12,10 +12,11 @@ import type {
   Task,
   TaskStatus,
 } from '../types'
-import { contextSizeForLevel, FINE_TUNE_MAX_TIER, fineTuneCost, fineTuneId, getModelTier, MODEL_TIERS } from '../models'
+import { FINE_TUNE_MAX_TIER, fineTuneCost, fineTuneId, getModelTier, MODEL_TIERS } from '../models'
 import {
   allReviewCommentsAddressed,
   CONDUCTOR_ROLE_PRIORITY,
+  agentsPerTaskForProject,
   conductorRolePriority,
   createBugFixTask,
   createProjectFromLead,
@@ -26,6 +27,7 @@ import {
   dispatchRefineTarget,
   dispatchReviewTask,
   dispatchTestTask,
+  projectHasConductorPipelineWork,
   projectHasRefineWork,
   projectHasTestWork,
   projectRoleHasWork,
@@ -37,8 +39,16 @@ import {
   taskIsTested,
   taskNeedsRefinement,
 } from '../projects'
+import {
+  applyOutputTokensToContext,
+  agentOutputTokensPerSec,
+  conductorMoveStep,
+  contextTokensForState,
+  stackIndexOnTask,
+} from './tokenSimulation'
 import { generateAgentName, generatePersonality } from '../personalities'
 import {
+  CONDUCTOR_MOVE_TOKEN_COST,
   INITIAL_REPUTATION,
   JUST_MERGE_PR_QUALITY,
   LATE_FEE_PERCENT,
@@ -55,45 +65,43 @@ import {
 } from '../constants'
 import {
   agentRoleLabel,
-  agentTickSpeed,
+  agentContextTokenCapacity,
+  agentTokensPerSec,
   bestOfNTier,
+  bestOfNStackMultiplier,
+  canFitAgentRam,
   clientLeadPipelineTarget,
   computePrBaseQuality,
   conductorTier,
-  contextFillMultiplier,
   countAssignedPmAgents,
-  countPmRoleAssignments,
-  fillAgentContext,
   formatStoryPoints,
   getAgentParameters,
   hasOpenClientProjectSlot,
   getFineTuneLevel,
   gpuTickCost,
   hasActiveAutomationAgent,
-  hasAutoConductorCourse,
   hasConductorCourse,
+  hasHotSwappingCourse,
   hasOfflineCourse,
+  hasProjectManagerActive,
   hasPromptEngineering,
   isAutomationAgentUnlocked,
   jobStatusFor,
   maxAgentSlotPurchases,
   maxAgents,
   maxAgentsPerTask,
-  maxAssignablePmAgents,
   maxConductorTeamSize,
   maxGpuTickPurchases,
   prQualityAfterComments,
   projectTeamSize,
   ramSlotCost,
-  refineJobDurationDays,
   refinementTier,
-  reviewJobDurationDays,
   rollBugAtQa,
-  storyPointIncrement,
-  storyPointProgressPerTick,
-  testStoryPointIncrement,
-  totalAgentSlots,
+  rosterAgentRamGb,
+  taskTokensRequired,
+  tokenProgressIncrement,
   totalGpuTicks,
+  totalRamGb,
   unlockedAutomationJobs,
   type AutomationAgentJob,
 } from '../mechanics'
@@ -105,7 +113,6 @@ import {
   getHallucinationLevel,
   hallucinationPointsFromRetirement,
   instantTestHallucinationChance,
-  maxClientProjectSlots,
   nextHighestRung,
   refineHallucinationLevel,
   reviewHallucinationLevel,
@@ -127,80 +134,6 @@ export type { SimCtx } from './simCtx'
 
 function availableLeadCount(leads: GameState['leads']): number {
   return leads.filter((l) => l.status === 'available').length
-}
-
-const EMPTY_PROJECT_ROLE_COUNTS: ProjectRoleCounts = {
-  refine: 0,
-  code: 0,
-  review: 0,
-  test: 0,
-  conductor: 0,
-}
-
-function enforceClientProjectCap(state: GameState, ctx: SimCtx, at: number): GameState {
-  const assignedPmAgents = countAssignedPmAgents(state.agents)
-  const maxSlots = maxClientProjectSlots(state.meta, assignedPmAgents)
-  const lockedNames: string[] = []
-  const unlockedNames: string[] = []
-  let unlockedCount = 0
-
-  let projects = state.projects.map((p) => {
-    if (p.kind !== 'client' || p.status !== 'active') return p
-
-    const shouldUnlock = unlockedCount < maxSlots
-    if (shouldUnlock) {
-      unlockedCount++
-      if (p.isLocked) {
-        unlockedNames.push(p.clientName)
-        return { ...p, isLocked: false }
-      }
-      return p
-    }
-
-    if (!p.isLocked) lockedNames.push(p.clientName)
-    return {
-      ...p,
-      isLocked: true,
-      roleCounts: { ...EMPTY_PROJECT_ROLE_COUNTS },
-      useConductor: false,
-    }
-  })
-
-  const lockedIds = new Set(projects.filter((p) => p.isLocked).map((p) => p.id))
-  let agents = state.agents.map((a) => (a.projectId && lockedIds.has(a.projectId) ? clearAgentJob(a) : a))
-  for (const projectId of lockedIds) {
-    projects = clampRoleCountsToStaffed(projectId, agents, projects)
-  }
-
-  const pipelineTarget = clientLeadPipelineTarget(state.meta, assignedPmAgents, projects)
-  const available = state.leads.filter((l) => l.status === 'available')
-  const nonAvailable = state.leads.filter((l) => l.status !== 'available')
-  const trimmedAvailable = available.slice(0, pipelineTarget)
-  const leads =
-    available.length > pipelineTarget ? [...nonAvailable, ...trimmedAvailable] : state.leads
-
-  let events = state.events
-  if (lockedNames.length > 0) {
-    events = pushEvent(
-      ctx,
-      state.meta,
-      events,
-      'project',
-      `Project Manager off duty — ${lockedNames.join(', ')} locked. Agents pulled; lead pipeline capped.`,
-      at,
-    )
-  } else if (unlockedNames.length > 0) {
-    events = pushEvent(
-      ctx,
-      state.meta,
-      events,
-      'project',
-      `Project Manager on duty — ${unlockedNames.join(', ')} unlocked.`,
-      at,
-    )
-  }
-
-  return { ...state, agents, projects, leads, events }
 }
 
 type ProjectRole = keyof ProjectRoleCounts
@@ -281,12 +214,12 @@ export function reconcileSpecialistAgents(state: GameState, ctx: SimCtx): GameSt
   let agents = state.agents.filter((a) => {
     if (!a.isAutomation || !a.automationJob) return true
     if (a.automationJob === 'project_manager') {
-      return countPmRoleAssignments(assignedRoles) > 0
+      return state.assignedSpecialistRoles.includes('project_manager')
     }
-    return assignedRoles.includes(a.automationJob)
+    return state.assignedSpecialistRoles.includes(a.automationJob)
   })
 
-  const requiredPm = countPmRoleAssignments(assignedRoles)
+  const requiredPm = state.assignedSpecialistRoles.includes('project_manager') ? 1 : 0
   let currentPm = countAssignedPmAgents(agents)
   while (currentPm > requiredPm) {
     const idx = agents.findIndex((a) => a.isAutomation && a.automationJob === 'project_manager')
@@ -315,7 +248,7 @@ export function reconcileSpecialistAgents(state: GameState, ctx: SimCtx): GameSt
   }
 
   const rolesChanged =
-    countPmRoleAssignments(assignedRoles) !== countPmRoleAssignments(state.assignedSpecialistRoles) ||
+    requiredPm !== (state.assignedSpecialistRoles.includes('project_manager') ? 1 : 0) ||
     unlocked.some(
       (job) =>
         job !== 'project_manager' &&
@@ -350,74 +283,6 @@ export function toggleSpecialistRole(
 
   const ctx = ctxFrom(state)
   const label = agentRoleLabel(job)
-
-  if (job === 'project_manager') {
-    const assigned = countPmRoleAssignments(state.assignedSpecialistRoles)
-    const maxPm = maxAssignablePmAgents(state)
-    if (enabled && assigned >= maxPm) return state
-    if (!enabled && assigned <= 0) return state
-
-    if (!enabled) {
-      if (assigned <= 0) return state
-      const pmIdx = state.agents.findIndex((a) => a.isAutomation && a.automationJob === 'project_manager')
-      const removedAgent = pmIdx >= 0 ? state.agents[pmIdx]! : null
-      const roleIdx = state.assignedSpecialistRoles.indexOf('project_manager')
-      if (roleIdx < 0 && pmIdx < 0) return state
-      let nextState: GameState = {
-        ...state,
-        assignedSpecialistRoles: [
-          ...state.assignedSpecialistRoles.slice(0, roleIdx),
-          ...state.assignedSpecialistRoles.slice(roleIdx + 1),
-        ],
-        agents:
-          pmIdx >= 0
-            ? [...state.agents.slice(0, pmIdx), ...state.agents.slice(pmIdx + 1)]
-            : state.agents,
-        events: pushEvent(
-          ctx,
-          state.meta,
-          state.events,
-          'system',
-          removedAgent
-            ? `${removedAgent.name} (${label}) unassigned — roster slot freed.`
-            : `${label} specialist unassigned — roster slot freed.`,
-          at,
-        ),
-      }
-      return withCtx(enforceClientProjectCap(nextState, ctx, at), ctx, at)
-    }
-
-    let agents = state.agents
-    let projects = state.projects
-    let yeetNote = ''
-
-    if (agents.length >= maxAgents(state)) {
-      const yeeted = yeetProjectAgentForRosterSlot(agents, projects)
-      if (!yeeted) return state
-      agents = yeeted.agents
-      projects = yeeted.projects
-      const project = projects.find((p) => p.id === yeeted.yeeted.projectId)
-      yeetNote = ` Yeeted ${yeeted.yeeted.name} off ${project?.clientName ?? 'a project'} for roster space.`
-    }
-
-    const agent = createAutomationAgent(ctx, job)
-    let nextState: GameState = {
-      ...state,
-      assignedSpecialistRoles: [...state.assignedSpecialistRoles, job],
-      agents: [...agents, agent],
-      projects,
-      stats: { ...state.stats, agentsDeployed: state.stats.agentsDeployed + 1 },
-      events: pushEvent(
-        ctx,
-        state.meta,
-        state.events,
-        'system',
-        `${agent.name} (${label}) assigned to specialist duty.${yeetNote}`,
-        at,
-      ),
-    }
-    return withCtx(enforceClientProjectCap(nextState, ctx, at), ctx, at)
-  }
 
   const isAssigned = state.assignedSpecialistRoles.includes(job)
   if (enabled === isAssigned) return state
@@ -601,6 +466,7 @@ export function createInitialState(
     vibingCourses: [],
     vibingCourseTiers: {},
     assignedSpecialistRoles: [],
+    contextRamLevel: 0,
     agents,
     projects,
     productBacklog: [],
@@ -660,8 +526,18 @@ function agentParamsFor(
   )
 }
 
+function paramsForRosterAgent(
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers'>,
+  agent: Agent,
+): number {
+  if (agent.isAutomation) {
+    return getAgentParameters(state.meta, state.purchasedFineTunes, null, getHallucinationLevel(state.meta, 'model'), state.fineTuneTiers)
+  }
+  return agentParamsFor(state, agent.job ?? 'code')
+}
+
 function canSpawnAgent(state: GameState): boolean {
-  return state.agents.length < maxAgents(state)
+  return canFitAgentRam(state, agentParamsFor(state, 'code'), (a) => paramsForRosterAgent(state, a))
 }
 
 function isAgentBusy(agent: Agent): boolean {
@@ -691,85 +567,24 @@ function projectAgents(projectId: string, job: AgentJob, agents: Agent[]): Agent
   return agents.filter((a) => a.projectId === projectId && a.job === job)
 }
 
-type ConductorReassignmentTick = {
-  simCtx: SimCtx
-  meta: MetaProgress
-  contextSize: number
-  baseSpeed: number
-  ctxMult: number
-  contextTokens: number
-  compactDuration: number
-  deltaSec: number
-  at: number
-  events: GameEvent[]
-  stats: GameState['stats']
-}
-
-function conductorCanAutoStaff(agents: Agent[], projectId: string): boolean {
-  const conductor = agents.find((a) => a.projectId === projectId && a.job === 'conductor')
-  if (!conductor) return false
-  return conductor.status !== 'compacting' && conductor.status !== 'compacted' && conductor.status !== 'crashed'
-}
-
-function gainConductorContextOnReassignment(
-  agents: Agent[],
-  projectId: string,
-  tick: ConductorReassignmentTick,
-): Agent[] {
+function queueConductorMoveCost(agents: Agent[], projectId: string): Agent[] {
   const idx = agents.findIndex((a) => a.projectId === projectId && a.job === 'conductor')
   if (idx < 0) return agents
   const conductor = agents[idx]!
   if (conductor.status === 'compacting' || conductor.status === 'compacted' || conductor.status === 'crashed') {
     return agents
   }
-
-  const agent = { ...conductor }
-  fillAgentContext(agent, tick.contextSize, tick.baseSpeed, tick.deltaSec, tick.ctxMult)
-  if (agent.contextUsed >= tick.contextTokens) {
-    agent.contextUsed = tick.contextTokens
-    agent.status = 'compacting'
-    agent.compactingRemainingSec = tick.compactDuration
-    tick.stats = { ...tick.stats, compactionsSurvived: tick.stats.compactionsSurvived + 1 }
-    tick.events = pushEvent(
-      tick.simCtx,
-      tick.meta,
-      tick.events,
-      'crash',
-      `${agent.name} context full — rebooting (${tick.compactDuration}s)...`,
-      tick.at,
-    )
-  }
-
+  if ((conductor.conductorMoveRemaining ?? 0) > 0) return agents
   const next = [...agents]
-  next[idx] = agent
+  next[idx] = { ...conductor, conductorMoveRemaining: CONDUCTOR_MOVE_TOKEN_COST, status: 'conducting' }
   return next
 }
 
-function buildConductorReassignmentTick(
-  simCtx: SimCtx,
-  state: Pick<GameState, 'meta' | 'vibingCourses' | 'gpuTickPurchases'>,
-  agents: Agent[],
-  events: GameEvent[],
-  stats: GameState['stats'],
-  at: number,
-  deltaSec: number,
-): ConductorReassignmentTick {
-  const modelTierIndex = getHallucinationLevel(state.meta, 'model')
-  const model = getModelTier(modelTierIndex)!
-  const contextSize = contextSizeForLevel(model.contextSize, getHallucinationLevel(state.meta, 'context'))
-  return {
-    simCtx,
-    meta: state.meta,
-    contextSize,
-    baseSpeed: agentTickSpeed(agents, totalGpuTicks(state)),
-    ctxMult: contextFillMultiplier(state.vibingCourses),
-    contextTokens: contextSize * 1000,
-    compactDuration: compactionDurationSec(state.meta),
-    deltaSec,
-    at,
-    events,
-    stats,
-  }
+function conductorCanAutoStaff(agents: Agent[], projectId: string): boolean {
+  const conductor = agents.find((a) => a.projectId === projectId && a.job === 'conductor')
+  if (!conductor) return false
+  if ((conductor.conductorMoveRemaining ?? 0) > 0) return false
+  return conductor.status !== 'compacting' && conductor.status !== 'compacted' && conductor.status !== 'crashed'
 }
 
 function assignAgentToRole(agent: Agent, projectId: string, job: AgentJob): Agent {
@@ -870,20 +685,20 @@ function unassignAgentFromRole(
   if (!victim) return null
 
   let nextProjects = projects
-  if (job === 'refine' && victim.taskId && victim.jobDuration > 0) {
+  if (job === 'refine' && victim.taskId && victim.jobProgress > 0) {
     const project = projects.find((p) => p.id === projectId)
     const isRequirement = project?.requirements.some((r) => r.id === victim.taskId)
     if (isRequirement) {
       nextProjects = updateRequirement(nextProjects, victim.taskId, (r) => ({
         ...r,
         refineJobProgress: victim.jobProgress,
-        refineJobDuration: victim.jobDuration,
+        refineJobDuration: undefined,
       }))
     } else {
       nextProjects = updateTask(nextProjects, victim.taskId, (t) => ({
         ...t,
         refineJobProgress: victim.jobProgress,
-        refineJobDuration: victim.jobDuration,
+        refineJobDuration: undefined,
       }))
     }
   }
@@ -1082,26 +897,25 @@ function tryProgressTask(
   taskId: string,
   completedByAgentId: string | null,
   authorParams: number,
-  gameDay: number,
+  tokensPerSec: number,
+  deltaSec: number,
+  stackMultiplier: number,
   promptEngineering = false,
-  progressScale = 1,
-  deltaSec = 1,
-): { projects: Project[]; becameDone: boolean; becamePrReady: boolean } {
+  role: 'code' | 'review' | 'refine' | 'test' = 'code',
+): { projects: Project[]; becameDone: boolean; becamePrReady: boolean; outputTokens: number } {
   let becameDone = false
   let becamePrReady = false
+  let outputTokens = 0
   const next = updateTask(projects, taskId, (t) => {
     if (t.status === 'merged' || t.status === 'pr_ready') return t
     if (t.isReviewComment && t.status === 'done') return t
     if (!t.isReviewComment && taskNeedsRefinement(t)) return t
-    const increment = storyPointIncrement(
-      t.storyPointsRequired,
-      t.storyPointsEarned,
-      authorParams * progressScale,
-      gameDay,
-      deltaSec,
-    )
-    const earned = Math.min(t.storyPointsRequired, t.storyPointsEarned + increment)
-    const complete = earned >= t.storyPointsRequired
+    const required = taskTokensRequired(t.storyPointsRequired, role)
+    const earned = role === 'test' ? t.testStoryPointsEarned : t.storyPointsEarned
+    const increment = tokenProgressIncrement(required, earned, tokensPerSec, deltaSec, stackMultiplier)
+    outputTokens = increment
+    const nextEarned = Math.min(required, earned + increment)
+    const complete = nextEarned >= required
     const status: TaskStatus = complete
       ? t.isReviewComment
         ? 'done'
@@ -1115,28 +929,36 @@ function tryProgressTask(
       complete && !t.isReviewComment
         ? computePrBaseQuality(authorParams, t.storyPointsRequired, promptEngineering)
         : t.prQualityStaging
+    if (role === 'test') {
+      return {
+        ...t,
+        testStoryPointsEarned: nextEarned,
+        status: t.status,
+        prQualityStaging,
+        completedByAgentId: complete ? completedByAgentId : t.completedByAgentId,
+      }
+    }
     return {
       ...t,
-      storyPointsEarned: earned,
+      storyPointsEarned: nextEarned,
       status,
       prQualityStaging,
       completedByAgentId: complete ? completedByAgentId : t.completedByAgentId,
     }
   })
-  return { projects: next, becameDone, becamePrReady }
-}
-
-function projectHasConductorManageableWork(
-  project: Project,
-  agents: Agent[],
-  agentsPerTask: number,
-): boolean {
-  return conductorRolePriority(project).some((role) =>
-    projectRoleHasWork(project, role, 'conductor', agents, agentsPerTask),
-  )
+  return { projects: next, becameDone, becamePrReady, outputTokens }
 }
 
 function canStaffConductorOnProject(state: GameState, agents: Agent[], projectId: string): boolean {
+  const hasProjectWorker = agents.some(
+    (a) =>
+      a.projectId === projectId &&
+      a.job !== null &&
+      a.job !== 'conductor' &&
+      !a.isAutomation,
+  )
+  if (!hasProjectWorker) return false
+
   if (agents.some((a) => a.job === null && !a.isAutomation)) return true
   if (canSpawnAgent({ ...state, agents })) return true
   return agents.some(
@@ -1154,7 +976,7 @@ function priorConductorProjectsBlockStaffing(
   projectId: string,
   agents: Agent[],
   state: GameState,
-  agentsPerTask: number,
+  _agentsPerTask: number,
 ): boolean {
   const projectIndex = activeProjects.findIndex((p) => p.id === projectId)
   if (projectIndex <= 0) return false
@@ -1163,7 +985,7 @@ function priorConductorProjectsBlockStaffing(
     const prior = activeProjects[i]!
     if (!prior.useConductor) continue
     if (projectAgents(prior.id, 'conductor', agents).length > 0) continue
-    if (!projectHasConductorManageableWork(prior, agents, agentsPerTask)) continue
+    if (!projectHasConductorPipelineWork(prior)) continue
     if (canStaffConductorOnProject(state, agents, prior.id)) return true
   }
   return false
@@ -1234,13 +1056,14 @@ function reconcileProjectStaffing(
   project: Project,
   agents: Agent[],
   projects: Project[],
-  conductorTick?: ConductorReassignmentTick,
 ): { agents: Agent[]; projects: Project[] } {
   let nextAgents = [...agents]
   let nextProjects = projects
-  const agentsPerTask = maxAgentsPerTask(bestOfNTier(state.vibingCourseTiers))
+  const bestOfTier = bestOfNTier(state.vibingCourseTiers)
 
   const syncedProject = () => nextProjects.find((p) => p.id === project.id) ?? project
+  const maxPerTask = (role: StaffJob) =>
+    agentsPerTaskForProject(syncedProject(), role, nextAgents, state.vibingCourseTiers)
 
   if (project.useConductor && hasConductorCourse(state.vibingCourses)) {
     const conductors = projectAgents(project.id, 'conductor', nextAgents)
@@ -1250,14 +1073,14 @@ function reconcileProjectStaffing(
     if (desiredConductor > 0 && !hasConductor) {
       const activeProjects = nextProjects.filter((p) => p.status === 'active' && !p.isLocked)
       const canStaffConductor =
-        projectHasConductorManageableWork(syncedProject(), nextAgents, agentsPerTask) &&
+        projectHasConductorPipelineWork(syncedProject()) &&
         canStaffConductorOnProject({ ...state, agents: nextAgents }, nextAgents, project.id) &&
         !priorConductorProjectsBlockStaffing(
           activeProjects,
           project.id,
           nextAgents,
           { ...state, agents: nextAgents },
-          agentsPerTask,
+          maxAgentsPerTask(bestOfTier),
         )
       if (canStaffConductor) {
         const staffed = staffAgentForRole(
@@ -1296,7 +1119,7 @@ function reconcileProjectStaffing(
           w.job !== 'conductor' &&
           isProjectRole(w.job) &&
           w.status === 'idle' &&
-          !projectRoleHasWork(syncedProject(), w.job as StaffJob, w.id, nextAgents, agentsPerTask)
+          !projectRoleHasWork(syncedProject(), w.job as StaffJob, w.id, nextAgents, maxPerTask(w.job as StaffJob))
         ) {
           const result = unassignAgentFromRole(nextAgents, project.id, w.job, nextProjects)
           if (result) {
@@ -1318,7 +1141,7 @@ function reconcileProjectStaffing(
 
       for (const role of rolePriority) {
         while (
-          projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, agentsPerTask) &&
+          projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, maxPerTask(role)) &&
           canConductorAddWorker(nextAgents, project.id, role, maxTeam, conductorState)
         ) {
           while (
@@ -1346,7 +1169,7 @@ function reconcileProjectStaffing(
             a.id === staffed.agentId
               ? {
                   ...a,
-                  status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents, agentsPerTask)
+                  status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents, maxPerTask(role))
                     ? jobStatusFor(role)
                     : 'idle',
                 }
@@ -1355,8 +1178,8 @@ function reconcileProjectStaffing(
         }
       }
 
-      if (workerAssignmentKey(nextAgents, project.id) !== workersBefore && conductorTick) {
-        nextAgents = gainConductorContextOnReassignment(nextAgents, project.id, conductorTick)
+      if (workerAssignmentKey(nextAgents, project.id) !== workersBefore) {
+        nextAgents = queueConductorMoveCost(nextAgents, project.id)
       }
     }
     return { agents: nextAgents, projects: nextProjects }
@@ -1398,7 +1221,7 @@ function reconcileProjectStaffing(
               ? projectHasRefineWork(syncedProject())
               : role === 'test'
                 ? projectHasTestWork(syncedProject())
-                : projectRoleHasWork(syncedProject(), role as StaffJob, staffed.agentId, nextAgents, agentsPerTask)
+                : projectRoleHasWork(syncedProject(), role as StaffJob, staffed.agentId, nextAgents, maxPerTask(role as StaffJob))
           nextAgents = nextAgents.map((a) =>
             a.id === staffed.agentId ? { ...a, status: hasWork ? jobStatusFor(role) : 'idle' } : a,
           )
@@ -1442,6 +1265,40 @@ export function canStaffRoleOnProject(state: GameState, _projectId: string, job:
 }
 
 
+function tryHotSwapCompactingAgent(
+  _ctx: SimCtx,
+  _state: GameState,
+  compacting: Agent,
+  agents: Agent[],
+  projects: Project[],
+  vibingCourses: string[],
+): void {
+  if (!hasHotSwappingCourse(vibingCourses) || !compacting.projectId || !compacting.job) return
+  const project = projects.find((p) => p.id === compacting.projectId)
+  if (!project?.useConductor || !hasConductorCourse(vibingCourses)) return
+  const role = compacting.job
+  if (!isProjectRole(role)) return
+
+  const benchCandidates = agents
+    .filter((a) => !a.isAutomation && a.job === null && a.status !== 'compacting')
+    .sort((a, b) => a.contextUsed - b.contextUsed)
+  const bench = benchCandidates[0]
+  if (!bench) return
+
+  const roleToStaff = role
+  bench.job = roleToStaff
+  bench.projectId = compacting.projectId
+  bench.status = jobStatusFor(roleToStaff)
+  bench.taskId = null
+  bench.jobProgress = 0
+  bench.jobDuration = 0
+
+  compacting.job = null
+  compacting.projectId = null
+  compacting.taskId = null
+  compacting.status = 'compacting'
+}
+
 export function advanceTime(state: GameState, deltaSec: number, at: number): GameState {
   const ctx = ctxFrom(state)
   if (state.phase !== 'playing') return state
@@ -1467,6 +1324,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
+    contextRamLevel,
     meta,
   } = {
     ...state,
@@ -1474,6 +1332,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     fineTuneTiers: { ...state.fineTuneTiers },
     purchasedFineTunes: [...state.purchasedFineTunes],
     projects: repairStaleCodingAssignments(state.projects, state.agents),
+    contextRamLevel: state.contextRamLevel ?? 0,
   }
 
   let nextAgents = agents.map((a) => ({ ...a }))
@@ -1487,15 +1346,10 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   let nextStats = { ...stats }
   const phase: GameState['phase'] = state.phase
 
-  const modelTierIndex = getHallucinationLevel(meta, 'model')
-  const model = getModelTier(modelTierIndex)!
-  const contextSize = contextSizeForLevel(model.contextSize, getHallucinationLevel(meta, 'context'))
-  const contextTokens = contextSize * 1000
+  const contextTokens = contextTokensForState({ meta, contextRamLevel })
   const compactDuration = compactionDurationSec(meta)
-  const ctxMult = contextFillMultiplier(vibingCourses)
-  const agentsPerTask = maxAgentsPerTask(bestOfNTier(state.vibingCourseTiers))
   const refineTier = refinementTier(state.vibingCourseTiers, vibingCourses)
-  const totalGpus = totalGpuTicks({ ...state, gpuTickPurchases })
+  const tickStateBase = { meta, purchasedFineTunes, fineTuneTiers, gpuTickPurchases, agents: nextAgents }
 
   gameDay += dayProgress
   rentDueInDays -= dayProgress
@@ -1609,28 +1463,15 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     }
   }
 
-  const baseSpeedGlobal = agentTickSpeed(nextAgents, totalGpus)
-  const conductorTick = buildConductorReassignmentTick(
-    ctx,
-    { ...state, gpuTickPurchases },
-    nextAgents,
-    nextEvents,
-    nextStats,
-    at,
-    deltaSec,
-  )
-
   for (const project of nextProjects.filter((p) => p.status === 'active' && !p.isLocked)) {
-    const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects, conductorTick)
+    const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects)
     nextAgents = reconciled.agents
     nextProjects = reconciled.projects
   }
-  nextEvents = conductorTick.events
-  nextStats = conductorTick.stats
 
   const dispatchSlots = new Map<string, Map<string, number>>()
-  const slotsFor = (projectId: string, role: StaffJob): Map<string, number> => {
-    const key = `${projectId}:${role}`
+  const slotsFor = (project: Project, role: StaffJob): Map<string, number> => {
+    const key = `${project.id}:${role}`
     let slots = dispatchSlots.get(key)
     if (!slots) {
       slots = new Map()
@@ -1638,6 +1479,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     }
     return slots
   }
+
+  const workState = { ...tickStateBase, agents: nextAgents }
 
   for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
     let agent = nextAgents[agentIdx]
@@ -1655,24 +1498,49 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
   for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
     let agent = nextAgents[agentIdx]
+    if (agent.job === 'conductor' && (agent.conductorMoveRemaining ?? 0) > 0) {
+      const tokensPerSec = agentOutputTokensPerSec(workState, agent, 'conductor', nextAgents)
+      agent.conductorMoveRemaining = conductorMoveStep(agent, tokensPerSec, deltaSec, vibingCourses)
+      if (agent.contextUsed >= contextTokens) {
+        agent.contextUsed = contextTokens
+        agent.status = 'compacting'
+        agent.compactingRemainingSec = compactDuration
+        agent.conductorMoveRemaining = 0
+        nextStats.compactionsSurvived += 1
+        nextEvents = pushEvent(
+          ctx,
+          meta,
+          nextEvents,
+          'crash',
+          `${agent.name} context full — rebooting (${compactDuration}s)...`,
+          at,
+        )
+      }
+      nextAgents[agentIdx] = agent
+    }
+  }
+
+  for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
+    let agent = nextAgents[agentIdx]
     if (!agent.job || agent.job === 'conductor' || agent.isAutomation) continue
     if (agent.status === 'compacting' || agent.status === 'compacted' || agent.status === 'crashed') {
       continue
     }
 
-    const baseSpeed = baseSpeedGlobal
-    if (baseSpeed <= 0) continue
+    const tokensPerSec = agentOutputTokensPerSec(workState, agent, agent.job, nextAgents)
+    if (tokensPerSec <= 0) continue
 
     agent.uptime += dayProgress
     const params = agentParamsFor(state, agent.job)
 
-    const overflow = () => {
+    const overflow = (produced = 0) => {
+      if (produced > 0) applyOutputTokensToContext(agent, produced, vibingCourses)
       agent.taskId = null
       agent.jobProgress = 0
       agent.jobDuration = 0
       agent.status = 'compacting'
       agent.compactingRemainingSec = compactDuration
-      agent.contextUsed = contextTokens
+      if (agent.contextUsed < contextTokens) agent.contextUsed = contextTokens
       nextStats.compactionsSurvived += 1
       nextEvents = pushEvent(
         ctx,
@@ -1682,6 +1550,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
         `${agent.name} context full — rebooting (${compactDuration}s)...`,
         at,
       )
+      tryHotSwapCompactingAgent(ctx, state, agent, nextAgents, nextProjects, vibingCourses)
     }
 
     if (agent.job === 'code' && agent.projectId) {
@@ -1691,12 +1560,13 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
+              const perTask = agentsPerTaskForProject(project, 'code', nextAgents, vibingCourseTiers)
               const nextTask = dispatchCodingTask(
                 project,
                 agent.id,
                 nextAgents,
-                agentsPerTask,
-                slotsFor(project.id, 'code'),
+                perTask,
+                slotsFor(project, 'code'),
               )
               if (!nextTask) {
                 agent.status = 'idle'
@@ -1714,23 +1584,24 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 }))
               }
               const taskRef = { project, task: nextTask }
-
-              fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
-              if (agent.contextUsed >= contextTokens) {
-                overflow()
-                continue
-              }
+              const stackIdx = stackIndexOnTask(nextAgents, project.id, 'code', nextTask.id, agent.id)
 
               const result = tryProgressTask(
                 nextProjects,
                 nextTask.id,
                 agent.id,
                 params,
-                gameDay,
-                hasPromptEngineering(vibingCourses),
-                baseSpeed,
+                tokensPerSec,
                 deltaSec,
+                bestOfNStackMultiplier(stackIdx),
+                hasPromptEngineering(vibingCourses),
+                'code',
               )
+              applyOutputTokensToContext(agent, result.outputTokens, vibingCourses)
+              if (agent.contextUsed >= contextTokens) {
+                overflow()
+                continue
+              }
               nextProjects = result.projects
               if (result.becamePrReady) {
                 agent.taskId = null
@@ -1781,12 +1652,13 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
+              const perTask = agentsPerTaskForProject(project, 'review', nextAgents, vibingCourseTiers)
               const task = dispatchReviewTask(
                 project,
                 agent.id,
                 nextAgents,
-                agentsPerTask,
-                slotsFor(project.id, 'review'),
+                perTask,
+                slotsFor(project, 'review'),
               )
               if (!task) {
                 agent.status = 'idle'
@@ -1799,31 +1671,37 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
               agent.status = 'reviewing'
               agent.taskId = task.id
-              const reviewDuration =
-                task.reviewJobDuration ?? reviewJobDurationDays(task.storyPointsRequired, params)
-              let reviewProgress = task.reviewJobProgress ?? 0
-
-              fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
+              const required = taskTokensRequired(task.storyPointsRequired, 'review')
+              let reviewProgress = task.reviewJobProgress ?? task.storyPointsEarned ?? 0
+              const stackIdx = stackIndexOnTask(nextAgents, project.id, 'review', task.id, agent.id)
+              const increment = tokenProgressIncrement(
+                required,
+                reviewProgress,
+                tokensPerSec,
+                deltaSec,
+                bestOfNStackMultiplier(stackIdx),
+              )
+              applyOutputTokensToContext(agent, increment, vibingCourses)
               if (agent.contextUsed >= contextTokens) {
                 nextProjects = updateTask(nextProjects, task.id, (t) => ({
                   ...t,
                   reviewJobProgress: reviewProgress,
-                  reviewJobDuration: reviewDuration,
+                  storyPointsEarned: reviewProgress,
                 }))
                 overflow()
                 continue
               }
 
-              reviewProgress += dayProgress * baseSpeed
+              reviewProgress = Math.min(required, reviewProgress + increment)
               nextProjects = updateTask(nextProjects, task.id, (t) => ({
                 ...t,
                 reviewJobProgress: reviewProgress,
-                reviewJobDuration: reviewDuration,
+                storyPointsEarned: reviewProgress,
               }))
               agent.jobProgress = reviewProgress
-              agent.jobDuration = reviewDuration
+              agent.jobDuration = required
 
-              if (reviewProgress >= reviewDuration) {
+              if (reviewProgress >= required) {
                 const comments = createReviewCommentTasks(ctx, task, reviewHallucinationLevel(meta))
                 nextProjects = nextProjects.map((p) =>
                   p.id === project.id
@@ -1874,12 +1752,13 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
+              const perTask = agentsPerTaskForProject(project, 'refine', nextAgents, vibingCourseTiers)
               const target = dispatchRefineTarget(
                 project,
                 agent.id,
                 nextAgents,
-                agentsPerTask,
-                slotsFor(project.id, 'refine'),
+                perTask,
+                slotsFor(project, 'refine'),
               )
               if (!target) {
                 agent.status = 'idle'
@@ -1900,60 +1779,55 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                   : target.task.storyPointsRequired
               const savedProgress =
                 target.kind === 'requirement'
-                  ? {
-                      refineJobProgress: target.requirement.refineJobProgress,
-                      refineJobDuration: target.requirement.refineJobDuration,
-                    }
-                  : {
-                      refineJobProgress: target.task.refineJobProgress,
-                      refineJobDuration: target.task.refineJobDuration,
-                    }
+                  ? target.requirement.refineJobProgress ?? 0
+                  : target.task.refineJobProgress ?? 0
 
               agent.status = 'refining'
               agent.taskId = targetId
-              const refineDuration =
-                savedProgress.refineJobDuration ??
-                refineJobDurationDays(targetSp, params)
-              let refineProgress = savedProgress.refineJobProgress ?? 0
+              const refineRequired = taskTokensRequired(targetSp, 'refine')
+              let refineProgress = savedProgress
               agent.jobProgress = refineProgress
-              agent.jobDuration = refineDuration
-
-              fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
+              agent.jobDuration = refineRequired
+              const stackIdx = stackIndexOnTask(nextAgents, project.id, 'refine', targetId, agent.id)
+              const increment = tokenProgressIncrement(
+                refineRequired,
+                refineProgress,
+                tokensPerSec,
+                deltaSec,
+                bestOfNStackMultiplier(stackIdx),
+              )
+              applyOutputTokensToContext(agent, increment, vibingCourses)
               if (agent.contextUsed >= contextTokens) {
                 if (target.kind === 'requirement') {
                   nextProjects = updateRequirement(nextProjects, targetId, (r) => ({
                     ...r,
                     refineJobProgress: refineProgress,
-                    refineJobDuration: refineDuration,
                   }))
                 } else {
                   nextProjects = updateTask(nextProjects, targetId, (t) => ({
                     ...t,
                     refineJobProgress: refineProgress,
-                    refineJobDuration: refineDuration,
                   }))
                 }
                 overflow()
                 continue
               }
 
-              refineProgress += dayProgress * baseSpeed
+              refineProgress = Math.min(refineRequired, refineProgress + increment)
               agent.jobProgress = refineProgress
               if (target.kind === 'requirement') {
                 nextProjects = updateRequirement(nextProjects, targetId, (r) => ({
                   ...r,
                   refineJobProgress: refineProgress,
-                  refineJobDuration: refineDuration,
                 }))
               } else {
                 nextProjects = updateTask(nextProjects, targetId, (t) => ({
                   ...t,
                   refineJobProgress: refineProgress,
-                  refineJobDuration: refineDuration,
                 }))
               }
 
-              if (refineProgress >= refineDuration) {
+              if (refineProgress >= refineRequired) {
                 const newTasks =
                   target.kind === 'requirement'
                     ? refineRequirementToTasks(ctx, target.requirement, { refinementTier: refineTier })
@@ -2001,12 +1875,13 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 continue
               }
 
+              const perTask = agentsPerTaskForProject(project, 'test', nextAgents, vibingCourseTiers)
               const testTask = dispatchTestTask(
                 project,
                 agent.id,
                 nextAgents,
-                agentsPerTask,
-                slotsFor(project.id, 'test'),
+                perTask,
+                slotsFor(project, 'test'),
               )
               if (!testTask) {
                 agent.status = 'idle'
@@ -2018,6 +1893,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               const prevTestTaskId = agent.taskId
               agent.status = 'testing'
               agent.taskId = testTask.id
+              const testRequired = taskTokensRequired(testTask.storyPointsRequired, 'test')
               let instantQa = false
               if (prevTestTaskId !== testTask.id) {
                 const instantChance = instantTestHallucinationChance(meta)
@@ -2026,26 +1902,24 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 }
               }
 
-              fillAgentContext(agent, contextSize, baseSpeed, deltaSec, ctxMult)
+              const stackIdx = stackIndexOnTask(nextAgents, project.id, 'test', testTask.id, agent.id)
+              const testIncrement = instantQa
+                ? testRequired - testTask.testStoryPointsEarned
+                : tokenProgressIncrement(
+                    testRequired,
+                    testTask.testStoryPointsEarned,
+                    tokensPerSec,
+                    deltaSec,
+                    bestOfNStackMultiplier(stackIdx),
+                  )
+              applyOutputTokensToContext(agent, testIncrement, vibingCourses)
               if (agent.contextUsed >= contextTokens) {
                 overflow()
                 continue
               }
 
-              const testEarned = instantQa
-                ? testTask.storyPointsRequired
-                : Math.min(
-                    testTask.storyPointsRequired,
-                    testTask.testStoryPointsEarned +
-                      testStoryPointIncrement(
-                        testTask.storyPointsRequired,
-                        testTask.testStoryPointsEarned,
-                        params * baseSpeed,
-                        gameDay,
-                        deltaSec,
-                      ),
-                  )
-              const taskFullyTested = testEarned >= testTask.storyPointsRequired
+              const testEarned = Math.min(testRequired, testTask.testStoryPointsEarned + testIncrement)
+              const taskFullyTested = testEarned >= testRequired
 
               let introducedBug = false
               if (taskFullyTested && testTask.prQuality !== null) {
@@ -2122,6 +1996,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
+    contextRamLevel,
     vibingCourses,
     vibingCourseTiers,
     purchasedFineTunes,
@@ -2131,6 +2006,10 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
 
   if (vibingCourses.includes('sales') && hasActiveAutomationAgent(tickState.agents, 'sales')) {
     tickState = runSalesAutomation(tickState, at)
+  }
+
+  if (hasProjectManagerActive(tickState.agents)) {
+    tickState = runPmAutomation(tickState, at)
   }
 
   return tickState
@@ -2179,7 +2058,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
     refineHallucinationLevel(state.meta),
   )
   const autoConductor =
-    hasAutoConductorCourse(state.vibingCourses) && hasConductorCourse(state.vibingCourses)
+    hasProjectManagerActive(state.agents) && hasConductorCourse(state.vibingCourses)
   const projectWithConductor = autoConductor
     ? {
         ...project,
@@ -2342,29 +2221,26 @@ function findAutoAcceptableLead(state: GameState): string | null {
   return lead?.id ?? null
 }
 
-/** Auto-accept eligible leads and auto-deliver completed projects while Sales is on duty. */
+/** Auto-accept eligible leads while Sales is on duty. */
 function runSalesAutomation(state: GameState, at: number): GameState {
   let tickState = state
   for (;;) {
-    let changed = false
+    const leadId = findAutoAcceptableLead(tickState)
+    if (!leadId) break
+    const projectsBefore = tickState.projects.length
+    tickState = acceptLead(tickState, leadId, at)
+    if (tickState.projects.length <= projectsBefore) break
+  }
+  return tickState
+}
 
-    for (;;) {
-      const leadId = findAutoAcceptableLead(tickState)
-      if (!leadId) break
-      const projectsBefore = tickState.projects.length
-      tickState = acceptLead(tickState, leadId, at)
-      if (tickState.projects.length <= projectsBefore) break
-      changed = true
-    }
-
-    for (;;) {
-      const deliverable = tickState.projects.find((p) => isReadyToDeliver(p))
-      if (!deliverable) break
-      tickState = deliverProject(tickState, deliverable.id, at)
-      changed = true
-    }
-
-    if (!changed) break
+/** Auto-deliver completed client projects while PM is on duty. */
+function runPmAutomation(state: GameState, at: number): GameState {
+  let tickState = state
+  for (;;) {
+    const deliverable = tickState.projects.find((p) => isReadyToDeliver(p))
+    if (!deliverable) break
+    tickState = deliverProject(tickState, deliverable.id, at)
   }
   return tickState
 }
@@ -2421,24 +2297,12 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
       : p,
   )
   const updatedProject = nextProjects.find((p) => p.id === projectId)!
-  const conductorTick = updatedProject.useConductor
-    ? buildConductorReassignmentTick(
-        ctx,
-        repaired,
-        repaired.agents,
-        repaired.events,
-        state.stats,
-        at,
-        TICK_INTERVAL_MS / 1000,
-      )
-    : undefined
   const reconciled = reconcileProjectStaffing(
     ctx,
     repaired,
     updatedProject,
     repaired.agents,
     nextProjects,
-    conductorTick,
   )
   const nextAgents = reconciled.agents
   const nextProjectsClamped = clampRoleCountsToStaffed(projectId, nextAgents, reconciled.projects)
@@ -2448,13 +2312,13 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
     agents: nextAgents,
     projects: nextProjectsClamped,
     stats: {
-      ...(conductorTick?.stats ?? state.stats),
+      ...state.stats,
       agentsDeployed: Math.max(state.stats.agentsDeployed, nextAgents.length),
     },
     events: pushEvent(
       ctx,
       state.meta,
-      conductorTick?.events ?? state.events,
+      state.events,
       'project',
       `Staffed +1 ${job} on ${project.clientName}.`,
       at,
@@ -2499,7 +2363,7 @@ export function buyAgentSlot(state: GameState, at: number): GameState {
           state.meta,
           state.events,
           'milestone',
-          `Bought +1 RAM for ${formatCash(cost)}. HR pretends this is normal.`,
+          `Bought +10 GB RAM for ${formatCash(cost)}. HR pretends this is normal.`,
           at,
         ),
       },
@@ -2749,11 +2613,40 @@ export function modelSpPerTick(
   state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers' | 'gameDay'>,
 ): number {
   const params = agentParamsFor(state, 'code')
-  return storyPointProgressPerTick(params, state.gameDay)
+  return agentTokensPerSec(params, 0, 1)
 }
 
 export function canStaffAdditionalAgent(state: GameState): boolean {
   return hasStaffableAgent(state.agents) || canSpawnAgent(state)
+}
+
+export function setContextRamLevel(state: GameState, level: number, at: number): GameState {
+  const ctx = ctxFrom(state)
+  const nextLevel = Math.max(0, Math.floor(level))
+  const params = (agent: Agent) => paramsForRosterAgent(state, agent)
+  const usedWithoutContext = rosterAgentRamGb(state.agents, 0, params)
+  const perAgentContext = state.agents.length
+  const maxLevel = perAgentContext > 0
+    ? Math.floor((totalRamGb(state) - usedWithoutContext) / perAgentContext)
+    : 0
+  const clamped = Math.min(nextLevel, maxLevel)
+  if (clamped === (state.contextRamLevel ?? 0)) return state
+  return withCtx(
+    {
+      ...state,
+      contextRamLevel: clamped,
+      events: pushEvent(
+        ctx,
+        state.meta,
+        state.events,
+        'system',
+        `Context RAM set to +${clamped} GB per agent (${agentContextTokenCapacity(clamped, getHallucinationLevel(state.meta, 'context'))} tokens).`,
+        at,
+      ),
+    },
+    ctx,
+    at,
+  )
 }
 
 export function agentCapacity(state: GameState): {
@@ -2761,12 +2654,17 @@ export function agentCapacity(state: GameState): {
   max: number
   agentSlots: number
   gpuTicks: number
+  usedRamGb: number
 } {
+  const params = (agent: Agent) => paramsForRosterAgent(state, agent)
+  const usedRam = rosterAgentRamGb(state.agents, state.contextRamLevel ?? 0, params)
+  const totalRam = totalRamGb(state)
   return {
     used: state.agents.length,
     max: maxAgents(state),
-    agentSlots: totalAgentSlots(state),
+    agentSlots: totalRam,
     gpuTicks: totalGpuTicks(state),
+    usedRamGb: usedRam,
   }
 }
 

@@ -11,6 +11,10 @@ import {
   repZeroPaymentMultiplier,
   refinementAutoSplitChance,
   reviewCommentSpawnCount,
+  taskMeetsTokenGoal,
+  taskTokensRequired,
+  maxAgentsPerTask,
+  bestOfNTier,
 } from './mechanics'
 import { pickBugDescription, pickSubtaskTitles } from './refinementContent'
 import { type SimCtx, ctxFrom, uid } from './simulation/simCtx'
@@ -693,6 +697,12 @@ export function requirementRefineProgressPct(
       ((requirement.refineJobProgress ?? 0) / requirement.refineJobDuration) * 100,
     )
   }
+  if ((requirement.refineJobProgress ?? 0) > 0) {
+    const required = taskTokensRequired(requirement.storyPoints, 'refine')
+    return required > 0
+      ? Math.min(100, ((requirement.refineJobProgress ?? 0) / required) * 100)
+      : null
+  }
   return null
 }
 
@@ -702,7 +712,8 @@ export function taskLifecycleProgressPct(
   agents: Agent[],
 ): number {
   if (task.isReviewComment) {
-    return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
+    const required = taskTokensRequired(task.storyPointsRequired, 'code')
+    return required > 0 ? Math.min(100, (task.storyPointsEarned / required) * 100) : 0
   }
 
   if (canRefineTask(task)) {
@@ -710,7 +721,8 @@ export function taskLifecycleProgressPct(
   }
 
   if (task.status === 'open' || task.status === 'in_progress') {
-    return Math.min(100, (task.storyPointsEarned / task.storyPointsRequired) * 100)
+    const required = taskTokensRequired(task.storyPointsRequired, 'code')
+    return required > 0 ? Math.min(100, (task.storyPointsEarned / required) * 100) : 0
   }
 
   if (task.status === 'pr_ready') {
@@ -730,7 +742,8 @@ export function taskLifecycleProgressPct(
   }
 
   if (task.status === 'merged') {
-    return Math.min(100, (task.testStoryPointsEarned / task.storyPointsRequired) * 100)
+    const required = taskTokensRequired(task.storyPointsRequired, 'test')
+    return required > 0 ? Math.min(100, (task.testStoryPointsEarned / required) * 100) : 0
   }
 
   return 0
@@ -741,7 +754,7 @@ export function taskLifecycleLabel(task: Task, project: Project): string {
   if (task.status === 'open' || task.status === 'in_progress') return 'coding'
   if (task.status === 'pr_ready') {
     const comments = reviewCommentsOnTask(project, task.id)
-    if (comments.length > 0 && !comments.every((c) => c.storyPointsEarned >= c.storyPointsRequired)) {
+    if (comments.length > 0 && !comments.every((c) => taskMeetsTokenGoal(c, 'code'))) {
       return 'addressing review'
     }
     return 'review'
@@ -797,9 +810,9 @@ function codingWorkQueue(project: Project): Task[] {
       (t) =>
         t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
-        t.storyPointsEarned < t.storyPointsRequired,
+        !taskMeetsTokenGoal(t, 'code'),
     )
-    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+    .sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
 
   const available = project.tasks
     .filter(
@@ -807,9 +820,9 @@ function codingWorkQueue(project: Project): Task[] {
         !t.isReviewComment &&
         (t.status === 'open' || t.status === 'in_progress') &&
         !taskNeedsRefinement(t) &&
-        t.storyPointsEarned < t.storyPointsRequired,
+        !taskMeetsTokenGoal(t, 'code'),
     )
-    .sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+    .sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
 
   return [...openComments, ...available]
 }
@@ -1020,14 +1033,12 @@ export function reviewCommentsOnTask(project: Project, parentTaskId: string): Ta
 }
 
 export function resolvedReviewComments(project: Project, parentTaskId: string): Task[] {
-  return reviewCommentsOnTask(project, parentTaskId).filter(
-    (t) => t.storyPointsEarned >= t.storyPointsRequired,
-  )
+  return reviewCommentsOnTask(project, parentTaskId).filter((t) => taskMeetsTokenGoal(t, 'code'))
 }
 
 export function allReviewCommentsAddressed(project: Project, parentTaskId: string): boolean {
   const comments = reviewCommentsOnTask(project, parentTaskId)
-  return comments.every((c) => c.storyPointsEarned >= c.storyPointsRequired)
+  return comments.every((c) => taskMeetsTokenGoal(c, 'code'))
 }
 
 export function createReviewCommentTasks(
@@ -1051,6 +1062,28 @@ export function createReviewCommentTasks(
   return comments
 }
 
+export function effectiveAgentsPerTask(
+  project: Project,
+  job: StaffJob,
+  agents: Agent[],
+  bestOfTier: number,
+): number {
+  const queue = roleWorkQueue(project, job)
+  if (bestOfTier <= 0 || queue.length === 0) return 1
+  const workers = dispatchableAgents(agents, project.id, job)
+  if (workers.length <= queue.length) return 1
+  return maxAgentsPerTask(bestOfTier)
+}
+
+export function agentsPerTaskForProject(
+  project: Project,
+  job: StaffJob,
+  agents: Agent[],
+  vibingCourseTiers: Partial<Record<string, number>>,
+): number {
+  return effectiveAgentsPerTask(project, job, agents, bestOfNTier(vibingCourseTiers))
+}
+
 function roleWorkQueue(project: Project, job: StaffJob): { id: string }[] {
   switch (job) {
     case 'code':
@@ -1060,7 +1093,7 @@ function roleWorkQueue(project: Project, job: StaffJob): { id: string }[] {
     case 'refine':
       return refineWorkQueue(project)
     case 'test':
-      return untestedMergedTasks(project).sort((a, b) => a.storyPointsRequired - b.storyPointsRequired)
+      return untestedMergedTasks(project).sort((a, b) => b.storyPointsRequired - a.storyPointsRequired)
   }
 }
 
@@ -1147,19 +1180,11 @@ export function mergedShippableTasks(project: Project): Task[] {
 }
 
 export function taskNeedsTesting(task: Task): boolean {
-  return (
-    task.status === 'merged' &&
-    !task.isReviewComment &&
-    task.testStoryPointsEarned < task.storyPointsRequired
-  )
+  return task.status === 'merged' && !task.isReviewComment && !taskMeetsTokenGoal(task, 'test')
 }
 
 export function taskIsTested(task: Task): boolean {
-  return (
-    task.status === 'merged' &&
-    !task.isReviewComment &&
-    task.testStoryPointsEarned >= task.storyPointsRequired
-  )
+  return task.status === 'merged' && !task.isReviewComment && taskMeetsTokenGoal(task, 'test')
 }
 
 export function deliveredStoryPoints(project: Project): number {
@@ -1167,8 +1192,15 @@ export function deliveredStoryPoints(project: Project): number {
 }
 
 export function completedTestStoryPoints(project: Project): number {
+  return mergedShippableTasks(project).reduce((sum, t) => {
+    const required = taskTokensRequired(t.storyPointsRequired, 'test')
+    return sum + Math.min(t.testStoryPointsEarned, required)
+  }, 0)
+}
+
+export function deliveredTestTokens(project: Project): number {
   return mergedShippableTasks(project).reduce(
-    (sum, t) => sum + Math.min(t.testStoryPointsEarned, t.storyPointsRequired),
+    (sum, t) => sum + taskTokensRequired(t.storyPointsRequired, 'test'),
     0,
   )
 }
@@ -1183,7 +1215,7 @@ export function allImplementationMerged(project: Project): boolean {
 }
 
 export function syncTestScope(project: Project): Project {
-  const required = deliveredStoryPoints(project)
+  const required = deliveredTestTokens(project)
   const completed = completedTestStoryPoints(project)
   return {
     ...project,
@@ -1237,4 +1269,28 @@ export function conductorRolePriority(project: Project): StaffJob[] {
     return ['refine', 'test', 'code', 'review']
   }
   return CONDUCTOR_ROLE_PRIORITY
+}
+
+export function projectHasConductorPipelineWork(project: Project): boolean {
+  if (project.status !== 'active' || project.isLocked) return false
+  for (const role of conductorRolePriority(project)) {
+    if (role === 'test') {
+      if (projectHasTestWork(project)) return true
+      continue
+    }
+    if (roleWorkQueue(project, role).length > 0) return true
+  }
+  return false
+}
+
+/** Whether conductor auto-staff should consider a role worth filling. */
+export function projectHasConductorManageableWork(
+  project: Project,
+  agents: Agent[],
+  agentsPerTask: number,
+): boolean {
+  if (!projectHasConductorPipelineWork(project)) return false
+  return conductorRolePriority(project).some((role) =>
+    projectRoleHasWork(project, role, 'conductor', agents, agentsPerTask),
+  )
 }

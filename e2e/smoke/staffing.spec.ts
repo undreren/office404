@@ -16,5 +16,9 @@ test('tutorial-ready-for-code staffs coder via testid', async ({ page }) => {
   await addCode.click()
 
   await expect(page.getByLabel(/1 coding agent assigned/)).toBeVisible()
-  await expect(page.getByTestId('staffing-add-code-proj-1')).toBeDisabled()
+  // 10 GB RAM fits two 4B agents — second coder fills the roster.
+  await expect(addCode).toBeEnabled()
+  await addCode.click()
+  await expect(page.getByLabel(/2 coding agents assigned/)).toBeVisible()
+  await expect(addCode).toBeDisabled()
 })

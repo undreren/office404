@@ -4,8 +4,10 @@ import {
   justMergePrMsg,
   mergePrMsg,
 } from '../../messages'
+import { taskTokensRequired } from '../../mechanics'
 import { isReadyToDeliver } from '../../simulation/gameLogic'
 import type { GameState } from '../../types'
+import { fullyShippableTask } from './taskTokens'
 import { advanceGameDays } from './advanceGameDays'
 import { dispatchChain } from './dispatchChain'
 import { stateWithPrReady } from './stateWithRefinedTasks'
@@ -104,6 +106,7 @@ export function stateWithDeliverableProject(
   const projectId = 'proj-deliver-test'
   const reqId = 'req-deliver-test'
   const taskId = 'task-deliver-test'
+  const testTok = taskTokensRequired(2, 'test')
   const project = {
     id: projectId,
     clientName: 'Test Client',
@@ -114,19 +117,19 @@ export function stateWithDeliverableProject(
     daysRemaining: 10,
     deliveryQuality: 80,
     testPercent: 100,
-    testStoryPointsRequired: 2,
-    testStoryPointsCompleted: 2,
+    testStoryPointsRequired: testTok,
+    testStoryPointsCompleted: testTok,
     totalStoryPoints: 2,
     status: 'active' as const,
     requirements: [{ id: reqId, projectId, title: 'Req', storyPoints: 2, status: 'refined' as const, refinePassesUsed: 0 }],
     tasks: [
-      {
+      fullyShippableTask({
         id: taskId,
         projectId,
         requirementId: reqId,
         title: 'Task',
         storyPointsRequired: 2,
-        storyPointsEarned: 2,
+        storyPointsEarned: 0,
         complexity: 2,
         refined: true,
         status: 'merged' as const,
@@ -141,9 +144,9 @@ export function stateWithDeliverableProject(
         sourceTaskId: null,
         isReviewComment: false,
         reviewed: true,
-        testStoryPointsEarned: 2,
+        testStoryPointsEarned: 0,
         refinePassesRemaining: 0,
-      },
+      }),
     ],
     isTutorial: false,
     lateCount: 0,

@@ -6,7 +6,7 @@ import { MODEL_TIERS } from '../game/models'
 import { createInitialState, reconcileSpecialistAgents } from '../game/simulation/gameLogic'
 import { ctxFrom } from '../game/simulation/simCtx'
 
-const SAVE_VERSION = 12
+const SAVE_VERSION = 13
 
 function migrateAssignedSpecialistRoles(state: GameState): GameState {
   if (state.assignedSpecialistRoles) return state
@@ -125,6 +125,16 @@ function migrateState(state: GameState, fromVersion: number): GameState {
   }
   if (fromVersion < 12) {
     next = migrateAssignedSpecialistRoles(next)
+  }
+  if (fromVersion < 13) {
+    next = {
+      ...next,
+      contextRamLevel: next.contextRamLevel ?? 0,
+      vibingCourses: next.vibingCourses.filter((id) => id !== 'auto_conductor'),
+      assignedSpecialistRoles: next.assignedSpecialistRoles.filter(
+        (role, idx, arr) => role !== 'project_manager' || arr.indexOf('project_manager') === idx,
+      ),
+    }
   }
   return next
 }

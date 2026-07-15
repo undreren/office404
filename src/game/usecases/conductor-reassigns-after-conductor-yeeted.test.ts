@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buyAgentSlotMsg, buyVibingCourseMsg, timeElapsed, toggleSpecialistRoleMsg } from '../messages'
+import { buyVibingCourseMsg, timeElapsed, toggleSpecialistRoleMsg } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { stateWithCash } from './_helpers/stateWithCash'
@@ -87,8 +87,7 @@ describe('conductor-reassigns-after-conductor-yeeted', () => {
     const base = initialPlaying()
     const project = base.projects[0]!
     const template = base.agents[0]!
-    const withSlot = dispatchChain(stateWithCash(base, 2000), [buyAgentSlotMsg(T0 + 500)])
-    const unlocked = dispatchChain(withSlot, [
+    const withConductor = dispatchChain(stateWithCash(base, 2000), [
       buyVibingCourseMsg(T0 + 1000, 'conductor'),
       buyVibingCourseMsg(T0 + 1500, 'marketing'),
     ])
@@ -114,7 +113,7 @@ describe('conductor-reassigns-after-conductor-yeeted', () => {
     }
 
     const before: GameState = {
-      ...unlocked,
+      ...withConductor,
       projects: [
         {
           ...project,

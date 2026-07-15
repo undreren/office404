@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { adjustRoleCountMsg, timeElapsed } from '../messages'
+import { taskTokensRequired } from '../mechanics'
 import { requirementRefineProgressPct } from '../projects'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
@@ -26,7 +27,7 @@ describe('unstaff-refine-preserves-progress', () => {
         status: 'refining' as const,
         taskId: requirement.id,
         jobProgress: 1.2,
-        jobDuration: 4,
+        jobDuration: taskTokensRequired(requirement.storyPoints, 'refine'),
         contextUsed: 0,
         compactingRemainingSec: 0,
       })),
@@ -36,11 +37,15 @@ describe('unstaff-refine-preserves-progress', () => {
     const req = unstaffed.projects[0]!.requirements[0]!
 
     expect(req.refineJobProgress).toBe(1.2)
-    expect(req.refineJobDuration).toBe(4)
-    expect(requirementRefineProgressPct(unstaffed.projects[0]!, req, unstaffed.agents)).toBe(30)
+    expect(req.refineJobDuration).toBeUndefined()
+    const required = taskTokensRequired(requirement.storyPoints, 'refine')
+    expect(requirementRefineProgressPct(unstaffed.projects[0]!, req, unstaffed.agents)).toBeCloseTo(
+      (1.2 / required) * 100,
+      0,
+    )
 
     const restaffed = dispatchChain(unstaffed, [adjustRoleCountMsg(T0 + 2000, project.id, 'refine', 1)])
-    const progressed = dispatchChain(restaffed, [timeElapsed(T0 + 3000, 30)])
+    const progressed = dispatchChain(restaffed, [timeElapsed(T0 + 3000, 0.2)])
 
     expect(progressed.projects[0]!.requirements[0]!.status).toBe('open')
     expect(
@@ -49,6 +54,6 @@ describe('unstaff-refine-preserves-progress', () => {
         progressed.projects[0]!.requirements[0]!,
         progressed.agents,
       ),
-    ).toBeGreaterThan(30)
+    ).toBeGreaterThan((1.2 / required) * 100)
   })
 })

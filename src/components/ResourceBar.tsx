@@ -17,7 +17,7 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
   const { paused } = useGamePaused()
   const { cash, reputation, gameDay, rentDueInDays, apartment, mrr, meta } = state
 
-  const { used, max, agentSlots, gpuTicks } = agentCapacity(state)
+  const { used, max, agentSlots, gpuTicks, usedRamGb } = agentCapacity(state)
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
   const retireThreshold = personalRetirementThreshold(meta.retirementCount)
@@ -32,7 +32,7 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
         `reputation ${Math.floor(reputation)}`,
         `home ${housing.label}`,
         `agents ${used}/${max}`,
-        `${agentSlots} RAM · ${gpuTicks} GPU`,
+        `${usedRamGb}/${agentSlots} GB RAM · ${gpuTicks} GPU`,
         `model ${model.displayName}`,
         `rent ${formatCash(rentAmount)} due in ${Math.ceil(rentDueInDays)} days`,
         paused ? 'paused' : null,
@@ -101,11 +101,11 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
 
             <div
               className="resource resource--inline"
-              aria-label={`${agentSlots} RAM, ${gpuTicks} GPU`}
+              aria-label={`${usedRamGb} of ${agentSlots} gigabytes RAM used, ${gpuTicks} GPU`}
             >
               <label>RAM / GPU</label>
               <span className="value value--sm">
-                {agentSlots} · {gpuTicks}
+                {usedRamGb}/{agentSlots} GB · {gpuTicks}
               </span>
             </div>
 

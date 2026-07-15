@@ -292,9 +292,9 @@ export function hasInHouseUnlocked(meta: MetaProgress): boolean {
   return getHallucinationLevel(meta, 'in_house') >= 1
 }
 
-/** Concurrent client gigs: one free slot, +1 per assigned PM, +hallucination project_slots. */
-export function maxClientProjectSlots(meta: MetaProgress, assignedPmAgents: number): number {
-  return 1 + assignedPmAgents + getHallucinationLevel(meta, 'project_slots')
+/** Concurrent client gigs: one free slot + prestige project_slots. */
+export function maxClientProjectSlots(meta: MetaProgress): number {
+  return 1 + getHallucinationLevel(meta, 'project_slots')
 }
 
 export function maxProductProjectSlots(meta: MetaProgress): number {

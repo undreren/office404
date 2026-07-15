@@ -62,7 +62,16 @@ export type ApartmentTier =
   | 'dyson_swarm'
   | 'dyson_sphere'
 
-export type FineTuneRole = 'code' | 'review' | 'refine' | 'test'
+export type FineTuneRole = 'code' | 'review' | 'refine' | 'test' | 'conductor'
+
+export type TaskWorkRole = 'code' | 'review' | 'refine' | 'test'
+
+export interface ConductorPendingMove {
+  kind: 'staff' | 'unassign'
+  projectId: string
+  role: StaffJob | 'conductor'
+  agentId?: string
+}
 
 export type StaffJob = Exclude<
   AgentJob,
@@ -108,6 +117,10 @@ export interface Agent {
   contextUsed: number
   compactingRemainingSec: number
   uptime: number
+  /** Tokens remaining before a queued conductor reassignment executes. */
+  conductorMoveRemaining?: number
+  /** Reassignment waiting on conductorMoveRemaining. */
+  conductorPendingMove?: ConductorPendingMove
   /** Automation agents only — not spawned workers */
   isAutomation?: boolean
   /** Permanent role for automation agents (survives benching when job is null) */
@@ -231,8 +244,10 @@ export interface GameState {
   rentDueInDays: number
   apartment: ApartmentTier
   apartmentLeaseRemaining: number
-  /** Purchased +1 agent slot upgrades */
+  /** Purchased +10 GB RAM upgrades */
   agentSlotPurchases: number
+  /** Global extra GB per agent spent on context window (all roster agents). */
+  contextRamLevel: number
   /** Purchased +1 GPU tick upgrades */
   gpuTickPurchases: number
   mrr: number
