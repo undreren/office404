@@ -2,7 +2,6 @@ import {
   agentContextDisplayPct,
   agentContextTokenCapacity,
   agentRoleLabel,
-  countActiveClientProjects,
   formatAgentDutyLabel,
   formatPercent,
   unlockedAutomationJobs,
@@ -158,9 +157,7 @@ export function StatusPanel() {
   const parallelVibesTierLevel = parallelVibesTier(vibingCourseTiers)
   const baseClientSlots = baseClientProjectSlots(meta)
   const clientSlotCap = maxClientProjectSlotsCap(meta, vibingCourseTiers)
-  const activeClientProjects = countActiveClientProjects(projects)
   const currentClientSlots = maxClientProjectSlots(meta, vibingCourseTiers, maxClientProjects)
-  const minClientSlots = Math.max(baseClientSlots, activeClientProjects)
 
   return (
     <section className="panel status-panel">
@@ -185,7 +182,7 @@ export function StatusPanel() {
             <input
               id="max-client-projects-slider"
               type="range"
-              min={minClientSlots}
+              min={baseClientSlots}
               max={clientSlotCap}
               value={currentClientSlots}
               data-testid="status-max-client-projects-slider"
