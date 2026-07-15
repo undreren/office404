@@ -67,7 +67,6 @@ import {
   agentRoleLabel,
   getAgentRamParams,
   agentTokensPerSec,
-  bestOfNTier,
   bestOfNStackMultiplier,
   bestOfNAssistStackIndex,
   canFitAgentRam,
@@ -93,7 +92,6 @@ import {
   jobStatusFor,
   maxAgentSlotPurchases,
   maxAgents,
-  maxAgentsPerTask,
   maxGpuTickPurchases,
   prQualityAfterComments,
   ramSlotCost,
@@ -778,24 +776,52 @@ type StaffAgentOptions = {
   targetSlotIndex?: number
 }
 
-function canDonateAgentForConductor(
-  agent: Agent,
-  targetProjectId: string,
-  projects: Project[],
-  targetSlotIndex: number,
+function hasConductorStaffingSource(
+  state: GameState,
+  agents: Agent[],
+  options?: { spawnWhenNoWorkers?: boolean },
 ): boolean {
-  if (agent.isAutomation) return false
-  if (agent.job === null) return true
-  if (!isAgentStaffable(agent)) return false
-  if (!agent.projectId || agent.job === 'conductor' || !isProjectRole(agent.job)) return false
-  if (agent.projectId === targetProjectId) return true
-  const donorSlot = projectSlotIndex(projects, agent.projectId)
-  return donorSlot >= 0 && donorSlot < targetSlotIndex
+  if (agents.some((a) => a.job === null && !a.isAutomation)) return true
+  if (options?.spawnWhenNoWorkers && canSpawnAgent({ ...state, agents })) return true
+  const rosterAgents = agents.filter((a) => !a.isAutomation)
+  if (rosterAgents.length === 0 && canSpawnAgent({ ...state, agents })) return true
+  if (canSpawnAgent({ ...state, agents })) return true
+  return agents.some((a) => !a.isAutomation && isAgentStaffable(a))
 }
 
-function hasDonorAgentForConductor(agents: Agent[], projects: Project[], projectId: string): boolean {
-  const targetSlot = projectSlotIndex(projects, projectId)
-  return agents.some((a) => canDonateAgentForConductor(a, projectId, projects, targetSlot))
+function releaseProjectWorkersForConductor(
+  agents: Agent[],
+  projectId: string,
+  projects: Project[],
+): { agents: Agent[]; projects: Project[] } {
+  let nextAgents = agents
+  let nextProjects = projects
+  for (const role of ['refine', 'code', 'review', 'test'] as const) {
+    while (projectAgents(projectId, role, nextAgents).length > 0) {
+      const result = unassignAgentFromRole(nextAgents, projectId, role, nextProjects, { force: true })
+      if (!result) break
+      nextAgents = result.agents
+      nextProjects = result.projects
+    }
+  }
+  return { agents: nextAgents, projects: nextProjects }
+}
+
+function reconcileAllProjectStaffingInSlotOrder(
+  ctx: SimCtx,
+  state: GameState,
+  agents: Agent[],
+  projects: Project[],
+  options?: { spawnWhenNoWorkers?: boolean },
+): { agents: Agent[]; projects: Project[] } {
+  let nextAgents = agents
+  let nextProjects = projects
+  for (const project of activeProjectsBySlot(nextProjects)) {
+    const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects, options)
+    nextAgents = reconciled.agents
+    nextProjects = reconciled.projects
+  }
+  return { agents: nextAgents, projects: nextProjects }
 }
 
 function canDonateAgentForStaffing(
@@ -846,6 +872,12 @@ function staffAgentForRole(
     )
   if (idleCandidates.length > 0) {
     idleCandidates.sort((x, y) => {
+      const xSame = x.a.projectId === projectId ? 0 : 1
+      const ySame = y.a.projectId === projectId ? 0 : 1
+      if (xSame !== ySame) return xSame - ySame
+      const xSlot = projectSlotIndex(projects, x.a.projectId)
+      const ySlot = projectSlotIndex(projects, y.a.projectId)
+      if (xSlot !== ySlot) return xSlot - ySlot
       const xPri = CONDUCTOR_ROLE_PRIORITY.indexOf(x.a.job as StaffJob)
       const yPri = CONDUCTOR_ROLE_PRIORITY.indexOf(y.a.job as StaffJob)
       if (xPri !== yPri) return yPri - xPri
@@ -1077,7 +1109,7 @@ function canStaffConductorOnProject(
   projectId: string,
   options?: { spawnWhenNoWorkers?: boolean },
 ): boolean {
-  if (agents.some((a) => a.job === null && !a.isAutomation)) return true
+  if (!hasConductorStaffingSource(state, agents, options)) return false
 
   const hasProjectWorker = agents.some(
     (a) =>
@@ -1086,44 +1118,20 @@ function canStaffConductorOnProject(
       a.job !== 'conductor' &&
       !a.isAutomation,
   )
-  if (!hasProjectWorker) {
-    if (options?.spawnWhenNoWorkers && canSpawnAgent({ ...state, agents })) return true
-    const rosterAgents = agents.filter((a) => !a.isAutomation)
-    if (rosterAgents.length === 0 && canSpawnAgent({ ...state, agents })) return true
-    if (hasDonorAgentForConductor(agents, state.projects, projectId)) return true
-    return false
-  }
+  if (!hasProjectWorker) return true
 
-  if (canSpawnAgent({ ...state, agents })) return true
-  return agents.some(
+  if (agents.some(
     (a) =>
       a.projectId === projectId &&
       a.job !== null &&
       a.job !== 'conductor' &&
       !a.isAutomation &&
       !isAgentBusy(a),
-  )
-}
-
-function priorConductorProjectsBlockStaffing(
-  activeProjects: Project[],
-  projectId: string,
-  agents: Agent[],
-  state: GameState,
-  _agentsPerTask: number,
-): boolean {
-  const sorted = activeProjectsBySlot(activeProjects)
-  const projectIndex = sorted.findIndex((p) => p.id === projectId)
-  if (projectIndex <= 0) return false
-
-  for (let i = 0; i < projectIndex; i++) {
-    const prior = sorted[i]!
-    if (!prior.useConductor) continue
-    if (projectAgents(prior.id, 'conductor', agents).length > 0) continue
-    if (!projectHasConductorPipelineWork(prior)) continue
-    if (canStaffConductorOnProject(state, agents, prior.id)) return true
+  )) {
+    return true
   }
-  return false
+
+  return agents.some((a) => !a.isAutomation && isAgentStaffable(a) && a.projectId !== projectId)
 }
 
 function workerAssignmentKey(agents: Agent[], projectId: string): string {
@@ -1172,7 +1180,6 @@ function reconcileProjectStaffing(
 ): { agents: Agent[]; projects: Project[] } {
   let nextAgents = [...agents]
   let nextProjects = projects
-  const bestOfTier = bestOfNTier(state.vibingCourseTiers)
 
   const syncedProject = () => nextProjects.find((p) => p.id === project.id) ?? project
   const maxPerTask = (role: StaffJob) =>
@@ -1183,24 +1190,17 @@ function reconcileProjectStaffing(
     const hasConductor = conductors.length > 0
     const desiredConductor = project.useConductor ? 1 : project.roleCounts.conductor > 0 ? 1 : 0
 
-    if (desiredConductor > 0 && !hasConductor) {
-      const activeProjects = activeProjectsBySlot(nextProjects)
-      const targetSlotIndex = syncedProject().slotIndex
-      const canStaffConductor =
-        projectHasConductorPipelineWork(syncedProject()) &&
-        canStaffConductorOnProject(
-          { ...state, agents: nextAgents },
-          nextAgents,
-          project.id,
-          options,
-        ) &&
-        !priorConductorProjectsBlockStaffing(
-          activeProjects,
-          project.id,
-          nextAgents,
-          { ...state, agents: nextAgents },
-          maxAgentsPerTask(bestOfTier),
-        )
+    if (desiredConductor > 0 && !hasConductor && projectHasConductorPipelineWork(syncedProject())) {
+      const released = releaseProjectWorkersForConductor(nextAgents, project.id, nextProjects)
+      nextAgents = released.agents
+      nextProjects = released.projects
+
+      const canStaffConductor = canStaffConductorOnProject(
+        { ...state, agents: nextAgents },
+        nextAgents,
+        project.id,
+        options,
+      )
       if (canStaffConductor) {
         const staffed = staffAgentForRole(
           ctx,
@@ -1209,11 +1209,7 @@ function reconcileProjectStaffing(
           project.id,
           'conductor',
           nextProjects,
-          {
-            stealFromOtherProjects: true,
-            stealOnlyFromLowerSlots: true,
-            targetSlotIndex,
-          },
+          { stealFromOtherProjects: true },
         )
         if (staffed) {
           nextAgents = staffed.agents
@@ -2172,9 +2168,14 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const waitNote =
     daysWaited > 0 ? ` (${daysWaited}d wait shaved ${daysWaited}d off deadline)` : ''
   const syntheticAccepted = lead.source === 'synthetic'
+  const nextProjects = [...state.projects, projectWithConductor]
+  const reconciled = reconcileAllProjectStaffingInSlotOrder(ctx, state, state.agents, nextProjects, {
+    spawnWhenNoWorkers: autoConductor,
+  })
   return withCtx({
     ...state,
-    projects: [...state.projects, projectWithConductor],
+    agents: reconciled.agents,
+    projects: reconciled.projects,
     leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
     stats: syntheticAccepted
       ? { ...state.stats, syntheticLeadsAccepted: state.stats.syntheticLeadsAccepted + 1 }
@@ -2441,10 +2442,13 @@ export function toggleConductor(state: GameState, projectId: string, enabled: bo
   )
   const updatedProject = nextProjects.find((p) => p.id === projectId)
   if (!updatedProject) return state
-  const reconciled = reconcileProjectStaffing(ctx, state, updatedProject, state.agents, nextProjects, {
-    spawnWhenNoWorkers: true,
+  const reconciled = reconcileAllProjectStaffingInSlotOrder(ctx, state, state.agents, nextProjects, {
+    spawnWhenNoWorkers: enabled,
   })
-  const nextProjectsClamped = clampRoleCountsToStaffed(projectId, reconciled.agents, reconciled.projects)
+  let nextProjectsClamped = reconciled.projects
+  for (const project of activeProjectsBySlot(reconciled.projects)) {
+    nextProjectsClamped = clampRoleCountsToStaffed(project.id, reconciled.agents, nextProjectsClamped)
+  }
   return withCtx(
     {
       ...state,
