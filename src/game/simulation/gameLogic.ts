@@ -68,7 +68,6 @@ import {
   getAgentRamParams,
   agentTokensPerSec,
   bestOfNStackMultiplier,
-  bestOfNAssistStackIndex,
   canFitAgentRam,
   clientSlotsNeedingLeads,
   isClientSlotOccupiedByProject,
@@ -88,7 +87,6 @@ import {
   hasProjectManagerActive,
   hasPromptEngineering,
   isAutomationAgentUnlocked,
-  isBestOfNAssistAgent,
   jobStatusFor,
   maxAgentSlotPurchases,
   maxAgents,
@@ -732,33 +730,6 @@ function preserveAgentProgressOnRelease(
   return nextProjects
 }
 
-function pullAgentForRole(
-  agents: Agent[],
-  agentIdx: number,
-  projectId: string,
-  job: AgentJob,
-  projects: Project[],
-): { agents: Agent[]; agentId: string; projects: Project[] } | null {
-  const donor = agents[agentIdx]
-  if (!donor?.projectId || !donor.job || !isProjectRole(donor.job)) return null
-  const oldProjectId = donor.projectId
-  const oldJob = donor.job
-  let nextProjects = preserveAgentProgressOnRelease(donor, oldProjectId, oldJob, projects)
-  const next = [...agents]
-  const assigned = assignAgentToRole(
-    { ...donor, taskId: null, jobProgress: 0, jobDuration: 0, status: 'idle' },
-    projectId,
-    job,
-  )
-  next[agentIdx] = assigned
-  nextProjects = nextProjects.map((p) =>
-    p.id === oldProjectId
-      ? { ...p, roleCounts: { ...p.roleCounts, [oldJob]: Math.max(0, p.roleCounts[oldJob] - 1) } }
-      : p,
-  )
-  return { agents: next, agentId: assigned.id, projects: nextProjects }
-}
-
 function projectSlotIndex(projects: Project[], projectId: string | null | undefined): number {
   if (!projectId) return -1
   return projects.find((p) => p.id === projectId)?.slotIndex ?? -1
@@ -896,41 +867,6 @@ function staffAgentForRole(
         : p,
     )
     return { agents: next, agentId: assigned.id, projects: nextProjects }
-  }
-
-  const assistCandidates = agents
-    .map((a, idx) => ({ a, idx }))
-    .filter(
-      ({ a }) =>
-        a.job !== null &&
-        a.job !== job &&
-        a.job !== 'conductor' &&
-        !a.isAutomation &&
-        isBestOfNAssistAgent(agents, a) &&
-        canDonateAgentForStaffing(a, projectId, projects, {
-          stealFromOtherProjects,
-          stealOnlyFromLowerSlots: options?.stealOnlyFromLowerSlots,
-          targetSlotIndex: options?.targetSlotIndex,
-        }),
-    )
-  if (assistCandidates.length > 0) {
-    assistCandidates.sort((x, y) => {
-      const xStack = bestOfNAssistStackIndex(agents, x.a)
-      const yStack = bestOfNAssistStackIndex(agents, y.a)
-      if (xStack !== yStack) return yStack - xStack
-      const xOther = x.a.projectId !== projectId ? 1 : 0
-      const yOther = y.a.projectId !== projectId ? 1 : 0
-      if (xOther !== yOther) return yOther - xOther
-      return x.idx - y.idx
-    })
-    const pulled = pullAgentForRole(
-      agents,
-      assistCandidates[0]!.idx,
-      projectId,
-      job,
-      projects,
-    )
-    if (pulled) return pulled
   }
 
   if (!canSpawnAgent({ ...state, agents })) return null
@@ -1153,7 +1089,6 @@ function canConductorAddWorker(
   }
   return agents.some((a) => {
     if (a.isAutomation) return false
-    if (isBestOfNAssistAgent(agents, a)) return true
     if (!isAgentStaffable(a)) return false
     if (a.job === null) return true
     if (a.projectId !== projectId && a.job !== 'conductor' && isProjectRole(a.job)) return true
