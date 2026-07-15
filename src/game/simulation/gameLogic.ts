@@ -65,7 +65,8 @@ import {
 } from '../constants'
 import {
   agentRoleLabel,
-  agentContextTokenCapacity,
+  rosterParamsForAgent,
+  spawnAgentRamGb,
   agentTokensPerSec,
   bestOfNTier,
   bestOfNStackMultiplier,
@@ -468,7 +469,6 @@ export function createInitialState(
     vibingCourses: [],
     vibingCourseTiers: {},
     assignedSpecialistRoles: [],
-    contextRamLevel: 0,
     agents,
     projects,
     productBacklog: [],
@@ -532,14 +532,11 @@ function paramsForRosterAgent(
   state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers'>,
   agent: Agent,
 ): number {
-  if (agent.isAutomation) {
-    return getAgentParameters(state.meta, state.purchasedFineTunes, null, getHallucinationLevel(state.meta, 'model'), state.fineTuneTiers)
-  }
-  return agentParamsFor(state, agent.job ?? 'code')
+  return rosterParamsForAgent(state, agent)
 }
 
 function canSpawnAgent(state: GameState): boolean {
-  return canFitAgentRam(state, agentParamsFor(state, 'code'), (a) => paramsForRosterAgent(state, a))
+  return canFitAgentRam(state, spawnAgentRamGb(state), (a) => paramsForRosterAgent(state, a))
 }
 
 function isAgentBusy(agent: Agent): boolean {
@@ -1357,7 +1354,6 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
-    contextRamLevel,
     meta,
   } = {
     ...state,
@@ -1365,7 +1361,6 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     fineTuneTiers: { ...state.fineTuneTiers },
     purchasedFineTunes: [...state.purchasedFineTunes],
     projects: repairStaleCodingAssignments(state.projects, state.agents),
-    contextRamLevel: state.contextRamLevel ?? 0,
   }
 
   let nextAgents = agents.map((a) => ({ ...a }))
@@ -1379,7 +1374,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   let nextStats = { ...stats }
   const phase: GameState['phase'] = state.phase
 
-  const contextTokens = contextTokensForState({ meta, contextRamLevel })
+  const contextTokens = contextTokensForState({ meta })
   const compactDuration = compactionDurationSec(meta)
   const refineTier = refinementTier(state.vibingCourseTiers, vibingCourses)
   const tickStateBase = { meta, purchasedFineTunes, fineTuneTiers, gpuTickPurchases, agents: nextAgents }
@@ -2028,7 +2023,6 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     mrr,
     agentSlotPurchases,
     gpuTickPurchases,
-    contextRamLevel,
     vibingCourses,
     vibingCourseTiers,
     purchasedFineTunes,
@@ -2660,35 +2654,6 @@ export function canStaffAdditionalAgent(state: GameState): boolean {
   return hasStaffableAgent(state.agents) || canSpawnAgent(state)
 }
 
-export function setContextRamLevel(state: GameState, level: number, at: number): GameState {
-  const ctx = ctxFrom(state)
-  const nextLevel = Math.max(0, Math.floor(level))
-  const params = (agent: Agent) => paramsForRosterAgent(state, agent)
-  const usedWithoutContext = rosterAgentRamGb(state.agents, 0, params)
-  const perAgentContext = state.agents.length
-  const maxLevel = perAgentContext > 0
-    ? Math.floor((totalRamGb(state) - usedWithoutContext) / perAgentContext)
-    : 0
-  const clamped = Math.min(nextLevel, maxLevel)
-  if (clamped === (state.contextRamLevel ?? 0)) return state
-  return withCtx(
-    {
-      ...state,
-      contextRamLevel: clamped,
-      events: pushEvent(
-        ctx,
-        state.meta,
-        state.events,
-        'system',
-        `Context RAM set to +${clamped} GB per agent (${agentContextTokenCapacity(clamped, getHallucinationLevel(state.meta, 'context'))} tokens).`,
-        at,
-      ),
-    },
-    ctx,
-    at,
-  )
-}
-
 export function agentCapacity(state: GameState): {
   used: number
   max: number
@@ -2697,7 +2662,7 @@ export function agentCapacity(state: GameState): {
   usedRamGb: number
 } {
   const params = (agent: Agent) => paramsForRosterAgent(state, agent)
-  const usedRam = rosterAgentRamGb(state.agents, state.contextRamLevel ?? 0, params)
+  const usedRam = rosterAgentRamGb(state.agents, params)
   const totalRam = totalRamGb(state)
   return {
     used: state.agents.length,

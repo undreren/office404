@@ -77,7 +77,7 @@ describe('offline-progress-simulates-work', () => {
   it('does not leave staffed coders at full context with zero task progress', () => {
     const awaySec = 30
     const before = codingAgentState()
-    const contextTokens = agentContextTokenCapacity(0, 0)
+    const contextTokens = agentContextTokenCapacity(0)
 
     const after = dispatchChain(before, [applyOfflineProgressMsg(T0 + awaySec * 1000, awaySec)])
     const agent = after.agents.find((a) => a.job === 'code')!

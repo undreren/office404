@@ -13,7 +13,7 @@ import { initialPlaying } from './_helpers/initialPlaying'
 import { stateAtAgentCapacity } from './_helpers/stateAtAgentCapacity'
 import { stateWithCash } from './_helpers/stateWithCash'
 import { T0 } from './_helpers/testConstants'
-import type { GameState } from '../types'
+import type { Agent, GameState } from '../types'
 
 describe('automation-agent-slots', () => {
   it('does not spawn a specialist when a course unlocks — player assigns via checkbox', () => {
@@ -58,9 +58,19 @@ describe('automation-agent-slots', () => {
     const before = stateWithCash(capped, 350)
     const unlocked = dispatchChain(before, [buyVibingCourseMsg(T0 + 1000, 'marketing')])
     const onlyAgent = unlocked.agents[0]!
+    const idleBench: Agent = {
+      ...onlyAgent,
+      id: 'agt-idle-bench',
+      name: 'Idle Bench',
+      job: null,
+      projectId: null,
+      taskId: null,
+      status: 'idle',
+      isAutomation: false,
+      automationJob: undefined,
+    }
     const automationOnly: GameState = {
       ...unlocked,
-      contextRamLevel: 6,
       agents: [
         {
           ...onlyAgent,
@@ -70,6 +80,7 @@ describe('automation-agent-slots', () => {
           projectId: null,
           status: 'procuring',
         },
+        idleBench,
       ],
       assignedSpecialistRoles: ['procurement'],
       vibingCourses: [...unlocked.vibingCourses, 'procurement'],

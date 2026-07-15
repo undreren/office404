@@ -10,7 +10,7 @@ import {
 import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
 import type { Agent, Project, Task } from '../game/types'
-import { setContextRamLevelMsg, toggleSpecialistRoleMsg } from '../game/messages'
+import { toggleSpecialistRoleMsg } from '../game/messages'
 import { agentCapacity } from '../game/selectors'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { SaveBackupPanel } from './SaveBackupPanel'
@@ -134,13 +134,12 @@ function SpecialistRoleRow({
 
 export function StatusPanel() {
   const state = useGameState()
-  const { agents, projects, meta, events, vibingCourses, assignedSpecialistRoles, contextRamLevel } =
-    state
+  const { agents, projects, meta, events, vibingCourses, assignedSpecialistRoles } = state
   const dispatchAt = useGameDispatchAt()
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
   const prestigeContext = getHallucinationLevel(meta, 'context')
-  const contextTokens = agentContextTokenCapacity(contextRamLevel ?? 0, prestigeContext)
+  const contextTokens = agentContextTokenCapacity(prestigeContext)
 
   const specialistJobs = unlockedAutomationJobs({ vibingCourses, meta })
   const regularAgents = agents.filter((agent) => !agent.isAutomation)
@@ -148,41 +147,14 @@ export function StatusPanel() {
   const rosterFull = rosterUsed >= rosterMax
   const canYeetForSlot = agents.some((a) => !a.isAutomation && a.projectId && a.job)
 
-  const maxContextRamLevel =
-    agents.length > 0
-      ? Math.max(0, Math.floor((totalRamGb - usedRamGb + (contextRamLevel ?? 0) * agents.length) / agents.length))
-      : 0
-
   return (
     <section className="panel status-panel">
       <h2>Status</h2>
       <p className="panel__subtitle">Agents on the roster and incidents in the log.</p>
 
-      <h3 className="status-panel__section">Context RAM</h3>
       <p className="hint">
-        +{contextRamLevel ?? 0} GB per agent → {contextTokens.toLocaleString()} token window. Trades roster RAM for
-        context headroom.
+        {usedRamGb}/{totalRamGb} GB RAM · {rosterUsed}/{rosterMax} agents
       </p>
-      <div className="status-panel__context-ram">
-        <label className="crew-label" htmlFor="context-ram-slider">
-          Context RAM: +{contextRamLevel ?? 0} GB/agent
-        </label>
-        <input
-          id="context-ram-slider"
-          type="range"
-          min={0}
-          max={maxContextRamLevel}
-          value={contextRamLevel ?? 0}
-          data-testid="status-context-ram-slider"
-          aria-label={`Context RAM level ${contextRamLevel ?? 0} of ${maxContextRamLevel}`}
-          onChange={(e) =>
-            dispatchAt((at) => setContextRamLevelMsg(at, Number(e.target.value)))
-          }
-        />
-        <span className="hint">
-          {usedRamGb}/{totalRamGb} GB used · {rosterUsed}/{rosterMax} agents
-        </span>
-      </div>
 
       {specialistJobs.length > 0 && (
         <>

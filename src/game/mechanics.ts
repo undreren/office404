@@ -443,9 +443,8 @@ export function fillAgentContext(
   return agent.contextUsed
 }
 
-export function agentContextTokenCapacity(contextRamLevel: number, prestigeContextLevel: number): number {
-  const multiplier = 1 + contextRamLevel + prestigeContextLevel
-  return BASE_CONTEXT_TOKENS * multiplier
+export function agentContextTokenCapacity(prestigeContextLevel: number): number {
+  return BASE_CONTEXT_TOKENS * (1 + prestigeContextLevel)
 }
 
 export function contextFillPct(contextUsed: number, contextTokens: number): number {
@@ -615,20 +614,46 @@ export function totalRamGb(state: Pick<GameState, 'agentSlotPurchases' | 'meta'>
   return BASE_RAM_GB + state.agentSlotPurchases * RAM_PER_UPGRADE_GB
 }
 
-export function agentRamGb(effectiveParams: number, contextRamLevel: number): number {
-  return effectiveParams + contextRamLevel
+export function agentRamGb(effectiveParams: number): number {
+  return effectiveParams
 }
 
 export function rosterAgentRamGb(
   agents: Agent[],
-  contextRamLevel: number,
   paramsFor: (agent: Agent) => number,
 ): number {
-  return agents.reduce((sum, agent) => sum + agentRamGb(paramsFor(agent), contextRamLevel), 0)
+  return agents.reduce((sum, agent) => sum + agentRamGb(paramsFor(agent)), 0)
+}
+
+export function rosterParamsForAgent(
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers'>,
+  agent: Agent,
+): number {
+  const modelTierIndex = getHallucinationLevel(state.meta, 'model')
+  if (agent.isAutomation) {
+    return getAgentParameters(state.meta, state.purchasedFineTunes, null, modelTierIndex, state.fineTuneTiers)
+  }
+  return getAgentParameters(
+    state.meta,
+    state.purchasedFineTunes,
+    agent.job ?? 'code',
+    modelTierIndex,
+    state.fineTuneTiers,
+  )
+}
+
+export function spawnAgentRamGb(state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers'>): number {
+  return getAgentParameters(
+    state.meta,
+    state.purchasedFineTunes,
+    'code',
+    getHallucinationLevel(state.meta, 'model'),
+    state.fineTuneTiers,
+  )
 }
 
 export function availableRamGb(state: GameState, paramsFor: (agent: Agent) => number): number {
-  return totalRamGb(state) - rosterAgentRamGb(state.agents, state.contextRamLevel ?? 0, paramsFor)
+  return totalRamGb(state) - rosterAgentRamGb(state.agents, paramsFor)
 }
 
 export function totalAgentSlots(state: Pick<GameState, 'agentSlotPurchases' | 'meta'>): number {
@@ -656,10 +681,10 @@ export function maxGpuTickPurchases(apartment: GameState['apartment']): number {
 }
 
 export function maxAgents(state: GameState): number {
-  const params = effectiveModelParams(state.meta)
-  const perAgent = agentRamGb(params, state.contextRamLevel ?? 0)
-  if (perAgent <= 0) return state.agents.length
-  return state.agents.length + Math.max(0, Math.floor(availableRamGb(state, () => params) / perAgent))
+  const paramsFor = (agent: Agent) => rosterParamsForAgent(state, agent)
+  const perSpawn = spawnAgentRamGb(state)
+  if (perSpawn <= 0) return state.agents.length
+  return state.agents.length + Math.max(0, Math.floor(availableRamGb(state, paramsFor) / perSpawn))
 }
 
 export function canFitAgentRam(
@@ -667,7 +692,7 @@ export function canFitAgentRam(
   additionalParams: number,
   paramsFor: (agent: Agent) => number,
 ): boolean {
-  return availableRamGb(state, paramsFor) >= agentRamGb(additionalParams, state.contextRamLevel ?? 0)
+  return availableRamGb(state, paramsFor) >= agentRamGb(additionalParams)
 }
 
 /** @deprecated Use gpuShareForAgents. */
