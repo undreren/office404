@@ -614,8 +614,13 @@ export function totalRamGb(state: Pick<GameState, 'agentSlotPurchases' | 'meta'>
   return BASE_RAM_GB + state.agentSlotPurchases * RAM_PER_UPGRADE_GB
 }
 
-export function agentRamGb(effectiveParams: number): number {
-  return effectiveParams
+/** Model footprint in GB — prestige model size only (no cash fine-tunes). */
+export function getAgentRamParams(meta: MetaProgress): number {
+  return effectiveModelParams(meta)
+}
+
+export function agentRamGb(ramParams: number): number {
+  return ramParams
 }
 
 export function rosterAgentRamGb(
@@ -623,33 +628,6 @@ export function rosterAgentRamGb(
   paramsFor: (agent: Agent) => number,
 ): number {
   return agents.reduce((sum, agent) => sum + agentRamGb(paramsFor(agent)), 0)
-}
-
-export function rosterParamsForAgent(
-  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers'>,
-  agent: Agent,
-): number {
-  const modelTierIndex = getHallucinationLevel(state.meta, 'model')
-  if (agent.isAutomation) {
-    return getAgentParameters(state.meta, state.purchasedFineTunes, null, modelTierIndex, state.fineTuneTiers)
-  }
-  return getAgentParameters(
-    state.meta,
-    state.purchasedFineTunes,
-    agent.job ?? 'code',
-    modelTierIndex,
-    state.fineTuneTiers,
-  )
-}
-
-export function spawnAgentRamGb(state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers'>): number {
-  return getAgentParameters(
-    state.meta,
-    state.purchasedFineTunes,
-    'code',
-    getHallucinationLevel(state.meta, 'model'),
-    state.fineTuneTiers,
-  )
 }
 
 export function availableRamGb(state: GameState, paramsFor: (agent: Agent) => number): number {
@@ -681,10 +659,10 @@ export function maxGpuTickPurchases(apartment: GameState['apartment']): number {
 }
 
 export function maxAgents(state: GameState): number {
-  const paramsFor = (agent: Agent) => rosterParamsForAgent(state, agent)
-  const perSpawn = spawnAgentRamGb(state)
-  if (perSpawn <= 0) return state.agents.length
-  return state.agents.length + Math.max(0, Math.floor(availableRamGb(state, paramsFor) / perSpawn))
+  const perAgent = getAgentRamParams(state.meta)
+  const paramsFor = (_agent: Agent) => perAgent
+  if (perAgent <= 0) return state.agents.length
+  return state.agents.length + Math.max(0, Math.floor(availableRamGb(state, paramsFor) / perAgent))
 }
 
 export function canFitAgentRam(
@@ -708,6 +686,7 @@ export function getFineTuneLevel(
   return fineTuneTiers[fineTuneIdKey] ?? (purchasedFineTunes.includes(fineTuneIdKey) ? 1 : 0)
 }
 
+/** Effective params for throughput and PR — includes role bonuses and cash fine-tunes. */
 export function getAgentParameters(
   meta: MetaProgress,
   fineTunes: string[],
@@ -715,7 +694,7 @@ export function getAgentParameters(
   modelTierIndex: number,
   fineTuneTiers: Partial<Record<string, number>> = {},
 ): number {
-  let base = effectiveModelParams(meta)
+  let base = getAgentRamParams(meta)
   if (!job || agentIsAutomationJob(job)) return base
   if (job === 'code') {
     base *= codeHallucinationParamMultiplier(meta)

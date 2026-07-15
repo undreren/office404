@@ -65,8 +65,7 @@ import {
 } from '../constants'
 import {
   agentRoleLabel,
-  rosterParamsForAgent,
-  spawnAgentRamGb,
+  getAgentRamParams,
   agentTokensPerSec,
   bestOfNTier,
   bestOfNStackMultiplier,
@@ -528,15 +527,13 @@ function agentParamsFor(
   )
 }
 
-function paramsForRosterAgent(
-  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers'>,
-  agent: Agent,
-): number {
-  return rosterParamsForAgent(state, agent)
+function rosterRamParams(state: Pick<GameState, 'meta'>, _agent: Agent): number {
+  return getAgentRamParams(state.meta)
 }
 
 function canSpawnAgent(state: GameState): boolean {
-  return canFitAgentRam(state, spawnAgentRamGb(state), (a) => paramsForRosterAgent(state, a))
+  const perAgent = getAgentRamParams(state.meta)
+  return canFitAgentRam(state, perAgent, (agent) => rosterRamParams(state, agent))
 }
 
 function isAgentBusy(agent: Agent): boolean {
@@ -2661,7 +2658,7 @@ export function agentCapacity(state: GameState): {
   gpuTicks: number
   usedRamGb: number
 } {
-  const params = (agent: Agent) => paramsForRosterAgent(state, agent)
+  const params = (agent: Agent) => rosterRamParams(state, agent)
   const usedRam = rosterAgentRamGb(state.agents, params)
   const totalRam = totalRamGb(state)
   return {
