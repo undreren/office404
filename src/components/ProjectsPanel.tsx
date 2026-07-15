@@ -10,11 +10,11 @@ import {
   formatStoryPoints,
   hasConductorCourse,
   hasOpenClientProjectSlot,
+  clientProjectBoardSlots,
   taskEarnedTokens,
   taskTokensRequired,
 } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
-import { maxClientProjectSlots } from '../game/prestige'
 import {
   agentsPerTaskForProject,
   allImplementationMerged,
@@ -781,8 +781,7 @@ export function ProjectsPanel() {
   const dispatchAt = useGameDispatchAt()
   const columnsRef = useRef<HTMLDivElement>(null)
   const slotState = { meta, vibingCourseTiers, maxClientProjects }
-  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers, maxClientProjects)
-  const columnCount = tutorialDone ? maxSlots : 1
+  const columnCount = tutorialDone ? clientProjectBoardSlots(slotState, projects, leads) : 1
   const canAcceptLeads = hasOpenClientProjectSlot(slotState, agents, projects)
 
   useEffect(() => {

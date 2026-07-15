@@ -79,8 +79,6 @@ import {
   formatStoryPoints,
   getAgentParameters,
   hasOpenClientProjectSlot,
-  reconcileClientProjectLocks,
-  repairClientSlotIndexes,
   getFineTuneLevel,
   gpuTickCost,
   hasActiveAutomationAgent,
@@ -2792,6 +2790,7 @@ export function setMaxClientProjects(state: GameState, slots: number, at: number
   let nextState: GameState = {
     ...state,
     maxClientProjects: clamped,
+    projects: state.projects.map((p) => (p.isLocked ? { ...p, isLocked: false } : p)),
     events: pushEvent(
       ctx,
       state.meta,
@@ -2801,13 +2800,7 @@ export function setMaxClientProjects(state: GameState, slots: number, at: number
       at,
     ),
   }
-  const lockedProjects = reconcileClientProjectLocks(nextState.projects, clamped)
-  const { projects, leads } = repairClientSlotIndexes(
-    nextState,
-    lockedProjects,
-    nextState.leads,
-  )
-  return withCtx({ ...nextState, projects, leads }, ctx, at)
+  return withCtx(nextState, ctx, at)
 }
 
 export function getNetWorth(state: Pick<GameState, 'cash' | 'mrr'>): number {
