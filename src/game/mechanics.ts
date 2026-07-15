@@ -198,6 +198,26 @@ function clientProjectSlotLimit(state: ClientProjectSlotState): number {
   return maxClientProjectSlots(state.meta, state.vibingCourseTiers, state.maxClientProjects)
 }
 
+/** Park client gigs above the Status cap; unlock the lowest-slot projects first. */
+export function reconcileClientProjectLocks(projects: Project[], maxSlots: number): Project[] {
+  const unlockedIds = new Set(
+    projects
+      .filter((p) => p.kind === 'client' && p.status === 'active')
+      .sort((a, b) => a.slotIndex - b.slotIndex || a.id.localeCompare(b.id))
+      .slice(0, maxSlots)
+      .map((p) => p.id),
+  )
+
+  return projects.map((p) => {
+    if (p.kind !== 'client' || p.status !== 'active') {
+      return p.isLocked ? { ...p, isLocked: false } : p
+    }
+    const locked = !unlockedIds.has(p.id)
+    if (!!p.isLocked === locked) return p
+    return { ...p, isLocked: locked }
+  })
+}
+
 export function countActiveClientProjects(projects: Project[]): number {
   return projects.filter((p) => p.kind === 'client' && p.status === 'active' && !p.isLocked).length
 }

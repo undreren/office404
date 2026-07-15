@@ -76,10 +76,10 @@ import {
   clientLeadPipelineTarget,
   computePrBaseQuality,
   countAssignedPmAgents,
-  countActiveClientProjects,
   formatStoryPoints,
   getAgentParameters,
   hasOpenClientProjectSlot,
+  reconcileClientProjectLocks,
   repairClientSlotIndexes,
   getFineTuneLevel,
   gpuTickCost,
@@ -2785,9 +2785,7 @@ export function setMaxClientProjects(state: GameState, slots: number, at: number
   const ctx = ctxFrom(state)
   const base = baseClientProjectSlots(state.meta)
   const cap = maxClientProjectSlotsCap(state.meta, state.vibingCourseTiers)
-  const active = countActiveClientProjects(state.projects)
-  const min = Math.max(base, active)
-  const clamped = Math.min(Math.max(Math.floor(slots), min), cap)
+  const clamped = Math.min(Math.max(Math.floor(slots), base), cap)
   const current = maxClientProjectSlots(state.meta, state.vibingCourseTiers, state.maxClientProjects)
   if (clamped === current) return state
 
@@ -2803,7 +2801,12 @@ export function setMaxClientProjects(state: GameState, slots: number, at: number
       at,
     ),
   }
-  const { projects, leads } = repairClientSlotIndexes(nextState, nextState.projects, nextState.leads)
+  const lockedProjects = reconcileClientProjectLocks(nextState.projects, clamped)
+  const { projects, leads } = repairClientSlotIndexes(
+    nextState,
+    lockedProjects,
+    nextState.leads,
+  )
   return withCtx({ ...nextState, projects, leads }, ctx, at)
 }
 

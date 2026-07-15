@@ -501,9 +501,9 @@ function ProjectCard({ project }: { project: Project }) {
         <p
           className="hint text-danger project-card__locked"
           data-testid={`project-locked-${project.id}`}
-          aria-label="Project locked until Project Manager is assigned."
+          aria-label="Project locked until the client project cap is raised on Status."
         >
-          Locked — assign a Project Manager to work this gig.
+          Locked — raise the client project cap on Status to work this gig.
         </p>
       )}
       <header className="project-card__header">
