@@ -786,6 +786,21 @@ export function dispatchableAgents(agents: Agent[], projectId: string, job: Agen
     .sort((a, b) => (rosterOrder.get(a.id) ?? 0) - (rosterOrder.get(b.id) ?? 0))
 }
 
+/** 0-based stack position on a shared task (0 = primary Best-of-N worker). */
+export function stackIndexOnTask(
+  agents: Agent[],
+  projectId: string,
+  job: AgentJob,
+  taskId: string,
+  agentId: string,
+): number {
+  const onTask = dispatchableAgents(agents, projectId, job)
+    .filter((a) => a.taskId === taskId)
+    .map((a) => a.id)
+  const idx = onTask.indexOf(agentId)
+  return idx < 0 ? 0 : idx
+}
+
 function dispatchFillFirst<T extends { id: string }>(
   project: Project,
   agentId: string,

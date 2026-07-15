@@ -1,6 +1,9 @@
 export const BEST_OF_N_COURSE_ID = 'best_of_n'
 export const BEST_OF_N_MAX_TIER = 4
 
+export const VIBE_SLOTS_COURSE_ID = 'vibe_slots'
+export const VIBE_SLOTS_MAX_TIER = 4
+
 export const CONDUCTOR_COURSE_ID = 'conductor'
 
 export const REFINEMENT_COURSE_ID = 'refinement'
@@ -99,6 +102,14 @@ export const VIBING_COURSES: VibingCourse[] = [
     description:
       '+1 max agent on the same task per tier (2 at T1 → 5 at T4). Extra agents on a task produce at ×0.75^n. Conductors spread before stacking.',
     maxTier: BEST_OF_N_MAX_TIER,
+  },
+  {
+    id: VIBE_SLOTS_COURSE_ID,
+    label: 'Parallel Vibes',
+    tagline: 'Juggle more gigs. Sleep the same amount. Cry the same amount.',
+    cost: 500,
+    description: '+1 concurrent client project slot per tier (max T4). Prestige slots stack on top.',
+    maxTier: VIBE_SLOTS_MAX_TIER,
   },
   {
     id: 'hot_swapping',

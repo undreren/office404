@@ -54,19 +54,7 @@ function paramsForJob(
   )
 }
 
-export function stackIndexOnTask(
-  agents: Agent[],
-  projectId: string,
-  job: AgentJob,
-  taskId: string,
-  agentId: string,
-): number {
-  const onTask = dispatchableAgents(agents, projectId, job)
-    .filter((a) => a.taskId === taskId)
-    .map((a) => a.id)
-  const idx = onTask.indexOf(agentId)
-  return idx < 0 ? 0 : idx
-}
+export { stackIndexOnTask } from '../projects'
 
 export function applyOutputTokensToContext(
   agent: Agent,

@@ -21,6 +21,7 @@ import {
   SP_PROGRESS_DAY_DIVISOR,
   SP_PROGRESS_PER_B_PARAM,
   TEST_SPEED_MULTIPLIER,
+  CLIENT_PAY_SP_EXPONENT,
   REP_ZERO_PAY_MULT,
   MRR_BASE_RATE,
 } from './constants'
@@ -28,6 +29,7 @@ import { HOUSING_CONFIG } from './housing'
 import { FINE_TUNE_BONUS } from './models'
 import type { MetaProgress } from './meta'
 import { getHallucinationLevel } from './meta'
+import { stackIndexOnTask } from './projects'
 import { codeHallucinationParamMultiplier, effectiveModelParams, maxClientProjectSlots } from './prestige'
 import type { Agent, AgentJob, FineTuneRole, GameState, Lead, Project, Task, TaskWorkRole } from './types'
 import type { Rng } from './rng'
@@ -207,8 +209,9 @@ export function hasOpenClientProjectSlot(
   meta: MetaProgress,
   _agents: Agent[],
   projects: Project[],
+  vibingCourseTiers: Partial<Record<string, number>> = {},
 ): boolean {
-  const maxSlots = maxClientProjectSlots(meta)
+  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
   return countActiveClientProjects(projects) < maxSlots
 }
 
@@ -229,8 +232,9 @@ export function clientLeadPipelineTarget(
   meta: MetaProgress,
   _assignedPmAgents: number,
   projects: Project[],
+  vibingCourseTiers: Partial<Record<string, number>> = {},
 ): number {
-  const maxSlots = maxClientProjectSlots(meta)
+  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
   return Math.max(0, maxSlots - countActiveClientProjects(projects))
 }
 
@@ -263,8 +267,9 @@ export function clientSlotsNeedingLeads(
   meta: MetaProgress,
   projects: Project[],
   leads: Lead[],
+  vibingCourseTiers: Partial<Record<string, number>> = {},
 ): number[] {
-  const maxSlots = maxClientProjectSlots(meta)
+  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
   const slots: number[] = []
   for (let slot = 0; slot < maxSlots; slot++) {
     if (isClientSlotOccupiedByProject(projects, slot)) continue
@@ -278,8 +283,9 @@ export function repairClientSlotIndexes(
   meta: MetaProgress,
   projects: Project[],
   leads: Lead[],
+  vibingCourseTiers: Partial<Record<string, number>> = {},
 ): { projects: Project[]; leads: Lead[] } {
-  const maxSlots = maxClientProjectSlots(meta)
+  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
   const projectSlotById = new Map<string, number>()
   const usedProjectSlots = new Set<number>()
 
@@ -840,7 +846,20 @@ export function computeMrrGain(featureSp: number, featuresShipped: number, housi
 export function clientPaymentForTotalSp(totalSp: number, reputation: number, unreasonable = false): number {
   const repMult = 4 + Math.max(0, reputation) * 0.3
   const unreasonableMult = unreasonable ? 0.75 : 1
-  return Math.round(totalSp * repMult * unreasonableMult)
+  const spScaled = Math.pow(Math.max(1, totalSp), CLIENT_PAY_SP_EXPONENT)
+  return Math.round(spScaled * repMult * unreasonableMult)
+}
+
+/** Stack index when agent is a stacked Best-of-N helper (0 = primary); -1 if not assisting. */
+export function bestOfNAssistStackIndex(agents: Agent[], agent: Agent): number {
+  if (!agent.job || !agent.projectId || !agent.taskId) return -1
+  if (agent.job === 'conductor' || agent.isAutomation) return -1
+  const idx = stackIndexOnTask(agents, agent.projectId, agent.job, agent.taskId, agent.id)
+  return idx > 0 ? idx : -1
+}
+
+export function isBestOfNAssistAgent(agents: Agent[], agent: Agent): boolean {
+  return bestOfNAssistStackIndex(agents, agent) > 0
 }
 
 export function repZeroPaymentMultiplier(reputation: number): number {

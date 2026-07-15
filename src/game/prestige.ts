@@ -292,9 +292,13 @@ export function hasInHouseUnlocked(meta: MetaProgress): boolean {
   return getHallucinationLevel(meta, 'in_house') >= 1
 }
 
-/** Concurrent client gigs: one free slot + prestige project_slots. */
-export function maxClientProjectSlots(meta: MetaProgress): number {
-  return 1 + getHallucinationLevel(meta, 'project_slots')
+/** Concurrent client gigs: one free slot + prestige project_slots + vibe course tiers. */
+export function maxClientProjectSlots(
+  meta: MetaProgress,
+  vibingCourseTiers: Partial<Record<string, number>> = {},
+): number {
+  const vibeSlots = vibingCourseTiers.vibe_slots ?? 0
+  return 1 + getHallucinationLevel(meta, 'project_slots') + vibeSlots
 }
 
 export function maxProductProjectSlots(meta: MetaProgress): number {

@@ -69,6 +69,7 @@ import {
   agentTokensPerSec,
   bestOfNTier,
   bestOfNStackMultiplier,
+  bestOfNAssistStackIndex,
   canFitAgentRam,
   clientSlotsNeedingLeads,
   isClientSlotOccupiedByProject,
@@ -88,6 +89,7 @@ import {
   hasProjectManagerActive,
   hasPromptEngineering,
   isAutomationAgentUnlocked,
+  isBestOfNAssistAgent,
   jobStatusFor,
   maxAgentSlotPurchases,
   maxAgents,
@@ -684,6 +686,32 @@ function unassignAgentFromRole(
   const victim = candidates[candidates.length - 1]
   if (!victim) return null
 
+  const nextProjects = preserveAgentProgressOnRelease(victim, projectId, job, projects)
+
+  return {
+    agents: agents.map((a) =>
+      a.id === victim.id
+        ? {
+            ...a,
+            job: null,
+            projectId: null,
+            taskId: null,
+            jobProgress: 0,
+            jobDuration: 0,
+            status: a.status === 'compacting' ? 'compacting' : 'idle',
+          }
+        : a,
+    ),
+    projects: nextProjects,
+  }
+}
+
+function preserveAgentProgressOnRelease(
+  victim: Agent,
+  projectId: string,
+  job: AgentJob,
+  projects: Project[],
+): Project[] {
   let nextProjects = projects
   if (job === 'refine' && victim.taskId && victim.jobProgress > 0) {
     const project = projects.find((p) => p.id === projectId)
@@ -709,23 +737,34 @@ function unassignAgentFromRole(
       reviewJobDuration: victim.jobDuration,
     }))
   }
+  return nextProjects
+}
 
-  return {
-    agents: agents.map((a) =>
-      a.id === victim.id
-        ? {
-            ...a,
-            job: null,
-            projectId: null,
-            taskId: null,
-            jobProgress: 0,
-            jobDuration: 0,
-            status: a.status === 'compacting' ? 'compacting' : 'idle',
-          }
-        : a,
-    ),
-    projects: nextProjects,
-  }
+function pullAgentForRole(
+  agents: Agent[],
+  agentIdx: number,
+  projectId: string,
+  job: AgentJob,
+  projects: Project[],
+): { agents: Agent[]; agentId: string; projects: Project[] } | null {
+  const donor = agents[agentIdx]
+  if (!donor?.projectId || !donor.job || !isProjectRole(donor.job)) return null
+  const oldProjectId = donor.projectId
+  const oldJob = donor.job
+  let nextProjects = preserveAgentProgressOnRelease(donor, oldProjectId, oldJob, projects)
+  const next = [...agents]
+  const assigned = assignAgentToRole(
+    { ...donor, taskId: null, jobProgress: 0, jobDuration: 0, status: 'idle' },
+    projectId,
+    job,
+  )
+  next[agentIdx] = assigned
+  nextProjects = nextProjects.map((p) =>
+    p.id === oldProjectId
+      ? { ...p, roleCounts: { ...p.roleCounts, [oldJob]: Math.max(0, p.roleCounts[oldJob] - 1) } }
+      : p,
+  )
+  return { agents: next, agentId: assigned.id, projects: nextProjects }
 }
 
 function staffAgentForRole(
@@ -777,6 +816,37 @@ function staffAgentForRole(
         : p,
     )
     return { agents: next, agentId: assigned.id, projects: nextProjects }
+  }
+
+  const assistCandidates = agents
+    .map((a, idx) => ({ a, idx }))
+    .filter(
+      ({ a }) =>
+        a.job !== null &&
+        a.job !== job &&
+        a.job !== 'conductor' &&
+        !a.isAutomation &&
+        isBestOfNAssistAgent(agents, a) &&
+        (stealFromOtherProjects || a.projectId === projectId),
+    )
+  if (assistCandidates.length > 0) {
+    assistCandidates.sort((x, y) => {
+      const xStack = bestOfNAssistStackIndex(agents, x.a)
+      const yStack = bestOfNAssistStackIndex(agents, y.a)
+      if (xStack !== yStack) return yStack - xStack
+      const xOther = x.a.projectId !== projectId ? 1 : 0
+      const yOther = y.a.projectId !== projectId ? 1 : 0
+      if (xOther !== yOther) return yOther - xOther
+      return x.idx - y.idx
+    })
+    const pulled = pullAgentForRole(
+      agents,
+      assistCandidates[0]!.idx,
+      projectId,
+      job,
+      projects,
+    )
+    if (pulled) return pulled
   }
 
   if (!canSpawnAgent({ ...state, agents })) return null
@@ -1013,6 +1083,8 @@ function canConductorAddWorker(
     return true
   }
   return agents.some((a) => {
+    if (a.isAutomation) return false
+    if (isBestOfNAssistAgent(agents, a)) return true
     if (!isAgentStaffable(a)) return false
     if (a.job === null) return true
     if (a.projectId !== projectId && a.job !== 'conductor' && isProjectRole(a.job)) return true
@@ -1392,9 +1464,10 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     meta,
     countAssignedPmAgents(state.agents),
     nextProjects,
+    state.vibingCourseTiers,
   )
   if (state.tutorialDone) {
-    const slotsNeeding = clientSlotsNeedingLeads(meta, nextProjects, nextLeads)
+    const slotsNeeding = clientSlotsNeedingLeads(meta, nextProjects, nextLeads, state.vibingCourseTiers)
     if (slotsNeeding.length > 0 && availableLeadCount(nextLeads) < pipelineTarget) {
       nextLeads = [generateLead(ctx, reputation, gameDay, slotsNeeding[0]!), ...nextLeads]
       nextEvents = pushEvent(ctx, meta, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
@@ -2007,7 +2080,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const lead = state.leads.find((l) => l.id === leadId)
   if (!lead || lead.status !== 'available') return state
   if (state.reputation < lead.repRequired) return state
-  if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects)) return state
+  if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects, state.vibingCourseTiers)) return state
   if (isClientSlotOccupiedByProject(state.projects, lead.slotIndex)) return state
 
   const project = createProjectFromLead(
@@ -2167,7 +2240,7 @@ function salesAutoAcceptSources(meta: MetaProgress): Set<'real' | 'synthetic'> {
 }
 
 function findAutoAcceptableLead(state: GameState): string | null {
-  if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects)) return null
+  if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects, state.vibingCourseTiers)) return null
   const sources = salesAutoAcceptSources(state.meta)
   const lead = state.leads
     .filter(

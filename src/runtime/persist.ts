@@ -48,7 +48,12 @@ function normalizeLoadedState(state: GameState): GameState {
       projects: repairStaleCodingAssignments(state.projects, state.agents),
     }),
   )
-  const { projects, leads } = repairClientSlotIndexes(migrated.meta, migrated.projects, migrated.leads)
+  const { projects, leads } = repairClientSlotIndexes(
+    migrated.meta,
+    migrated.projects,
+    migrated.leads,
+    migrated.vibingCourseTiers,
+  )
   const synced = reconcileSpecialistAgents({ ...migrated, projects, leads }, ctx)
   return synced
 }
