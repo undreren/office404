@@ -76,9 +76,11 @@ import {
   clientLeadPipelineTarget,
   computePrBaseQuality,
   countAssignedPmAgents,
+  countActiveClientProjects,
   formatStoryPoints,
   getAgentParameters,
   hasOpenClientProjectSlot,
+  repairClientSlotIndexes,
   getFineTuneLevel,
   gpuTickCost,
   hasActiveAutomationAgent,
@@ -109,10 +111,14 @@ import {
   buyHallucinationUpgrade,
   canRetire,
   compactionDurationSec,
+  baseClientProjectSlots,
   getHallucinationLevel,
   hallucinationPointsFromRetirement,
   instantTestHallucinationChance,
+  maxClientProjectSlots,
+  maxClientProjectSlotsCap,
   nextHighestRung,
+  parallelVibesTier,
   refineHallucinationLevel,
   reviewHallucinationLevel,
   startingCapitalBonus,
@@ -1602,13 +1608,12 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   }
 
   const pipelineTarget = clientLeadPipelineTarget(
-    meta,
+    state,
     countAssignedPmAgents(state.agents),
     nextProjects,
-    state.vibingCourseTiers,
   )
   if (state.tutorialDone) {
-    const slotsNeeding = clientSlotsNeedingLeads(meta, nextProjects, nextLeads, state.vibingCourseTiers)
+    const slotsNeeding = clientSlotsNeedingLeads(state, nextProjects, nextLeads)
     if (slotsNeeding.length > 0 && availableLeadCount(nextLeads) < pipelineTarget) {
       nextLeads = [generateLead(ctx, reputation, gameDay, slotsNeeding[0]!), ...nextLeads]
       nextEvents = pushEvent(ctx, meta, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
@@ -2221,7 +2226,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
   const lead = state.leads.find((l) => l.id === leadId)
   if (!lead || lead.status !== 'available') return state
   if (state.reputation < lead.repRequired) return state
-  if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects, state.vibingCourseTiers)) return state
+  if (!hasOpenClientProjectSlot(state, state.agents, state.projects)) return state
   if (isClientSlotOccupiedByProject(state.projects, lead.slotIndex)) return state
 
   const project = createProjectFromLead(
@@ -2387,7 +2392,7 @@ function salesAutoAcceptSources(meta: MetaProgress): Set<'real' | 'synthetic'> {
 }
 
 function findAutoAcceptableLead(state: GameState): string | null {
-  if (!hasOpenClientProjectSlot(state.meta, state.agents, state.projects, state.vibingCourseTiers)) return null
+  if (!hasOpenClientProjectSlot(state, state.agents, state.projects)) return null
   const sources = salesAutoAcceptSources(state.meta)
   const lead = state.leads
     .filter(
@@ -2771,6 +2776,35 @@ export function acknowledgeTutorialStep(state: GameState, step: number, at: numb
 export function acknowledgeCompactionIntro(state: GameState, at: number): GameState {
   if (state.seenCompactionIntro) return state
   return { ...state, seenCompactionIntro: true, snapshotAt: at }
+}
+
+export function setMaxClientProjects(state: GameState, slots: number, at: number): GameState {
+  const tier = parallelVibesTier(state.vibingCourseTiers)
+  if (tier <= 0) return state
+
+  const ctx = ctxFrom(state)
+  const base = baseClientProjectSlots(state.meta)
+  const cap = maxClientProjectSlotsCap(state.meta, state.vibingCourseTiers)
+  const active = countActiveClientProjects(state.projects)
+  const min = Math.max(base, active)
+  const clamped = Math.min(Math.max(Math.floor(slots), min), cap)
+  const current = maxClientProjectSlots(state.meta, state.vibingCourseTiers, state.maxClientProjects)
+  if (clamped === current) return state
+
+  let nextState: GameState = {
+    ...state,
+    maxClientProjects: clamped,
+    events: pushEvent(
+      ctx,
+      state.meta,
+      state.events,
+      'system',
+      `Concurrent client gigs set to ${clamped} (max ${cap} at Parallel Vibes T${tier}).`,
+      at,
+    ),
+  }
+  const { projects, leads } = repairClientSlotIndexes(nextState, nextState.projects, nextState.leads)
+  return withCtx({ ...nextState, projects, leads }, ctx, at)
 }
 
 export function getNetWorth(state: Pick<GameState, 'cash' | 'mrr'>): number {

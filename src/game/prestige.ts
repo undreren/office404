@@ -292,13 +292,35 @@ export function hasInHouseUnlocked(meta: MetaProgress): boolean {
   return getHallucinationLevel(meta, 'in_house') >= 1
 }
 
-/** Concurrent client gigs: one free slot + prestige project_slots + vibe course tiers. */
-export function maxClientProjectSlots(
+/** Base client columns before Parallel Vibes bonus. */
+export function baseClientProjectSlots(meta: MetaProgress): number {
+  return 1 + getHallucinationLevel(meta, 'project_slots')
+}
+
+export function parallelVibesTier(vibingCourseTiers: Partial<Record<string, number>>): number {
+  return vibingCourseTiers.vibe_slots ?? 0
+}
+
+/** Upper bound for the Status slider — base slots plus Parallel Vibes tier. */
+export function maxClientProjectSlotsCap(
   meta: MetaProgress,
   vibingCourseTiers: Partial<Record<string, number>> = {},
 ): number {
-  const vibeSlots = vibingCourseTiers.vibe_slots ?? 0
-  return 1 + getHallucinationLevel(meta, 'project_slots') + vibeSlots
+  return baseClientProjectSlots(meta) + parallelVibesTier(vibingCourseTiers)
+}
+
+/** Concurrent client gigs: base + prestige slots, plus player setting when Parallel Vibes is owned. */
+export function maxClientProjectSlots(
+  meta: MetaProgress,
+  vibingCourseTiers: Partial<Record<string, number>> = {},
+  maxClientProjects?: number,
+): number {
+  const base = baseClientProjectSlots(meta)
+  const tier = parallelVibesTier(vibingCourseTiers)
+  if (tier <= 0) return base
+  const cap = base + tier
+  const setting = maxClientProjects ?? base
+  return Math.min(Math.max(setting, base), cap)
 }
 
 export function maxProductProjectSlots(meta: MetaProgress): number {
