@@ -950,6 +950,8 @@ function tryProgressTask(
 }
 
 function canStaffConductorOnProject(state: GameState, agents: Agent[], projectId: string): boolean {
+  if (agents.some((a) => a.job === null && !a.isAutomation)) return true
+
   const hasProjectWorker = agents.some(
     (a) =>
       a.projectId === projectId &&
@@ -957,9 +959,11 @@ function canStaffConductorOnProject(state: GameState, agents: Agent[], projectId
       a.job !== 'conductor' &&
       !a.isAutomation,
   )
-  if (!hasProjectWorker) return false
+  if (!hasProjectWorker) {
+    const rosterAgents = agents.filter((a) => !a.isAutomation)
+    return rosterAgents.length === 0 && canSpawnAgent({ ...state, agents })
+  }
 
-  if (agents.some((a) => a.job === null && !a.isAutomation)) return true
   if (canSpawnAgent({ ...state, agents })) return true
   return agents.some(
     (a) =>
@@ -2281,21 +2285,31 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
 
 export function toggleConductor(state: GameState, projectId: string, enabled: boolean, at: number): GameState {
   if (enabled && !hasConductorCourse(state.vibingCourses)) return state
-  return {
-    ...state,
-    projects: state.projects.map((p) =>
-      p.id === projectId
-        ? {
-            ...p,
-            useConductor: enabled,
-            roleCounts: enabled
-              ? { ...p.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 }
-              : { ...p.roleCounts, conductor: 0 },
-          }
-        : p,
-    ),
-    snapshotAt: at,
-  }
+  const ctx = ctxFrom(state)
+  const nextProjects = state.projects.map((p) =>
+    p.id === projectId
+      ? {
+          ...p,
+          useConductor: enabled,
+          roleCounts: enabled
+            ? { ...p.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 }
+            : { ...p.roleCounts, conductor: 0 },
+        }
+      : p,
+  )
+  const updatedProject = nextProjects.find((p) => p.id === projectId)
+  if (!updatedProject) return state
+  const reconciled = reconcileProjectStaffing(ctx, state, updatedProject, state.agents, nextProjects)
+  const nextProjectsClamped = clampRoleCountsToStaffed(projectId, reconciled.agents, reconciled.projects)
+  return withCtx(
+    {
+      ...state,
+      agents: reconciled.agents,
+      projects: nextProjectsClamped,
+    },
+    ctx,
+    at,
+  )
 }
 
 export function buyAgentSlot(state: GameState, at: number): GameState {
