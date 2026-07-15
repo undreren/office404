@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import {
   activeClientProjectInSlot,
   agentContextDisplayPct,
@@ -777,9 +778,17 @@ export function ProjectsPanel() {
   const { projects, leads, reputation, gameDay, tutorialDone, meta, agents, vibingCourseTiers } = useGameState()
   const { projectIndex, setProjectIndex, acceptLead } = useTabNav()
   const dispatchAt = useGameDispatchAt()
+  const columnsRef = useRef<HTMLDivElement>(null)
   const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
   const columnCount = tutorialDone ? maxSlots : 1
   const canAcceptLeads = hasOpenClientProjectSlot(meta, agents, projects, vibingCourseTiers)
+
+  useEffect(() => {
+    const container = columnsRef.current
+    if (!container) return
+    const column = container.querySelector<HTMLElement>(`[data-slot-index="${projectIndex}"]`)
+    column?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
+  }, [projectIndex])
 
   return (
     <section className="panel projects-panel">
@@ -790,7 +799,7 @@ export function ProjectsPanel() {
         </p>
       </header>
 
-      <div className="project-columns" role="list" aria-label="Client project columns">
+      <div ref={columnsRef} className="project-columns" role="list" aria-label="Client project columns">
         {Array.from({ length: columnCount }, (_, slot) => {
           const project =
             activeClientProjectInSlot(projects, slot) ??
@@ -806,6 +815,7 @@ export function ProjectsPanel() {
           return (
             <section
               key={slot}
+              data-slot-index={slot}
               className={`project-column ${isFocused ? 'project-column--focused' : ''} ${project && isReadyToDeliver(project) ? 'project-column--deliverable' : ''}`}
               role="listitem"
               aria-label={columnLabel}

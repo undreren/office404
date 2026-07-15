@@ -1013,7 +1013,12 @@ function tryProgressTask(
   return { projects: next, becameDone, becamePrReady, outputTokens }
 }
 
-function canStaffConductorOnProject(state: GameState, agents: Agent[], projectId: string): boolean {
+function canStaffConductorOnProject(
+  state: GameState,
+  agents: Agent[],
+  projectId: string,
+  options?: { spawnWhenNoWorkers?: boolean },
+): boolean {
   if (agents.some((a) => a.job === null && !a.isAutomation)) return true
 
   const hasProjectWorker = agents.some(
@@ -1024,6 +1029,7 @@ function canStaffConductorOnProject(state: GameState, agents: Agent[], projectId
       !a.isAutomation,
   )
   if (!hasProjectWorker) {
+    if (options?.spawnWhenNoWorkers && canSpawnAgent({ ...state, agents })) return true
     const rosterAgents = agents.filter((a) => !a.isAutomation)
     return rosterAgents.length === 0 && canSpawnAgent({ ...state, agents })
   }
@@ -1101,6 +1107,7 @@ function reconcileProjectStaffing(
   project: Project,
   agents: Agent[],
   projects: Project[],
+  options?: { spawnWhenNoWorkers?: boolean },
 ): { agents: Agent[]; projects: Project[] } {
   let nextAgents = [...agents]
   let nextProjects = projects
@@ -1119,7 +1126,12 @@ function reconcileProjectStaffing(
       const activeProjects = nextProjects.filter((p) => p.status === 'active' && !p.isLocked)
       const canStaffConductor =
         projectHasConductorPipelineWork(syncedProject()) &&
-        canStaffConductorOnProject({ ...state, agents: nextAgents }, nextAgents, project.id) &&
+        canStaffConductorOnProject(
+          { ...state, agents: nextAgents },
+          nextAgents,
+          project.id,
+          options,
+        ) &&
         !priorConductorProjectsBlockStaffing(
           activeProjects,
           project.id,
@@ -2363,7 +2375,9 @@ export function toggleConductor(state: GameState, projectId: string, enabled: bo
   )
   const updatedProject = nextProjects.find((p) => p.id === projectId)
   if (!updatedProject) return state
-  const reconciled = reconcileProjectStaffing(ctx, state, updatedProject, state.agents, nextProjects)
+  const reconciled = reconcileProjectStaffing(ctx, state, updatedProject, state.agents, nextProjects, {
+    spawnWhenNoWorkers: true,
+  })
   const nextProjectsClamped = clampRoleCountsToStaffed(projectId, reconciled.agents, reconciled.projects)
   return withCtx(
     {

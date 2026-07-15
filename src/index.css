@@ -1735,7 +1735,7 @@ body {
   flex: 1;
   min-height: 0;
   padding-bottom: 0.25rem;
-  scroll-snap-type: x proximity;
+  scroll-snap-type: x mandatory;
 }
 
 .project-column {
@@ -1748,6 +1748,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
   scroll-snap-align: start;
+  scroll-snap-stop: always;
 }
 
 .project-column--focused {
