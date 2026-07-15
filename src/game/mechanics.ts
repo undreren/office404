@@ -812,19 +812,6 @@ export function refinementAutoSplitChance(refinementTierLevel: number): number {
   return Math.min(1, refinementTierLevel * 0.25)
 }
 
-export function conductorTier(
-  tiers: Partial<Record<string, number>>,
-  vibingCourses: string[],
-): number {
-  return tiers.conductor ?? (vibingCourses.includes('conductor') ? 1 : 0)
-}
-
-/** Max agents on a conductor project (conductor + workers), starting at 3. */
-export function maxConductorTeamSize(conductorTierLevel: number): number {
-  if (conductorTierLevel <= 0) return 0
-  return 2 + conductorTierLevel
-}
-
 export function projectTeamSize(agents: Agent[], projectId: string): number {
   return agents.filter((a) => a.projectId === projectId && a.job !== null).length
 }

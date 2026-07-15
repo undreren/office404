@@ -75,7 +75,6 @@ import {
   availableLeadInSlot,
   clientLeadPipelineTarget,
   computePrBaseQuality,
-  conductorTier,
   countAssignedPmAgents,
   formatStoryPoints,
   getAgentParameters,
@@ -93,10 +92,8 @@ import {
   maxAgentSlotPurchases,
   maxAgents,
   maxAgentsPerTask,
-  maxConductorTeamSize,
   maxGpuTickPurchases,
   prQualityAfterComments,
-  projectTeamSize,
   ramSlotCost,
   refinementTier,
   rollBugAtQa,
@@ -1006,10 +1003,9 @@ function canConductorAddWorker(
   agents: Agent[],
   projectId: string,
   role: StaffJob,
-  maxTeam: number,
   state: GameState,
 ): boolean {
-  if (projectTeamSize(agents, projectId) < maxTeam && canSpawnAgent({ ...state, agents })) {
+  if (canSpawnAgent({ ...state, agents })) {
     return true
   }
   return agents.some((a) => {
@@ -1027,30 +1023,6 @@ function canConductorAddWorker(
     }
     return false
   })
-}
-
-function evictLowestPriorityIdleWorker(
-  agents: Agent[],
-  projectId: string,
-  projects: Project[],
-): { agents: Agent[]; projects: Project[] } | null {
-  const idleWorkers = agents
-    .filter(
-      (a) =>
-        a.projectId === projectId &&
-        a.job &&
-        a.job !== 'conductor' &&
-        a.status === 'idle' &&
-        isProjectRole(a.job),
-    )
-    .sort(
-      (a, b) =>
-        CONDUCTOR_ROLE_PRIORITY.indexOf(b.job as StaffJob) -
-        CONDUCTOR_ROLE_PRIORITY.indexOf(a.job as StaffJob),
-    )
-  const victim = idleWorkers[0]
-  if (!victim?.job || !isProjectRole(victim.job)) return null
-  return unassignAgentFromRole(agents, projectId, victim.job, projects)
 }
 
 function reconcileProjectStaffing(
@@ -1110,7 +1082,6 @@ function reconcileProjectStaffing(
     }
 
     if (conductorCanAutoStaff(nextAgents, project.id)) {
-      const maxTeam = maxConductorTeamSize(conductorTier(state.vibingCourseTiers, state.vibingCourses))
       const workersBefore = workerAssignmentKey(nextAgents, project.id)
       const workers = nextAgents.filter(
         (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
@@ -1132,31 +1103,14 @@ function reconcileProjectStaffing(
         }
       }
 
-      while (projectTeamSize(nextAgents, project.id) > maxTeam) {
-        const result = evictLowestPriorityIdleWorker(nextAgents, project.id, nextProjects)
-        if (!result) break
-        nextAgents = result.agents
-        nextProjects = result.projects
-      }
-
       const rolePriority = conductorRolePriority(syncedProject())
       const conductorState = { ...state, agents: nextAgents }
 
       for (const role of rolePriority) {
         while (
           projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, maxPerTask(role)) &&
-          canConductorAddWorker(nextAgents, project.id, role, maxTeam, conductorState)
+          canConductorAddWorker(nextAgents, project.id, role, conductorState)
         ) {
-          while (
-            projectTeamSize(nextAgents, project.id) >= maxTeam &&
-            canConductorAddWorker(nextAgents, project.id, role, maxTeam, conductorState)
-          ) {
-            const evicted = evictLowestPriorityIdleWorker(nextAgents, project.id, nextProjects)
-            if (!evicted) break
-            nextAgents = evicted.agents
-            nextProjects = evicted.projects
-          }
-          if (projectTeamSize(nextAgents, project.id) >= maxTeam) break
           const staffed = staffAgentForRole(
             ctx,
             conductorState,
