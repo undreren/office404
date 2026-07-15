@@ -286,6 +286,8 @@ export interface GameState {
   snapshotAt: number
   rng: number
   nextId: number
+  /** Round-robin cursor for fair conductor agent staffing across projects. */
+  conductorStaffQueueCursor?: number
 }
 
 export interface PersistedSave {
