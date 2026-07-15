@@ -1675,7 +1675,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               agent.status = 'reviewing'
               agent.taskId = task.id
               const required = taskTokensRequired(task.storyPointsRequired, 'review')
-              let reviewProgress = task.reviewJobProgress ?? task.storyPointsEarned ?? 0
+              let reviewProgress = task.reviewJobProgress ?? 0
               const stackIdx = stackIndexOnTask(nextAgents, project.id, 'review', task.id, agent.id)
               const increment = tokenProgressIncrement(
                 required,
@@ -1689,7 +1689,6 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 nextProjects = updateTask(nextProjects, task.id, (t) => ({
                   ...t,
                   reviewJobProgress: reviewProgress,
-                  storyPointsEarned: reviewProgress,
                 }))
                 overflow()
                 continue
@@ -1699,7 +1698,6 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               nextProjects = updateTask(nextProjects, task.id, (t) => ({
                 ...t,
                 reviewJobProgress: reviewProgress,
-                storyPointsEarned: reviewProgress,
               }))
               agent.jobProgress = reviewProgress
               agent.jobDuration = required
