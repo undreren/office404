@@ -2,11 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { fineTuneId } from '../models'
 import { agentCapacity } from '../simulation/gameLogic'
 import {
-  agentRamGb,
   canFitAgentRam,
+  getAgentRamParams,
+  getAgentParameters,
   maxAgents,
-  rosterParamsForAgent,
-  spawnAgentRamGb,
   totalRamGb,
 } from '../mechanics'
 import { initialPlaying } from './_helpers/initialPlaying'
@@ -39,30 +38,33 @@ function stateWithHeavyFineTunes(agentSlotPurchases: number, agentCount: number)
   }
 }
 
-describe('max-agents-fine-tune-ram', () => {
-  it('counts max agents using fine-tuned spawn RAM, not base model params', () => {
+describe('agent-ram-excludes-fine-tunes', () => {
+  it('uses model size for RAM, not cash fine-tune multipliers', () => {
     const state = stateWithHeavyFineTunes(16, 11)
-    const spawnRam = spawnAgentRamGb(state)
-    const baseOnly = agentRamGb(4)
+    const ramParams = getAgentRamParams(state.meta)
+    const effective = getAgentParameters(
+      state.meta,
+      state.purchasedFineTunes,
+      'code',
+      0,
+      state.fineTuneTiers,
+    )
 
-    expect(spawnRam).toBeGreaterThan(baseOnly * 3)
-    expect(maxAgents(state)).toBeLessThan(20)
+    expect(ramParams).toBe(4)
+    expect(effective).toBeGreaterThan(ramParams * 3)
+    expect(maxAgents(state)).toBe(
+      state.agents.length +
+        Math.floor((totalRamGb(state) - state.agents.length * ramParams) / ramParams),
+    )
     expect(agentCapacity(state).max).toBe(maxAgents(state))
   })
 
-  it('blocks spawning when fine-tuned agents fill RAM even if base-param math would allow more', () => {
+  it('still allows spawning when fine-tunes inflate effective params but not RAM', () => {
     const state = stateWithHeavyFineTunes(16, 11)
-    const total = totalRamGb(state)
-    const used = state.agents.reduce(
-      (sum, agent) => sum + agentRamGb(rosterParamsForAgent(state, agent)),
-      0,
-    )
-    const spawnRam = spawnAgentRamGb(state)
+    const perAgent = getAgentRamParams(state.meta)
 
-    expect(used + spawnRam).toBeGreaterThan(total)
     expect(
-      canFitAgentRam(state, spawnRam, (agent) => rosterParamsForAgent(state, agent)),
-    ).toBe(false)
-    expect(state.agents.length).toBeGreaterThan(maxAgents(state) - 5)
+      canFitAgentRam(state, perAgent, () => perAgent),
+    ).toBe(true)
   })
 })
