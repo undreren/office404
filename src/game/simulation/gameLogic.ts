@@ -761,6 +761,56 @@ function pullAgentForRole(
   return { agents: next, agentId: assigned.id, projects: nextProjects }
 }
 
+function projectSlotIndex(projects: Project[], projectId: string | null | undefined): number {
+  if (!projectId) return -1
+  return projects.find((p) => p.id === projectId)?.slotIndex ?? -1
+}
+
+function activeProjectsBySlot(projects: Project[]): Project[] {
+  return projects
+    .filter((p) => p.status === 'active' && !p.isLocked)
+    .sort((a, b) => a.slotIndex - b.slotIndex || a.id.localeCompare(b.id))
+}
+
+type StaffAgentOptions = {
+  stealFromOtherProjects?: boolean
+  stealOnlyFromLowerSlots?: boolean
+  targetSlotIndex?: number
+}
+
+function canDonateAgentForConductor(
+  agent: Agent,
+  targetProjectId: string,
+  projects: Project[],
+  targetSlotIndex: number,
+): boolean {
+  if (agent.isAutomation) return false
+  if (agent.job === null) return true
+  if (!isAgentStaffable(agent)) return false
+  if (!agent.projectId || agent.job === 'conductor' || !isProjectRole(agent.job)) return false
+  if (agent.projectId === targetProjectId) return true
+  const donorSlot = projectSlotIndex(projects, agent.projectId)
+  return donorSlot >= 0 && donorSlot < targetSlotIndex
+}
+
+function hasDonorAgentForConductor(agents: Agent[], projects: Project[], projectId: string): boolean {
+  const targetSlot = projectSlotIndex(projects, projectId)
+  return agents.some((a) => canDonateAgentForConductor(a, projectId, projects, targetSlot))
+}
+
+function canDonateAgentForStaffing(
+  agent: Agent,
+  projectId: string,
+  projects: Project[],
+  options?: StaffAgentOptions,
+): boolean {
+  if (agent.projectId === projectId) return true
+  if (!options?.stealFromOtherProjects) return false
+  if (!options.stealOnlyFromLowerSlots) return true
+  const donorSlot = projectSlotIndex(projects, agent.projectId)
+  return donorSlot >= 0 && donorSlot < (options.targetSlotIndex ?? projectSlotIndex(projects, projectId))
+}
+
 function staffAgentForRole(
   ctx: SimCtx,
   state: GameState,
@@ -768,7 +818,7 @@ function staffAgentForRole(
   projectId: string,
   job: AgentJob,
   projects: Project[],
-  options?: { stealFromOtherProjects?: boolean },
+  options?: StaffAgentOptions,
 ): { agents: Agent[]; agentId: string; projects: Project[] } | null {
   const stealFromOtherProjects = options?.stealFromOtherProjects ?? true
   const unassignedIdx = agents.findIndex((a) => a.job === null && !a.isAutomation)
@@ -788,7 +838,11 @@ function staffAgentForRole(
         a.job !== 'conductor' &&
         !a.isAutomation &&
         !isAgentBusy(a) &&
-        (stealFromOtherProjects || a.projectId === projectId),
+        canDonateAgentForStaffing(a, projectId, projects, {
+          stealFromOtherProjects,
+          stealOnlyFromLowerSlots: options?.stealOnlyFromLowerSlots,
+          targetSlotIndex: options?.targetSlotIndex,
+        }),
     )
   if (idleCandidates.length > 0) {
     idleCandidates.sort((x, y) => {
@@ -821,7 +875,11 @@ function staffAgentForRole(
         a.job !== 'conductor' &&
         !a.isAutomation &&
         isBestOfNAssistAgent(agents, a) &&
-        (stealFromOtherProjects || a.projectId === projectId),
+        canDonateAgentForStaffing(a, projectId, projects, {
+          stealFromOtherProjects,
+          stealOnlyFromLowerSlots: options?.stealOnlyFromLowerSlots,
+          targetSlotIndex: options?.targetSlotIndex,
+        }),
     )
   if (assistCandidates.length > 0) {
     assistCandidates.sort((x, y) => {
@@ -1031,7 +1089,9 @@ function canStaffConductorOnProject(
   if (!hasProjectWorker) {
     if (options?.spawnWhenNoWorkers && canSpawnAgent({ ...state, agents })) return true
     const rosterAgents = agents.filter((a) => !a.isAutomation)
-    return rosterAgents.length === 0 && canSpawnAgent({ ...state, agents })
+    if (rosterAgents.length === 0 && canSpawnAgent({ ...state, agents })) return true
+    if (hasDonorAgentForConductor(agents, state.projects, projectId)) return true
+    return false
   }
 
   if (canSpawnAgent({ ...state, agents })) return true
@@ -1052,11 +1112,12 @@ function priorConductorProjectsBlockStaffing(
   state: GameState,
   _agentsPerTask: number,
 ): boolean {
-  const projectIndex = activeProjects.findIndex((p) => p.id === projectId)
+  const sorted = activeProjectsBySlot(activeProjects)
+  const projectIndex = sorted.findIndex((p) => p.id === projectId)
   if (projectIndex <= 0) return false
 
   for (let i = 0; i < projectIndex; i++) {
-    const prior = activeProjects[i]!
+    const prior = sorted[i]!
     if (!prior.useConductor) continue
     if (projectAgents(prior.id, 'conductor', agents).length > 0) continue
     if (!projectHasConductorPipelineWork(prior)) continue
@@ -1123,7 +1184,8 @@ function reconcileProjectStaffing(
     const desiredConductor = project.useConductor ? 1 : project.roleCounts.conductor > 0 ? 1 : 0
 
     if (desiredConductor > 0 && !hasConductor) {
-      const activeProjects = nextProjects.filter((p) => p.status === 'active' && !p.isLocked)
+      const activeProjects = activeProjectsBySlot(nextProjects)
+      const targetSlotIndex = syncedProject().slotIndex
       const canStaffConductor =
         projectHasConductorPipelineWork(syncedProject()) &&
         canStaffConductorOnProject(
@@ -1147,7 +1209,11 @@ function reconcileProjectStaffing(
           project.id,
           'conductor',
           nextProjects,
-          { stealFromOtherProjects: false },
+          {
+            stealFromOtherProjects: true,
+            stealOnlyFromLowerSlots: true,
+            targetSlotIndex,
+          },
         )
         if (staffed) {
           nextAgents = staffed.agents
@@ -1501,7 +1567,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     }
   }
 
-  for (const project of nextProjects.filter((p) => p.status === 'active' && !p.isLocked)) {
+  for (const project of activeProjectsBySlot(nextProjects)) {
     const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects)
     nextAgents = reconciled.agents
     nextProjects = reconciled.projects
