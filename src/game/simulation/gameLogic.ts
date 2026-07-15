@@ -31,6 +31,7 @@ import {
   projectHasRefineWork,
   projectHasTestWork,
   projectRoleHasWork,
+  roleHasUnallocatedWork,
   refineRequirementToTasks,
   refineTaskToTasks,
   repairStaleCodingAssignments,
@@ -488,6 +489,7 @@ export function createInitialState(
     snapshotAt: at,
     rng: ctx.rng.state,
     nextId: ctx.ids.nextId,
+    conductorStaffQueueCursor: 0,
   }
   return withCtx(state, ctx, at)
 }
@@ -745,19 +747,22 @@ type StaffAgentOptions = {
   stealFromOtherProjects?: boolean
   stealOnlyFromLowerSlots?: boolean
   targetSlotIndex?: number
+  allowSpawn?: boolean
 }
 
 function hasConductorStaffingSource(
   state: GameState,
   agents: Agent[],
-  options?: { spawnWhenNoWorkers?: boolean },
+  options?: { spawnWhenNoWorkers?: boolean; rosterOnly?: boolean },
 ): boolean {
   if (agents.some((a) => a.job === null && !a.isAutomation)) return true
+  if (agents.some((a) => !a.isAutomation && isAgentStaffable(a))) return true
+  if (options?.rosterOnly) return false
   if (options?.spawnWhenNoWorkers && canSpawnAgent({ ...state, agents })) return true
   const rosterAgents = agents.filter((a) => !a.isAutomation)
   if (rosterAgents.length === 0 && canSpawnAgent({ ...state, agents })) return true
   if (canSpawnAgent({ ...state, agents })) return true
-  return agents.some((a) => !a.isAutomation && isAgentStaffable(a))
+  return false
 }
 
 function releaseProjectWorkersForConductor(
@@ -784,7 +789,7 @@ function reconcileAllProjectStaffingInSlotOrder(
   agents: Agent[],
   projects: Project[],
   options?: { spawnWhenNoWorkers?: boolean },
-): { agents: Agent[]; projects: Project[] } {
+): { agents: Agent[]; projects: Project[]; conductorStaffQueueCursor: number } {
   let nextAgents = agents
   let nextProjects = projects
   for (const project of activeProjectsBySlot(nextProjects)) {
@@ -792,7 +797,204 @@ function reconcileAllProjectStaffingInSlotOrder(
     nextAgents = reconciled.agents
     nextProjects = reconciled.projects
   }
-  return { agents: nextAgents, projects: nextProjects }
+  const queued = runConductorStaffQueue(
+    ctx,
+    state,
+    nextAgents,
+    nextProjects,
+    state.conductorStaffQueueCursor ?? 0,
+    options,
+  )
+  return {
+    agents: queued.agents,
+    projects: queued.projects,
+    conductorStaffQueueCursor: queued.cursor,
+  }
+}
+
+type ConductorStaffCandidate = {
+  project: Project
+  role: AgentJob
+  /** 0 = project needs a conductor, 1 = fills unallocated work, 2 = other staffing */
+  priorityTier: 0 | 1 | 2
+}
+
+function nextConductorStaffCandidate(
+  project: Project,
+  agents: Agent[],
+  projects: Project[],
+  state: GameState,
+  options?: { spawnWhenNoWorkers?: boolean },
+): ConductorStaffCandidate | null {
+  const synced = projects.find((p) => p.id === project.id) ?? project
+  if (!synced.useConductor || !hasConductorCourse(state.vibingCourses)) return null
+
+  const conductorStaffOptions = {
+    spawnWhenNoWorkers: options?.spawnWhenNoWorkers,
+    rosterOnly: !options?.spawnWhenNoWorkers,
+  }
+
+  const hasConductor = projectAgents(project.id, 'conductor', agents).length > 0
+  const desiredConductor = synced.useConductor ? 1 : synced.roleCounts.conductor > 0 ? 1 : 0
+
+  if (desiredConductor > 0 && !hasConductor && projectHasConductorPipelineWork(synced)) {
+    if (!canStaffConductorOnProject({ ...state, agents }, agents, project.id, conductorStaffOptions)) return null
+    return {
+      project: synced,
+      role: 'conductor',
+      priorityTier: 0,
+    }
+  }
+
+  if (!conductorCanAutoStaff(agents, project.id)) return null
+
+  const maxPerTask = (role: StaffJob) =>
+    agentsPerTaskForProject(synced, role, agents, state.vibingCourseTiers)
+  const conductorState = { ...state, agents }
+
+  for (const role of conductorRolePriority(synced)) {
+    if (
+      projectRoleHasWork(synced, role, 'conductor', agents, maxPerTask(role)) &&
+      canConductorAddWorker(agents, project.id, role, conductorState)
+    ) {
+      return {
+        project: synced,
+        role,
+        priorityTier: roleHasUnallocatedWork(synced, role, agents) ? 1 : 2,
+      }
+    }
+  }
+
+  return null
+}
+
+function pickConductorStaffCandidate(
+  candidates: ConductorStaffCandidate[],
+  cursor: number,
+): { candidate: ConductorStaffCandidate; nextCursor: number } | null {
+  if (candidates.length === 0) return null
+
+  const minTier = Math.min(...candidates.map((c) => c.priorityTier))
+  const pool = candidates.filter((c) => c.priorityTier === minTier)
+  const sorted = [...pool].sort(
+    (a, b) => a.project.slotIndex - b.project.slotIndex || a.project.id.localeCompare(b.project.id),
+  )
+  const idx = cursor % sorted.length
+  const candidate = sorted[idx]!
+  return { candidate, nextCursor: (idx + 1) % sorted.length }
+}
+
+function executeConductorStaffCandidate(
+  ctx: SimCtx,
+  state: GameState,
+  candidate: ConductorStaffCandidate,
+  agents: Agent[],
+  projects: Project[],
+  options?: { spawnWhenNoWorkers?: boolean },
+): { agents: Agent[]; projects: Project[] } | null {
+  const { project, role } = candidate
+  let nextAgents = agents
+  let nextProjects = projects
+
+  if (role === 'conductor') {
+    const released = releaseProjectWorkersForConductor(nextAgents, project.id, nextProjects)
+    nextAgents = released.agents
+    nextProjects = released.projects
+    const staffed = staffAgentForRole(
+      ctx,
+      { ...state, agents: nextAgents },
+      nextAgents,
+      project.id,
+      'conductor',
+      nextProjects,
+      {
+        stealFromOtherProjects: true,
+        allowSpawn: options?.spawnWhenNoWorkers ?? false,
+      },
+    )
+    if (!staffed) return null
+    return {
+      agents: staffed.agents,
+      projects: staffed.projects,
+    }
+  }
+
+  const synced = () => nextProjects.find((p) => p.id === project.id) ?? project
+  const maxPerTask = agentsPerTaskForProject(synced(), role as StaffJob, nextAgents, state.vibingCourseTiers)
+  const staffed = staffAgentForRole(
+    ctx,
+    { ...state, agents: nextAgents },
+    nextAgents,
+    project.id,
+    role,
+    nextProjects,
+  )
+  if (!staffed) return null
+
+  nextAgents = staffed.agents.map((a) =>
+    a.id === staffed.agentId
+      ? {
+          ...a,
+          status: projectRoleHasWork(synced(), role as StaffJob, a.id, staffed.agents, maxPerTask)
+            ? jobStatusFor(role)
+            : 'idle',
+        }
+      : a,
+  )
+  nextProjects = staffed.projects
+
+  return {
+    agents: nextAgents,
+    projects: nextProjects,
+  }
+}
+
+function runConductorStaffQueue(
+  ctx: SimCtx,
+  state: GameState,
+  agents: Agent[],
+  projects: Project[],
+  cursor: number,
+  options?: { spawnWhenNoWorkers?: boolean },
+): { agents: Agent[]; projects: Project[]; cursor: number } {
+  let nextAgents = agents
+  let nextProjects = projects
+  let nextCursor = cursor
+  const workersBeforeByProject = new Map(
+    activeProjectsBySlot(projects).map((project) => [project.id, workerAssignmentKey(agents, project.id)]),
+  )
+
+  while (true) {
+    const candidates = activeProjectsBySlot(nextProjects)
+      .map((project) => nextConductorStaffCandidate(project, nextAgents, nextProjects, state, options))
+      .filter((candidate): candidate is ConductorStaffCandidate => candidate !== null)
+
+    const picked = pickConductorStaffCandidate(candidates, nextCursor)
+    if (!picked) break
+
+    const result = executeConductorStaffCandidate(
+      ctx,
+      state,
+      picked.candidate,
+      nextAgents,
+      nextProjects,
+      options,
+    )
+    if (!result) break
+
+    nextAgents = result.agents
+    nextProjects = result.projects
+    nextCursor = picked.nextCursor
+  }
+
+  for (const project of activeProjectsBySlot(nextProjects)) {
+    const before = workersBeforeByProject.get(project.id)
+    if (before !== undefined && workerAssignmentKey(nextAgents, project.id) !== before) {
+      nextAgents = queueConductorMoveCost(nextAgents, project.id)
+    }
+  }
+
+  return { agents: nextAgents, projects: nextProjects, cursor: nextCursor }
 }
 
 function canDonateAgentForStaffing(
@@ -869,6 +1071,7 @@ function staffAgentForRole(
     return { agents: next, agentId: assigned.id, projects: nextProjects }
   }
 
+  if (options?.allowSpawn === false) return null
   if (!canSpawnAgent({ ...state, agents })) return null
   const agent = createAgent(ctx)
   agent.job = job
@@ -1043,7 +1246,7 @@ function canStaffConductorOnProject(
   state: GameState,
   agents: Agent[],
   projectId: string,
-  options?: { spawnWhenNoWorkers?: boolean },
+  options?: { spawnWhenNoWorkers?: boolean; rosterOnly?: boolean },
 ): boolean {
   if (!hasConductorStaffingSource(state, agents, options)) return false
 
@@ -1055,6 +1258,8 @@ function canStaffConductorOnProject(
       !a.isAutomation,
   )
   if (!hasProjectWorker) return true
+
+  if (options?.spawnWhenNoWorkers) return true
 
   if (agents.some(
     (a) =>
@@ -1111,7 +1316,7 @@ function reconcileProjectStaffing(
   project: Project,
   agents: Agent[],
   projects: Project[],
-  options?: { spawnWhenNoWorkers?: boolean },
+  _options?: { spawnWhenNoWorkers?: boolean },
 ): { agents: Agent[]; projects: Project[] } {
   let nextAgents = [...agents]
   let nextProjects = projects
@@ -1125,43 +1330,7 @@ function reconcileProjectStaffing(
     const hasConductor = conductors.length > 0
     const desiredConductor = project.useConductor ? 1 : project.roleCounts.conductor > 0 ? 1 : 0
 
-    if (desiredConductor > 0 && !hasConductor && projectHasConductorPipelineWork(syncedProject())) {
-      const released = releaseProjectWorkersForConductor(nextAgents, project.id, nextProjects)
-      nextAgents = released.agents
-      nextProjects = released.projects
-
-      const canStaffConductor = canStaffConductorOnProject(
-        { ...state, agents: nextAgents },
-        nextAgents,
-        project.id,
-        options,
-      )
-      if (canStaffConductor) {
-        const staffed = staffAgentForRole(
-          ctx,
-          { ...state, agents: nextAgents },
-          nextAgents,
-          project.id,
-          'conductor',
-          nextProjects,
-          { stealFromOtherProjects: true },
-        )
-        if (staffed) {
-          nextAgents = staffed.agents
-          nextProjects = staffed.projects
-        }
-      }
-    }
-    if (desiredConductor === 0 && hasConductor) {
-      const result = unassignAgentFromRole(nextAgents, project.id, 'conductor', nextProjects)
-      if (result) {
-        nextAgents = result.agents
-        nextProjects = result.projects
-      }
-    }
-
     if (conductorCanAutoStaff(nextAgents, project.id)) {
-      const workersBefore = workerAssignmentKey(nextAgents, project.id)
       const workers = nextAgents.filter(
         (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
       )
@@ -1181,41 +1350,12 @@ function reconcileProjectStaffing(
           }
         }
       }
-
-      const rolePriority = conductorRolePriority(syncedProject())
-      const conductorState = { ...state, agents: nextAgents }
-
-      for (const role of rolePriority) {
-        while (
-          projectRoleHasWork(syncedProject(), role, 'conductor', nextAgents, maxPerTask(role)) &&
-          canConductorAddWorker(nextAgents, project.id, role, conductorState)
-        ) {
-          const staffed = staffAgentForRole(
-            ctx,
-            conductorState,
-            nextAgents,
-            project.id,
-            role,
-            nextProjects,
-          )
-          if (!staffed) break
-          nextAgents = staffed.agents
-          nextProjects = staffed.projects
-          nextAgents = nextAgents.map((a) =>
-            a.id === staffed.agentId
-              ? {
-                  ...a,
-                  status: projectRoleHasWork(syncedProject(), role, a.id, nextAgents, maxPerTask(role))
-                    ? jobStatusFor(role)
-                    : 'idle',
-                }
-              : a,
-          )
-        }
-      }
-
-      if (workerAssignmentKey(nextAgents, project.id) !== workersBefore) {
-        nextAgents = queueConductorMoveCost(nextAgents, project.id)
+    }
+    if (desiredConductor === 0 && hasConductor) {
+      const result = unassignAgentFromRole(nextAgents, project.id, 'conductor', nextProjects)
+      if (result) {
+        nextAgents = result.agents
+        nextProjects = result.projects
       }
     }
     return { agents: nextAgents, projects: nextProjects }
@@ -1498,11 +1638,11 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     }
   }
 
-  for (const project of activeProjectsBySlot(nextProjects)) {
-    const reconciled = reconcileProjectStaffing(ctx, state, project, nextAgents, nextProjects)
-    nextAgents = reconciled.agents
-    nextProjects = reconciled.projects
-  }
+  let conductorStaffQueueCursor = state.conductorStaffQueueCursor ?? 0
+  const staffingReconciled = reconcileAllProjectStaffingInSlotOrder(ctx, state, nextAgents, nextProjects)
+  nextAgents = staffingReconciled.agents
+  nextProjects = staffingReconciled.projects
+  conductorStaffQueueCursor = staffingReconciled.conductorStaffQueueCursor
 
   const dispatchSlots = new Map<string, Map<string, number>>()
   const slotsFor = (project: Project, role: StaffJob): Map<string, number> => {
@@ -2034,6 +2174,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     purchasedFineTunes,
     fineTuneTiers,
     tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
+    conductorStaffQueueCursor,
   }, ctx, at)
 
   if (vibingCourses.includes('sales') && hasActiveAutomationAgent(tickState.agents, 'sales')) {
@@ -2111,6 +2252,7 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
     ...state,
     agents: reconciled.agents,
     projects: reconciled.projects,
+    conductorStaffQueueCursor: reconciled.conductorStaffQueueCursor,
     leads: state.leads.map((l) => (l.id === leadId ? { ...l, status: 'accepted' as const } : l)),
     stats: syntheticAccepted
       ? { ...state.stats, syntheticLeadsAccepted: state.stats.syntheticLeadsAccepted + 1 }
@@ -2389,6 +2531,7 @@ export function toggleConductor(state: GameState, projectId: string, enabled: bo
       ...state,
       agents: reconciled.agents,
       projects: nextProjectsClamped,
+      conductorStaffQueueCursor: reconciled.conductorStaffQueueCursor,
     },
     ctx,
     at,

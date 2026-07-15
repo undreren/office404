@@ -1116,6 +1116,17 @@ function roleWorkQueue(project: Project, job: StaffJob): { id: string }[] {
   }
 }
 
+/** Work exists for this role but no agent is staffed on it yet. */
+export function roleHasUnallocatedWork(
+  project: Project,
+  job: StaffJob,
+  agents: Agent[],
+): boolean {
+  if (project.status !== 'active') return false
+  if (dispatchableAgents(agents, project.id, job).length > 0) return false
+  return projectRoleHasWork(project, job, 'conductor', agents, 1)
+}
+
 export function roleHasDispatchableWork(
   project: Project,
   job: StaffJob,
