@@ -288,6 +288,8 @@ export interface GameState {
   nextId: number
   /** Round-robin cursor for fair conductor agent staffing across projects. */
   conductorStaffQueueCursor?: number
+  /** Player-set concurrent client gig cap (Parallel Vibes). Defaults to base slots until raised on Status. */
+  maxClientProjects?: number
 }
 
 export interface PersistedSave {

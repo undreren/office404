@@ -2,6 +2,7 @@ import {
   agentContextDisplayPct,
   agentContextTokenCapacity,
   agentRoleLabel,
+  countActiveClientProjects,
   formatAgentDutyLabel,
   formatPercent,
   unlockedAutomationJobs,
@@ -9,8 +10,14 @@ import {
 } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
+import {
+  baseClientProjectSlots,
+  maxClientProjectSlots,
+  maxClientProjectSlotsCap,
+  parallelVibesTier,
+} from '../game/prestige'
 import type { Agent, Project, Task } from '../game/types'
-import { toggleSpecialistRoleMsg } from '../game/messages'
+import { toggleSpecialistRoleMsg, setMaxClientProjectsMsg } from '../game/messages'
 import { agentCapacity } from '../game/selectors'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { SaveBackupPanel } from './SaveBackupPanel'
@@ -134,7 +141,8 @@ function SpecialistRoleRow({
 
 export function StatusPanel() {
   const state = useGameState()
-  const { agents, projects, meta, events, vibingCourses, assignedSpecialistRoles } = state
+  const { agents, projects, meta, events, vibingCourses, vibingCourseTiers, assignedSpecialistRoles, maxClientProjects } =
+    state
   const dispatchAt = useGameDispatchAt()
   const modelLevel = getHallucinationLevel(meta, 'model')
   const model = MODEL_TIERS[Math.min(modelLevel, MODEL_TIERS.length - 1)]!
@@ -147,6 +155,13 @@ export function StatusPanel() {
   const rosterFull = rosterUsed >= rosterMax
   const canYeetForSlot = agents.some((a) => !a.isAutomation && a.projectId && a.job)
 
+  const parallelVibesTierLevel = parallelVibesTier(vibingCourseTiers)
+  const baseClientSlots = baseClientProjectSlots(meta)
+  const clientSlotCap = maxClientProjectSlotsCap(meta, vibingCourseTiers)
+  const activeClientProjects = countActiveClientProjects(projects)
+  const currentClientSlots = maxClientProjectSlots(meta, vibingCourseTiers, maxClientProjects)
+  const minClientSlots = Math.max(baseClientSlots, activeClientProjects)
+
   return (
     <section className="panel status-panel">
       <h2>Status</h2>
@@ -155,6 +170,33 @@ export function StatusPanel() {
       <p className="hint">
         {usedRamGb}/{totalRamGb} GB RAM · {rosterUsed}/{rosterMax} agents
       </p>
+
+      {parallelVibesTierLevel > 0 && (
+        <>
+          <h3 className="status-panel__section">Client project cap</h3>
+          <p className="hint">
+            {currentClientSlots}/{clientSlotCap} concurrent client gigs · Parallel Vibes T{parallelVibesTierLevel}{' '}
+            (base {baseClientSlots} + up to {parallelVibesTierLevel} from the course).
+          </p>
+          <div className="status-panel__max-projects">
+            <label className="crew-label" htmlFor="max-client-projects-slider">
+              Max projects: {currentClientSlots}
+            </label>
+            <input
+              id="max-client-projects-slider"
+              type="range"
+              min={minClientSlots}
+              max={clientSlotCap}
+              value={currentClientSlots}
+              data-testid="status-max-client-projects-slider"
+              aria-label={`Max client projects ${currentClientSlots} of ${clientSlotCap}`}
+              onChange={(e) =>
+                dispatchAt((at) => setMaxClientProjectsMsg(at, Number(e.target.value)))
+              }
+            />
+          </div>
+        </>
+      )}
 
       {specialistJobs.length > 0 && (
         <>

@@ -775,13 +775,15 @@ function LeadColumnCard({
 }
 
 export function ProjectsPanel() {
-  const { projects, leads, reputation, gameDay, tutorialDone, meta, agents, vibingCourseTiers } = useGameState()
+  const { projects, leads, reputation, gameDay, tutorialDone, meta, agents, vibingCourseTiers, maxClientProjects } =
+    useGameState()
   const { projectIndex, setProjectIndex, acceptLead } = useTabNav()
   const dispatchAt = useGameDispatchAt()
   const columnsRef = useRef<HTMLDivElement>(null)
-  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
+  const slotState = { meta, vibingCourseTiers, maxClientProjects }
+  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers, maxClientProjects)
   const columnCount = tutorialDone ? maxSlots : 1
-  const canAcceptLeads = hasOpenClientProjectSlot(meta, agents, projects, vibingCourseTiers)
+  const canAcceptLeads = hasOpenClientProjectSlot(slotState, agents, projects)
 
   useEffect(() => {
     const container = columnsRef.current

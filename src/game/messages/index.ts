@@ -25,6 +25,7 @@ import {
   resetGame,
   retire,
   selectTask,
+  setMaxClientProjects,
   syncOfflineSpecialist,
   toggleSpecialistRole,
   toggleConductor,
@@ -164,6 +165,10 @@ export function returnFromHiddenMsg(at: number, elapsedSec: number): GameMessage
     at,
     apply: (state) => syncOfflineSpecialist(applyOfflineProgress(state, elapsedSec, at), false, at),
   }
+}
+
+export function setMaxClientProjectsMsg(at: number, slots: number): GameMessage {
+  return { at, apply: (state) => setMaxClientProjects(state, slots, at) }
 }
 
 export function acknowledgeCompactionIntroMsg(at: number): GameMessage {

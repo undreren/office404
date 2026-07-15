@@ -2,12 +2,13 @@ import { SAVE_KEY } from '../game/constants'
 import { repairDuplicateTaskIds, repairStaleCodingAssignments } from '../game/projects'
 import { repairClientSlotIndexes } from '../game/mechanics'
 import { createDefaultMeta } from '../game/meta'
+import { baseClientProjectSlots, parallelVibesTier } from '../game/prestige'
 import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
 import { createInitialState, reconcileSpecialistAgents } from '../game/simulation/gameLogic'
 import { ctxFrom } from '../game/simulation/simCtx'
 
-const SAVE_VERSION = 14
+const SAVE_VERSION = 15
 
 function migrateAssignedSpecialistRoles(state: GameState): GameState {
   if (state.assignedSpecialistRoles) return state
@@ -52,10 +53,9 @@ function normalizeLoadedState(state: GameState): GameState {
     }),
   )
   const { projects, leads } = repairClientSlotIndexes(
-    migrated.meta,
+    migrated,
     migrated.projects,
     migrated.leads,
-    migrated.vibingCourseTiers,
   )
   const synced = reconcileSpecialistAgents({ ...migrated, projects, leads }, ctx)
   return synced
@@ -142,6 +142,15 @@ function migrateState(state: GameState, fromVersion: number): GameState {
       assignedSpecialistRoles: next.assignedSpecialistRoles.filter(
         (role, idx, arr) => role !== 'project_manager' || arr.indexOf('project_manager') === idx,
       ),
+    }
+  }
+  if (fromVersion < 15) {
+    const tier = parallelVibesTier(next.vibingCourseTiers)
+    if (tier > 0 && next.maxClientProjects === undefined) {
+      next = {
+        ...next,
+        maxClientProjects: baseClientProjectSlots(next.meta) + tier,
+      }
     }
   }
   const { contextRamLevel: _removed, ...withoutContextRam } = next as GameState & {

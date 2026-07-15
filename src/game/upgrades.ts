@@ -108,7 +108,8 @@ export const VIBING_COURSES: VibingCourse[] = [
     label: 'Parallel Vibes',
     tagline: 'Juggle more gigs. Sleep the same amount. Cry the same amount.',
     cost: 500,
-    description: '+1 concurrent client project slot per tier (max T4). Prestige slots stack on top.',
+    description:
+      'Raise your concurrent client gig cap on Status (+1 max per tier, up to T4). Prestige slots stack on top.',
     maxTier: VIBE_SLOTS_MAX_TIER,
   },
   {

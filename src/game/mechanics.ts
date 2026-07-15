@@ -192,6 +192,12 @@ export function pickLeadTotalStoryPoints(rng: Rng, reputation: number): number {
   return minTotal + rng.int(0, maxTotal - minTotal)
 }
 
+export type ClientProjectSlotState = Pick<GameState, 'meta' | 'vibingCourseTiers' | 'maxClientProjects'>
+
+function clientProjectSlotLimit(state: ClientProjectSlotState): number {
+  return maxClientProjectSlots(state.meta, state.vibingCourseTiers, state.maxClientProjects)
+}
+
 export function countActiveClientProjects(projects: Project[]): number {
   return projects.filter((p) => p.kind === 'client' && p.status === 'active' && !p.isLocked).length
 }
@@ -206,12 +212,11 @@ export function countAssignedPmAgents(agents: Agent[]): number {
 
 /** True when another client gig can be accepted. */
 export function hasOpenClientProjectSlot(
-  meta: MetaProgress,
+  state: ClientProjectSlotState,
   _agents: Agent[],
   projects: Project[],
-  vibingCourseTiers: Partial<Record<string, number>> = {},
 ): boolean {
-  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
+  const maxSlots = clientProjectSlotLimit(state)
   return countActiveClientProjects(projects) < maxSlots
 }
 
@@ -229,12 +234,11 @@ export function maxAssignablePmAgents(
 
 /** How many available leads we want — one per empty client project slot. */
 export function clientLeadPipelineTarget(
-  meta: MetaProgress,
+  state: ClientProjectSlotState,
   _assignedPmAgents: number,
   projects: Project[],
-  vibingCourseTiers: Partial<Record<string, number>> = {},
 ): number {
-  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
+  const maxSlots = clientProjectSlotLimit(state)
   return Math.max(0, maxSlots - countActiveClientProjects(projects))
 }
 
@@ -264,12 +268,11 @@ export function activeClientProjectInSlot(projects: Project[], slotIndex: number
 
 /** Slot indices that need a new available lead (empty column). */
 export function clientSlotsNeedingLeads(
-  meta: MetaProgress,
+  state: ClientProjectSlotState,
   projects: Project[],
   leads: Lead[],
-  vibingCourseTiers: Partial<Record<string, number>> = {},
 ): number[] {
-  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
+  const maxSlots = clientProjectSlotLimit(state)
   const slots: number[] = []
   for (let slot = 0; slot < maxSlots; slot++) {
     if (isClientSlotOccupiedByProject(projects, slot)) continue
@@ -280,12 +283,11 @@ export function clientSlotsNeedingLeads(
 }
 
 export function repairClientSlotIndexes(
-  meta: MetaProgress,
+  state: ClientProjectSlotState,
   projects: Project[],
   leads: Lead[],
-  vibingCourseTiers: Partial<Record<string, number>> = {},
 ): { projects: Project[]; leads: Lead[] } {
-  const maxSlots = maxClientProjectSlots(meta, vibingCourseTiers)
+  const maxSlots = clientProjectSlotLimit(state)
   const projectSlotById = new Map<string, number>()
   const usedProjectSlots = new Set<number>()
 
