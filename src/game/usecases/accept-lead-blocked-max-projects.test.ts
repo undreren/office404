@@ -31,6 +31,7 @@ function extraProject(index: number): Project {
     useConductor: false,
     duplicateProjectId: null,
     mrrContribution: 0,
+    slotIndex: index,
   }
 }
 

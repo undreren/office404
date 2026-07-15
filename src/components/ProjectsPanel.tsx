@@ -1,19 +1,24 @@
 import {
+  activeClientProjectInSlot,
   agentContextDisplayPct,
   agentContextTokenCapacity,
+  availableLeadInSlot,
   countRosterIdleAgents,
   formatAgentProjectViewDutyLabel,
   formatPercent,
   formatStoryPoints,
   hasConductorCourse,
+  hasOpenClientProjectSlot,
   maxConductorTeamSize,
   taskEarnedTokens,
   taskTokensRequired,
 } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
+import { maxClientProjectSlots } from '../game/prestige'
 import {
   agentsPerTaskForProject,
   allImplementationMerged,
+  effectiveLeadDuration,
   requirementRefineProgressPct,
   requirementTestPercent,
   resolvedReviewComments,
@@ -32,6 +37,7 @@ import {
 import {
   adjustRoleCountMsg,
   deliverProjectMsg,
+  rejectLeadMsg,
   toggleConductorMsg,
 } from '../game/messages'
 import {
@@ -40,10 +46,9 @@ import {
   isReadyToDeliver,
   projectProgressPct,
 } from '../game/selectors'
-import type { Agent, AgentJob, Project, Requirement, StaffJob, Task } from '../game/types'
+import type { Agent, AgentJob, Lead, Project, Requirement, StaffJob, Task } from '../game/types'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { useTabNav } from '../context/TabNavContext'
-import { SwipeCarousel } from './SwipeCarousel'
 
 const STAFF_JOBS: { job: StaffJob; label: string }[] = [
   { job: 'refine', label: 'Refine' },
@@ -702,36 +707,148 @@ function ProjectCard({ project }: { project: Project }) {
   )
 }
 
-export function ProjectsPanel() {
-  const { projects } = useGameState()
-  const { projectIndex, setProjectIndex } = useTabNav()
-
-  if (projects.length === 0) {
-    return (
-      <section className="panel projects-panel">
-        <h2>Projects</h2>
-        <p className="panel__subtitle">Nothing on the board. Leads won&apos;t accept themselves.</p>
-        <p className="empty-slot" aria-label="No active projects. Accept a lead or enjoy unemployment.">
-          No active projects. Accept a lead or enjoy unemployment.
-        </p>
-      </section>
-    )
-  }
-
-  const headers = projects.map((project) => ({
-    title: project.clientName,
-    subtitle: project.clientTagline ? `"${project.clientTagline}"` : undefined,
-  }))
+function LeadColumnCard({
+  lead,
+  gameDay,
+  canAccept,
+  onAccept,
+  onReject,
+}: {
+  lead: Lead
+  gameDay: number
+  canAccept: boolean
+  onAccept: () => void
+  onReject: () => void
+}) {
+  const effectiveDays = effectiveLeadDuration(lead, gameDay)
+  const waitPenalty = lead.durationDays - effectiveDays
+  const leadSummary = [
+    lead.clientName,
+    `${effectiveDays} day deadline`,
+    waitPenalty > 0 ? `minus ${waitPenalty} days for waiting` : null,
+    `$${lead.payment} on completion`,
+    `${lead.totalStoryPoints} story points total`,
+    lead.repRequired > 0 ? `${lead.repRequired} rep required` : null,
+    canAccept ? 'can accept' : 'cannot accept',
+  ]
+    .filter(Boolean)
+    .join(', ')
 
   return (
-    <SwipeCarousel
-      index={projectIndex}
-      onIndexChange={setProjectIndex}
-      headers={headers}
-      panelClassName="projects-panel"
-      slides={projects.map((project) => (
-        <ProjectCard key={project.id} project={project} />
-      ))}
-    />
+    <article className="lead-card lead-card--column" aria-label={leadSummary}>
+      <header>
+        <h3>{lead.clientName}</h3>
+      </header>
+      {lead.clientTagline && (
+        <p className="client-tagline" aria-label={`Client tagline: "${lead.clientTagline}"`}>
+          "{lead.clientTagline}"
+        </p>
+      )}
+      <p aria-label={`Lead brief: ${lead.blurb}`}>{lead.blurb}</p>
+      <ul className="lead-stats" aria-label="Lead stats">
+        <li>{lead.totalStoryPoints} SP total</li>
+        <li>
+          {effectiveDays} day deadline
+          {waitPenalty > 0 && ` (−${waitPenalty}d for waiting)`}
+        </li>
+        <li>${lead.payment} on completion</li>
+        {lead.repRequired > 0 && <li>{lead.repRequired} rep required</li>}
+      </ul>
+      <div className="action-row">
+        <button
+          type="button"
+          className="btn btn--deploy"
+          aria-label={`Accept lead from ${lead.clientName}`}
+          onClick={onAccept}
+          disabled={!canAccept}
+        >
+          Accept
+        </button>
+        <button
+          type="button"
+          className="btn btn--small"
+          aria-label={`Reject lead from ${lead.clientName}`}
+          onClick={onReject}
+        >
+          Reject
+        </button>
+      </div>
+    </article>
+  )
+}
+
+export function ProjectsPanel() {
+  const { projects, leads, reputation, gameDay, tutorialDone, meta, agents } = useGameState()
+  const { projectIndex, setProjectIndex, acceptLead } = useTabNav()
+  const dispatchAt = useGameDispatchAt()
+  const maxSlots = maxClientProjectSlots(meta)
+  const columnCount = tutorialDone ? maxSlots : 1
+  const canAcceptLeads = hasOpenClientProjectSlot(meta, agents, projects)
+
+  return (
+    <section className="panel projects-panel">
+      <header className="project-columns__header">
+        <h2>Projects</h2>
+        <p className="panel__subtitle">
+          Client columns — leads arrive empty, projects ship full, the universe refills the slot.
+        </p>
+      </header>
+
+      <div className="project-columns" role="list" aria-label="Client project columns">
+        {Array.from({ length: columnCount }, (_, slot) => {
+          const project =
+            activeClientProjectInSlot(projects, slot) ??
+            (!tutorialDone ? projects.find((p) => p.isTutorial) : undefined)
+          const lead = !project && tutorialDone ? availableLeadInSlot(leads, slot) : undefined
+          const columnLabel = project
+            ? project.clientName
+            : lead
+              ? `Lead: ${lead.clientName}`
+              : `Column ${slot + 1}`
+          const isFocused = projectIndex === slot
+
+          return (
+            <section
+              key={slot}
+              className={`project-column ${isFocused ? 'project-column--focused' : ''} ${project && isReadyToDeliver(project) ? 'project-column--deliverable' : ''}`}
+              role="listitem"
+              aria-label={columnLabel}
+              onClick={() => setProjectIndex(slot)}
+            >
+              <header className="project-column__header">
+                <h3>{project?.clientName ?? lead?.clientName ?? 'Open slot'}</h3>
+                {project?.clientTagline && (
+                  <p className="project-column__subtitle">"{project.clientTagline}"</p>
+                )}
+                {lead?.clientTagline && (
+                  <p className="project-column__subtitle">"{lead.clientTagline}"</p>
+                )}
+                {!project && !lead && tutorialDone && (
+                  <p className="project-column__subtitle">Waiting for the next client lead.</p>
+                )}
+              </header>
+
+              <div className="project-column__body">
+                {project && <ProjectCard project={project} />}
+                {lead && (
+                  <LeadColumnCard
+                    lead={lead}
+                    gameDay={gameDay}
+                    canAccept={canAcceptLeads && reputation >= lead.repRequired}
+                    onAccept={() => acceptLead(lead.id)}
+                    onReject={() => dispatchAt((at) => rejectLeadMsg(at, lead.id))}
+                  />
+                )}
+                {!project && !lead && !tutorialDone && (
+                  <p className="empty-slot" aria-label="Finish your first project to unlock leads.">
+                    Finish your first project to unlock leads.
+                  </p>
+                )}
+              </div>
+            </section>
+          )
+        })}
+      </div>
+    </section>
   )
 }

@@ -1,12 +1,13 @@
 import { SAVE_KEY } from '../game/constants'
 import { repairDuplicateTaskIds, repairStaleCodingAssignments } from '../game/projects'
+import { repairClientSlotIndexes } from '../game/mechanics'
 import { createDefaultMeta } from '../game/meta'
 import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
 import { createInitialState, reconcileSpecialistAgents } from '../game/simulation/gameLogic'
 import { ctxFrom } from '../game/simulation/simCtx'
 
-const SAVE_VERSION = 13
+const SAVE_VERSION = 14
 
 function migrateAssignedSpecialistRoles(state: GameState): GameState {
   if (state.assignedSpecialistRoles) return state
@@ -25,11 +26,12 @@ function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
       tab === 'status' ||
       tab === 'shop' ||
       tab === 'projects' ||
-      tab === 'leads' ||
       tab === 'product' ||
       tab === 'hallucinations'
     ) {
       migrated.add(tab)
+    } else if (tab === 'leads') {
+      migrated.add('projects')
     }
   }
   return [...migrated]
@@ -37,18 +39,17 @@ function migrateTabIntros(seenTabIntros: string[]): GameState['seenTabIntros'] {
 
 function normalizeLoadedState(state: GameState): GameState {
   const ctx = ctxFrom(state)
-  const synced = reconcileSpecialistAgents(
-    migrateAssignedSpecialistRoles(
-      repairDuplicateTaskIds({
-        ...state,
-        seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
-        seenCompactionIntro: state.seenCompactionIntro ?? false,
-        fineTuneTiers: state.fineTuneTiers ?? {},
-        projects: repairStaleCodingAssignments(state.projects, state.agents),
-      }),
-    ),
-    ctx,
+  const migrated = migrateAssignedSpecialistRoles(
+    repairDuplicateTaskIds({
+      ...state,
+      seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
+      seenCompactionIntro: state.seenCompactionIntro ?? false,
+      fineTuneTiers: state.fineTuneTiers ?? {},
+      projects: repairStaleCodingAssignments(state.projects, state.agents),
+    }),
   )
+  const { projects, leads } = repairClientSlotIndexes(migrated.meta, migrated.projects, migrated.leads)
+  const synced = reconcileSpecialistAgents({ ...migrated, projects, leads }, ctx)
   return synced
 }
 

@@ -29,7 +29,7 @@ import { FINE_TUNE_BONUS } from './models'
 import type { MetaProgress } from './meta'
 import { getHallucinationLevel } from './meta'
 import { codeHallucinationParamMultiplier, effectiveModelParams, maxClientProjectSlots } from './prestige'
-import type { Agent, AgentJob, FineTuneRole, GameState, Project, Task, TaskWorkRole } from './types'
+import type { Agent, AgentJob, FineTuneRole, GameState, Lead, Project, Task, TaskWorkRole } from './types'
 import type { Rng } from './rng'
 
 export const FIBONACCI = [0.5, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89] as const
@@ -232,6 +232,113 @@ export function clientLeadPipelineTarget(
 ): number {
   const maxSlots = maxClientProjectSlots(meta)
   return Math.max(0, maxSlots - countActiveClientProjects(projects))
+}
+
+export function isClientSlotOccupiedByProject(projects: Project[], slotIndex: number): boolean {
+  return projects.some(
+    (p) =>
+      p.kind === 'client' &&
+      p.status === 'active' &&
+      !p.isLocked &&
+      p.slotIndex === slotIndex,
+  )
+}
+
+export function availableLeadInSlot(leads: Lead[], slotIndex: number): Lead | undefined {
+  return leads.find((l) => l.status === 'available' && l.slotIndex === slotIndex)
+}
+
+export function activeClientProjectInSlot(projects: Project[], slotIndex: number): Project | undefined {
+  return projects.find(
+    (p) =>
+      p.kind === 'client' &&
+      p.status === 'active' &&
+      !p.isLocked &&
+      p.slotIndex === slotIndex,
+  )
+}
+
+/** Slot indices that need a new available lead (empty column). */
+export function clientSlotsNeedingLeads(
+  meta: MetaProgress,
+  projects: Project[],
+  leads: Lead[],
+): number[] {
+  const maxSlots = maxClientProjectSlots(meta)
+  const slots: number[] = []
+  for (let slot = 0; slot < maxSlots; slot++) {
+    if (isClientSlotOccupiedByProject(projects, slot)) continue
+    if (availableLeadInSlot(leads, slot)) continue
+    slots.push(slot)
+  }
+  return slots
+}
+
+export function repairClientSlotIndexes(
+  meta: MetaProgress,
+  projects: Project[],
+  leads: Lead[],
+): { projects: Project[]; leads: Lead[] } {
+  const maxSlots = maxClientProjectSlots(meta)
+  const projectSlotById = new Map<string, number>()
+  const usedProjectSlots = new Set<number>()
+
+  for (const p of projects) {
+    if (p.kind !== 'client' || p.status !== 'active' || p.isLocked) continue
+    if (
+      typeof p.slotIndex === 'number' &&
+      p.slotIndex >= 0 &&
+      p.slotIndex < maxSlots &&
+      !usedProjectSlots.has(p.slotIndex)
+    ) {
+      usedProjectSlots.add(p.slotIndex)
+      projectSlotById.set(p.id, p.slotIndex)
+    }
+  }
+
+  let nextSlot = 0
+  for (const p of projects) {
+    if (p.kind !== 'client' || p.status !== 'active' || p.isLocked || projectSlotById.has(p.id)) {
+      continue
+    }
+    while (nextSlot < maxSlots && usedProjectSlots.has(nextSlot)) nextSlot++
+    if (nextSlot < maxSlots) {
+      projectSlotById.set(p.id, nextSlot)
+      usedProjectSlots.add(nextSlot)
+      nextSlot++
+    }
+  }
+
+  const nextProjects = projects.map((p) => {
+    const slot = projectSlotById.get(p.id)
+    if (slot !== undefined) return { ...p, slotIndex: slot }
+    return { ...p, slotIndex: p.slotIndex ?? 0 }
+  })
+
+  const usedLeadSlots = new Set<number>()
+  const nextLeads = leads.map((l) => {
+    if (l.status !== 'available') {
+      return { ...l, slotIndex: l.slotIndex ?? 0 }
+    }
+    if (typeof l.slotIndex === 'number' && l.slotIndex >= 0 && l.slotIndex < maxSlots) {
+      if (!usedProjectSlots.has(l.slotIndex) && !usedLeadSlots.has(l.slotIndex)) {
+        usedLeadSlots.add(l.slotIndex)
+        return l
+      }
+    }
+    let slot = 0
+    while (
+      slot < maxSlots &&
+      (usedProjectSlots.has(slot) || usedLeadSlots.has(slot))
+    ) {
+      slot++
+    }
+    const assigned = Math.min(slot, maxSlots - 1)
+    usedLeadSlots.add(assigned)
+    return { ...l, slotIndex: assigned }
+  })
+
+  return { projects: nextProjects, leads: nextLeads }
 }
 
 export function formatTokensPerSec(tokensPerSec: number): string {

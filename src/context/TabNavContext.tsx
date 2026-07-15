@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { acceptLeadMsg } from '../game/messages'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
-export type TabId = 'status' | 'shop' | 'projects' | 'leads' | 'hallucinations'
+export type TabId = 'status' | 'shop' | 'projects' | 'hallucinations'
 
 type TabNavContextValue = {
   activeTab: TabId

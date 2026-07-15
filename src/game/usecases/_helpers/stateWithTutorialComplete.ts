@@ -156,6 +156,7 @@ export function stateWithDeliverableProject(
     duplicateProjectId: null,
     mrrContribution: 0,
     useConductor: false,
+    slotIndex: 0,
   }
 
   return {

@@ -8,7 +8,7 @@ describe('applySkipOnboarding', () => {
     const skipped = applySkipOnboarding(state)
 
     expect(skipped.seenStoryIntro).toBe(true)
-    expect(skipped.seenTabIntros).toEqual(['status', 'shop', 'projects', 'leads', 'hallucinations'])
+    expect(skipped.seenTabIntros).toEqual(['status', 'shop', 'projects', 'hallucinations'])
     expect(skipped.acknowledgedTutorialStep).toBe(3)
   })
 })
