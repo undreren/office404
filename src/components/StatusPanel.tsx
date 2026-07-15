@@ -20,6 +20,7 @@ import { toggleSpecialistRoleMsg, setMaxClientProjectsMsg } from '../game/messag
 import { agentCapacity } from '../game/selectors'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { SaveBackupPanel } from './SaveBackupPanel'
+import { useEffect, useState } from 'react'
 
 const EVENT_ICONS: Record<string, string> = {
   crash: '💥',
@@ -158,6 +159,12 @@ export function StatusPanel() {
   const baseClientSlots = baseClientProjectSlots(meta)
   const clientSlotCap = maxClientProjectSlotsCap(meta, vibingCourseTiers)
   const currentClientSlots = maxClientProjectSlots(meta, vibingCourseTiers, maxClientProjects)
+  const [sliderValue, setSliderValue] = useState<number | null>(null)
+  const displayClientSlots = sliderValue ?? currentClientSlots
+
+  useEffect(() => {
+    setSliderValue(null)
+  }, [currentClientSlots])
 
   return (
     <section className="panel status-panel">
@@ -173,23 +180,26 @@ export function StatusPanel() {
           <h3 className="status-panel__section">Client project cap</h3>
           <p className="hint">
             {currentClientSlots}/{clientSlotCap} concurrent client gigs · Parallel Vibes T{parallelVibesTierLevel}{' '}
-            (base {baseClientSlots} + up to {parallelVibesTierLevel} from the course).
+            (base {baseClientSlots} + up to {parallelVibesTierLevel} from the course). Lowering the cap pauses new
+            leads until active gigs drop below it.
           </p>
           <div className="status-panel__max-projects">
             <label className="crew-label" htmlFor="max-client-projects-slider">
-              Max projects: {currentClientSlots}
+              Max projects: {displayClientSlots}
             </label>
             <input
               id="max-client-projects-slider"
               type="range"
               min={baseClientSlots}
               max={clientSlotCap}
-              value={currentClientSlots}
+              value={displayClientSlots}
               data-testid="status-max-client-projects-slider"
-              aria-label={`Max client projects ${currentClientSlots} of ${clientSlotCap}`}
-              onChange={(e) =>
-                dispatchAt((at) => setMaxClientProjectsMsg(at, Number(e.target.value)))
-              }
+              aria-label={`Max client projects ${displayClientSlots} of ${clientSlotCap}`}
+              onInput={(e) => {
+                const value = Number(e.currentTarget.value)
+                setSliderValue(value)
+                dispatchAt((at) => setMaxClientProjectsMsg(at, value))
+              }}
             />
           </div>
         </>

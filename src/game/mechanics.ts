@@ -198,28 +198,30 @@ function clientProjectSlotLimit(state: ClientProjectSlotState): number {
   return maxClientProjectSlots(state.meta, state.vibingCourseTiers, state.maxClientProjects)
 }
 
-/** Park client gigs above the Status cap; unlock the lowest-slot projects first. */
-export function reconcileClientProjectLocks(projects: Project[], maxSlots: number): Project[] {
-  const unlockedIds = new Set(
-    projects
-      .filter((p) => p.kind === 'client' && p.status === 'active')
-      .sort((a, b) => a.slotIndex - b.slotIndex || a.id.localeCompare(b.id))
-      .slice(0, maxSlots)
-      .map((p) => p.id),
-  )
-
-  return projects.map((p) => {
-    if (p.kind !== 'client' || p.status !== 'active') {
-      return p.isLocked ? { ...p, isLocked: false } : p
+/** Board columns: chosen cap, but keep showing gigs already in flight above the cap. */
+export function clientProjectBoardSlots(
+  state: ClientProjectSlotState,
+  projects: Project[],
+  leads: Lead[] = [],
+): number {
+  const chosen = clientProjectSlotLimit(state)
+  const active = countActiveClientProjects(projects)
+  let maxOccupied = 0
+  for (const p of projects) {
+    if (p.kind === 'client' && p.status === 'active') {
+      maxOccupied = Math.max(maxOccupied, p.slotIndex + 1)
     }
-    const locked = !unlockedIds.has(p.id)
-    if (!!p.isLocked === locked) return p
-    return { ...p, isLocked: locked }
-  })
+  }
+  for (const l of leads) {
+    if (l.status === 'available') {
+      maxOccupied = Math.max(maxOccupied, l.slotIndex + 1)
+    }
+  }
+  return Math.max(chosen, active, maxOccupied)
 }
 
 export function countActiveClientProjects(projects: Project[]): number {
-  return projects.filter((p) => p.kind === 'client' && p.status === 'active' && !p.isLocked).length
+  return projects.filter((p) => p.kind === 'client' && p.status === 'active').length
 }
 
 export function countPmRoleAssignments(roles: AgentJob[]): number {
@@ -293,6 +295,7 @@ export function clientSlotsNeedingLeads(
   leads: Lead[],
 ): number[] {
   const maxSlots = clientProjectSlotLimit(state)
+  if (countActiveClientProjects(projects) >= maxSlots) return []
   const slots: number[] = []
   for (let slot = 0; slot < maxSlots; slot++) {
     if (isClientSlotOccupiedByProject(projects, slot)) continue
@@ -307,7 +310,7 @@ export function repairClientSlotIndexes(
   projects: Project[],
   leads: Lead[],
 ): { projects: Project[]; leads: Lead[] } {
-  const maxSlots = clientProjectSlotLimit(state)
+  const maxSlots = clientProjectBoardSlots(state, projects, leads)
   const projectSlotById = new Map<string, number>()
   const usedProjectSlots = new Set<number>()
 
