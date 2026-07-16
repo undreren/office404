@@ -91,6 +91,7 @@ export function findCheapestProcurementPurchase(
     state.vibingCourseTiers,
     budget,
     cash,
+    state.meta,
   )
   if (coursePurchase) {
     const { course, cost, newTier } = coursePurchase

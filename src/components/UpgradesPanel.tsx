@@ -21,7 +21,7 @@ import {
   upgradeApartmentMsg,
 } from '../game/messages'
 import { agentCapacity, getNextApartment } from '../game/selectors'
-import { VIBING_COURSES, vibingCourseCost } from '../game/upgrades'
+import { VIBING_COURSES, isVibingCourseVisible, vibingCourseCost } from '../game/upgrades'
 import type { GameState } from '../game/types'
 import { useGameDispatchPurchase, useGameState } from '../runtime/GameRuntime'
 import { useTabNav } from '../context/TabNavContext'
@@ -244,13 +244,14 @@ function MetaFaceMarketspaceSection({ showMaxedUpgrades }: { showMaxedUpgrades: 
 }
 
 function CoursesSection({ showMaxedUpgrades }: { showMaxedUpgrades: boolean }) {
-  const { cash, vibingCourses, vibingCourseTiers } = useGameState()
+  const { cash, vibingCourses, vibingCourseTiers, meta } = useGameState()
   const dispatchPurchase = useGameDispatchPurchase()
 
   return (
     <div className="market-section">
       <div className="vendor-list">
         {VIBING_COURSES.map((course) => {
+          if (!isVibingCourseVisible(course.id, meta)) return null
           const currentTier =
             vibingCourseTiers[course.id] ?? (vibingCourses.includes(course.id) ? 1 : 0)
           const maxTier = course.maxTier ?? 1
@@ -325,6 +326,7 @@ function countHiddenMaxedUpgrades(state: GameState): number {
   }
 
   for (const course of VIBING_COURSES) {
+    if (!isVibingCourseVisible(course.id, meta)) continue
     const currentTier =
       vibingCourseTiers[course.id] ?? (vibingCourses.includes(course.id) ? 1 : 0)
     const maxTier = course.maxTier ?? 1
