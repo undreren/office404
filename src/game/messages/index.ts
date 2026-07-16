@@ -21,6 +21,7 @@ import {
   justMergePr,
   mergePr,
   prestigeHallucinationBuy,
+  activateProductFeatureFromBacklog,
   rejectLead,
   resetGame,
   retire,
@@ -126,6 +127,10 @@ export function retireMsg(at: number): GameMessage {
 
 export function prestigeHallucinationBuyMsg(at: number, track: HallucinationTrack): GameMessage {
   return { at, apply: (state) => prestigeHallucinationBuy(state, track, at) }
+}
+
+export function activateProductFeatureMsg(at: number, itemId: string): GameMessage {
+  return { at, apply: (state) => activateProductFeatureFromBacklog(state, itemId, at) }
 }
 
 export function acceptSingularityMsg(at: number): GameMessage {

@@ -2,6 +2,7 @@ import { TabNavProvider, useTabNav } from './context/TabNavContext'
 import { ResourceBar } from './components/ResourceBar'
 import { BottomNav } from './components/BottomNav'
 import { ProjectsPanel } from './components/ProjectsPanel'
+import { ProductPanel } from './components/ProductPanel'
 import { UpgradesPanel } from './components/UpgradesPanel'
 import { StatusPanel } from './components/StatusPanel'
 import { HallucinationsPanel } from './components/HallucinationsPanel'
@@ -31,6 +32,9 @@ function AppShell() {
           </div>
           <div className={`tab-view ${activeTab === 'projects' ? 'tab-view--active' : ''}`}>
             <ProjectsPanel />
+          </div>
+          <div className={`tab-view ${activeTab === 'product' ? 'tab-view--active' : ''}`}>
+            <ProductPanel />
           </div>
           <div className={`tab-view ${activeTab === 'hallucinations' ? 'tab-view--active' : ''}`}>
             <HallucinationsPanel />

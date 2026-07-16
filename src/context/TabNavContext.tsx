@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { acceptLeadMsg } from '../game/messages'
+import type { MainTabId } from '../game/types'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 
-export type TabId = 'status' | 'shop' | 'projects' | 'hallucinations'
+export type TabId = MainTabId
 
 type TabNavContextValue = {
   activeTab: TabId

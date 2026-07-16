@@ -459,7 +459,7 @@ function RoleCounter({
   )
 }
 
-function ProjectCard({ project }: { project: Project }) {
+export function ProjectCard({ project }: { project: Project }) {
   const state = useGameState()
   const { selectedTaskId, agents, vibingCourses, vibingCourseTiers } = state
   const dispatchAt = useGameDispatchAt()

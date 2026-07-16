@@ -1,7 +1,7 @@
 import type { MetaProgress } from './meta'
 import { getHallucinationLevel } from './meta'
 import { IN_HOUSE_FIRST_FEATURE_COST } from './constants'
-import { computeMrrGain } from './mechanics'
+import { computeMrrGain, FIBONACCI } from './mechanics'
 import { HOUSING_CONFIG } from './housing'
 import type { ProductBacklogItem, Project } from './types'
 import type { SimCtx } from './simulation/simCtx'
@@ -58,4 +58,23 @@ export function mrrOnShip(
 
 export function canAccessProduct(meta: MetaProgress): boolean {
   return getHallucinationLevel(meta, 'in_house') >= 1
+}
+
+export function nextProductFeatureSp(featuresShipped: number): number {
+  if (featuresShipped < FIBONACCI.length) return FIBONACCI[featuresShipped]
+  const last = FIBONACCI[FIBONACCI.length - 1]
+  return Math.round(last * Math.pow(1.5, featuresShipped - FIBONACCI.length + 1))
+}
+
+export function countActiveProductProjects(projects: Project[]): number {
+  return projects.filter((p) => p.kind === 'product' && p.status === 'active').length
+}
+
+export function ensureProductBacklogQueued(
+  ctx: SimCtx,
+  backlog: ProductBacklogItem[],
+  featuresShipped: number,
+): ProductBacklogItem[] {
+  if (backlog.some((item) => item.status === 'queued')) return backlog
+  return [...backlog, createProductBacklogItem(ctx, nextProductFeatureSp(featuresShipped))]
 }

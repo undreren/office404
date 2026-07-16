@@ -1,17 +1,27 @@
 import { useTabNav, type TabId } from '../context/TabNavContext'
 import { isReadyToDeliver } from '../game/selectors'
+import { canAccessProduct } from '../game/product'
 import { useGameState } from '../runtime/GameRuntime'
 
-const TABS: { id: TabId; icon: string; label: string }[] = [
+const BASE_TABS: { id: TabId; icon: string; label: string }[] = [
   { id: 'status', icon: '📊', label: 'Status' },
   { id: 'shop', icon: '🛒', label: 'Shop' },
   { id: 'projects', icon: '📦', label: 'Projects' },
-  { id: 'hallucinations', icon: '✨', label: 'Hallucinations' },
 ]
+
+const PRODUCT_TAB = { id: 'product' as const, icon: '🏗️', label: 'Product' }
+
+const HALLUCINATIONS_TAB = { id: 'hallucinations' as const, icon: '✨', label: 'Hallucinations' }
 
 export function BottomNav() {
   const { activeTab, setActiveTab } = useTabNav()
-  const { leads, projects, tutorialDone } = useGameState()
+  const { leads, projects, tutorialDone, meta } = useGameState()
+
+  const tabs = [
+    ...BASE_TABS,
+    ...(canAccessProduct(meta) ? [PRODUCT_TAB] : []),
+    HALLUCINATIONS_TAB,
+  ]
 
   const availableLeads = leads.filter((l) => l.status === 'available').length
   const hasDeliverable = projects.some((p) => isReadyToDeliver(p))
@@ -28,7 +38,7 @@ export function BottomNav() {
 
   return (
     <nav className="bottom-nav" aria-label="Main navigation">
-      {TABS.map((tab) => {
+      {tabs.map((tab) => {
         const badge = badgeFor(tab.id)
         const locked = isLocked(tab.id)
         return (
