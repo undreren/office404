@@ -5,7 +5,7 @@ import { createDefaultMeta } from '../game/meta'
 import { baseClientProjectSlots, parallelVibesTier } from '../game/prestige'
 import type { GameState, PersistedSave } from '../game/types'
 import { MODEL_TIERS } from '../game/models'
-import { createInitialState, reconcileSpecialistAgents } from '../game/simulation/gameLogic'
+import { createInitialState, reconcileSpecialistAgents, syncProductBacklog } from '../game/simulation/gameLogic'
 import { ctxFrom } from '../game/simulation/simCtx'
 
 const SAVE_VERSION = 15
@@ -58,7 +58,7 @@ function normalizeLoadedState(state: GameState): GameState {
     migrated.leads,
   )
   const synced = reconcileSpecialistAgents({ ...migrated, projects, leads }, ctx)
-  return synced
+  return syncProductBacklog(synced, ctx)
 }
 
 function migrateV7State(old: Record<string, unknown>): GameState {
