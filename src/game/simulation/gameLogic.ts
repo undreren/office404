@@ -2768,7 +2768,7 @@ export function acceptSingularity(state: GameState, at: number): GameState {
   return createInitialState(at, state.rng, newMeta, { includeTutorial: true })
 }
 
-function syncProductBacklog(state: GameState, ctx: SimCtx): GameState {
+export function syncProductBacklog(state: GameState, ctx: SimCtx): GameState {
   if (!canAccessProduct(state.meta)) return state
   const backlog = ensureProductBacklogQueued(ctx, state.productBacklog, state.productFeaturesShipped)
   if (backlog === state.productBacklog) return state

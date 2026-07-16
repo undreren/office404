@@ -87,8 +87,10 @@ export function ProductPanel() {
             ))}
           </div>
         </section>
+      ) : queuedItems.length > 0 ? (
+        <p className="hint">No active features yet — pick one from Backlog above and hit Start.</p>
       ) : (
-        <p className="hint">No active in-house features. Start one from the backlog when you are ready to monolith.</p>
+        <p className="hint">Your feature backlog is empty. Reload the page — a queued feature should appear shortly.</p>
       )}
     </section>
   )
