@@ -122,10 +122,17 @@ import {
   startingCapitalBonus,
   startingGpuBonus,
   startingRamBonus,
+  maxProductProjectSlots,
   type HallucinationTrack,
 } from '../prestige'
 import { createDefaultMeta } from '../meta'
-import { mrrOnShip } from '../product'
+import {
+  activateProductFeature,
+  canAccessProduct,
+  countActiveProductProjects,
+  ensureProductBacklogQueued,
+  mrrOnShip,
+} from '../product'
 import { formatCash } from '../cash'
 import { derangeText, unhingedPrefix, unhingedTier } from '../unhinged'
 import { findCheapestProcurementPurchase, procurementEventMessage } from '../procurement'
@@ -2301,6 +2308,7 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   let cash = state.cash
   let mrr = state.mrr
   let productFeaturesShipped = state.productFeaturesShipped
+  let productBacklog = state.productBacklog
   let stats = { ...state.stats, projectsCompleted: state.stats.projectsCompleted + 1 }
 
   if (project.kind === 'product') {
@@ -2308,6 +2316,13 @@ export function deliverProject(state: GameState, projectId: string, at: number):
     mrr += mrrGain
     productFeaturesShipped += 1
     stats = { ...stats, productsShipped: stats.productsShipped + 1 }
+    productBacklog = ensureProductBacklogQueued(
+      ctx,
+      state.productBacklog.map((item) =>
+        item.status === 'active' ? { ...item, status: 'shipped' as const } : item,
+      ),
+      productFeaturesShipped,
+    )
     nextEvents = pushEvent(
       ctx,
       state.meta,
@@ -2372,6 +2387,7 @@ export function deliverProject(state: GameState, projectId: string, at: number):
     reputation,
     mrr,
     productFeaturesShipped,
+    productBacklog,
     projects: nextProjects,
     agents: nextAgents,
     leads: nextLeads,
@@ -2720,25 +2736,25 @@ export function prestigeHallucinationBuy(
   const newMeta = buyHallucinationUpgrade(state.meta, track)
   if (!newMeta) return state
   const level = getHallucinationLevel(newMeta, track)
-  return withCtx(
-    syncAutomationAgents(
-      {
-        ...state,
-        meta: newMeta,
-        events: pushEvent(
-          ctx,
-          state.meta,
-          state.events,
-          'hallucination',
-          `Hallucination upgrade: ${track} → level ${level}.`,
-          at,
-        ),
-      },
-      ctx,
-    ),
+  let next = syncAutomationAgents(
+    {
+      ...state,
+      meta: newMeta,
+      events: pushEvent(
+        ctx,
+        state.meta,
+        state.events,
+        'hallucination',
+        `Hallucination upgrade: ${track} → level ${level}.`,
+        at,
+      ),
+    },
     ctx,
-    at,
   )
+  if (track === 'in_house') {
+    next = syncProductBacklog(next, ctx)
+  }
+  return withCtx(next, ctx, at)
 }
 
 export function acceptSingularity(state: GameState, at: number): GameState {
@@ -2750,6 +2766,49 @@ export function acceptSingularity(state: GameState, at: number): GameState {
   newMeta.totalHallucinationsEarned = state.meta.totalHallucinationsEarned
 
   return createInitialState(at, state.rng, newMeta, { includeTutorial: true })
+}
+
+function syncProductBacklog(state: GameState, ctx: SimCtx): GameState {
+  if (!canAccessProduct(state.meta)) return state
+  const backlog = ensureProductBacklogQueued(ctx, state.productBacklog, state.productFeaturesShipped)
+  if (backlog === state.productBacklog) return state
+  return { ...state, productBacklog: backlog }
+}
+
+export function activateProductFeatureFromBacklog(
+  state: GameState,
+  itemId: string,
+  at: number,
+): GameState {
+  if (!canAccessProduct(state.meta)) return state
+  const item = state.productBacklog.find((i) => i.id === itemId && i.status === 'queued')
+  if (!item || state.cash < item.cost) return state
+  if (countActiveProductProjects(state.projects) >= maxProductProjectSlots(state.meta)) return state
+
+  const ctx = ctxFrom(state)
+  const project = activateProductFeature(ctx, item)
+  const nextBacklog = state.productBacklog.map((i) =>
+    i.id === itemId ? { ...i, status: 'active' as const } : i,
+  )
+
+  return withCtx(
+    {
+      ...state,
+      cash: state.cash - item.cost,
+      projects: [...state.projects, project],
+      productBacklog: nextBacklog,
+      events: pushEvent(
+        ctx,
+        state.meta,
+        state.events,
+        'product',
+        `Started in-house feature: ${item.title} (−${formatCash(item.cost)}).`,
+        at,
+      ),
+    },
+    ctx,
+    at,
+  )
 }
 
 export function resetGame(at: number, rngSeed?: number): GameState {
