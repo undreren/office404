@@ -86,6 +86,7 @@ import {
   hasHotSwappingCourse,
   hasOfflineCourse,
   hasProjectManagerActive,
+  hasProductOwnerActive,
   hasPromptEngineering,
   isAutomationAgentUnlocked,
   jobStatusFor,
@@ -136,7 +137,7 @@ import {
 import { formatCash } from '../cash'
 import { derangeText, unhingedPrefix, unhingedTier } from '../unhinged'
 import { findCheapestProcurementPurchase, procurementEventMessage } from '../procurement'
-import { VIBING_COURSES, vibingCourseCost } from '../upgrades'
+import { VIBING_COURSES, isVibingCourseVisible, PRODUCT_OWNER_COURSE_ID, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
 
@@ -2195,6 +2196,10 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     tickState = runPmAutomation(tickState, at)
   }
 
+  if (hasProductOwnerActive(tickState.agents)) {
+    tickState = runPoAutomation(tickState, at)
+  }
+
   return tickState
 }
 
@@ -2434,7 +2439,31 @@ function runSalesAutomation(state: GameState, at: number): GameState {
 function runPmAutomation(state: GameState, at: number): GameState {
   let tickState = state
   for (;;) {
-    const deliverable = tickState.projects.find((p) => isReadyToDeliver(p))
+    const deliverable = tickState.projects.find(
+      (p) => p.kind === 'client' && isReadyToDeliver(p),
+    )
+    if (!deliverable) break
+    tickState = deliverProject(tickState, deliverable.id, at)
+  }
+  return tickState
+}
+
+/** Auto-start, conduct, and deliver in-house product work while PO is on duty. */
+function runPoAutomation(state: GameState, at: number): GameState {
+  let tickState = state
+  const queued = tickState.productBacklog.find((item) => item.status === 'queued')
+  if (
+    queued &&
+    tickState.cash >= queued.cost &&
+    countActiveProductProjects(tickState.projects) < maxProductProjectSlots(tickState.meta)
+  ) {
+    tickState = activateProductFeatureFromBacklog(tickState, queued.id, at)
+  }
+
+  for (;;) {
+    const deliverable = tickState.projects.find(
+      (p) => p.kind === 'product' && isReadyToDeliver(p),
+    )
     if (!deliverable) break
     tickState = deliverProject(tickState, deliverable.id, at)
   }
@@ -2648,7 +2677,8 @@ export function buyFineTune(state: GameState, fineTuneIdArg: string, at: number)
 export function buyVibingCourse(state: GameState, courseId: string, at: number): GameState {
   const ctx = ctxFrom(state)
   const course = VIBING_COURSES.find((c) => c.id === courseId)
-  if (!course) return state
+  if (!course || !isVibingCourseVisible(courseId, state.meta)) return state
+  if (courseId === PRODUCT_OWNER_COURSE_ID && !canAccessProduct(state.meta)) return state
 
   const currentTier =
     state.vibingCourseTiers[courseId] ?? (state.vibingCourses.includes(courseId) ? 1 : 0)
@@ -2786,16 +2816,31 @@ export function activateProductFeatureFromBacklog(
   if (countActiveProductProjects(state.projects) >= maxProductProjectSlots(state.meta)) return state
 
   const ctx = ctxFrom(state)
-  const project = activateProductFeature(ctx, item)
+  const autoConductor =
+    hasProductOwnerActive(state.agents) && hasConductorCourse(state.vibingCourses)
+  let project = activateProductFeature(ctx, item)
+  if (autoConductor) {
+    project = {
+      ...project,
+      useConductor: true,
+      roleCounts: { ...project.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 },
+    }
+  }
   const nextBacklog = state.productBacklog.map((i) =>
     i.id === itemId ? { ...i, status: 'active' as const } : i,
   )
+  const nextProjects = [...state.projects, project]
+  const reconciled = reconcileAllProjectStaffingInSlotOrder(ctx, state, state.agents, nextProjects, {
+    spawnWhenNoWorkers: autoConductor,
+  })
 
   return withCtx(
     {
       ...state,
       cash: state.cash - item.cost,
-      projects: [...state.projects, project],
+      agents: reconciled.agents,
+      projects: reconciled.projects,
+      conductorStaffQueueCursor: reconciled.conductorStaffQueueCursor,
       productBacklog: nextBacklog,
       events: pushEvent(
         ctx,

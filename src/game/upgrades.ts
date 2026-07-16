@@ -4,10 +4,15 @@ export const BEST_OF_N_MAX_TIER = 4
 export const VIBE_SLOTS_COURSE_ID = 'vibe_slots'
 export const VIBE_SLOTS_MAX_TIER = 4
 
+export const PRODUCT_OWNER_COURSE_ID = 'product_owner'
+
 export const CONDUCTOR_COURSE_ID = 'conductor'
 
 export const REFINEMENT_COURSE_ID = 'refinement'
 export const REFINEMENT_MAX_TIER = 5
+
+import type { MetaProgress } from './meta'
+import { canAccessProduct } from './product'
 
 export interface VibingCourse {
   id: string
@@ -56,7 +61,15 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'Agile ceremonies, but the stand-up is just you crying.',
     cost: 400,
     description:
-      'Toggle on: auto-delivers completed gigs, enables Conductor on new projects, and deadline warnings.',
+      'Toggle on: auto-delivers completed client gigs and enables Conductor on new client projects.',
+  },
+  {
+    id: PRODUCT_OWNER_COURSE_ID,
+    label: 'Product Owner',
+    tagline: 'Own the backlog. Blame the roadmap.',
+    cost: 400,
+    description:
+      'Toggle on: auto-starts queued in-house features, enables Conductor on new product work, and auto-delivers shipped features for MRR.',
   },
   {
     id: 'sales',
@@ -134,14 +147,21 @@ export function vibingCourseCost(course: VibingCourse, tier: number): number {
   return Math.round(course.cost * Math.pow(1.8, tier))
 }
 
+export function isVibingCourseVisible(courseId: string, meta: MetaProgress): boolean {
+  if (courseId === PRODUCT_OWNER_COURSE_ID) return canAccessProduct(meta)
+  return true
+}
+
 export function cheapestAffordableVibingCourse(
   vibingCourses: string[],
   vibingCourseTiers: Partial<Record<string, number>>,
   budget: number,
   cash: number,
+  meta: MetaProgress,
 ): { course: VibingCourse; cost: number; newTier: number } | null {
   let best: { course: VibingCourse; cost: number; newTier: number } | null = null
   for (const course of VIBING_COURSES) {
+    if (!isVibingCourseVisible(course.id, meta)) continue
     const currentTier =
       vibingCourseTiers[course.id] ?? (vibingCourses.includes(course.id) ? 1 : 0)
     const maxTier = course.maxTier ?? 1

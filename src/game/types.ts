@@ -12,6 +12,7 @@ export type AgentJob =
   | 'customer'
   | 'accounting'
   | 'project_manager'
+  | 'product_owner'
   | 'offline'
 
 export type AgentStatus =
@@ -82,6 +83,7 @@ export type StaffJob = Exclude<
   | 'customer'
   | 'accounting'
   | 'project_manager'
+  | 'product_owner'
   | 'offline'
 >
 

@@ -540,6 +540,8 @@ export function jobStatusFor(job: Agent['job']): Agent['status'] {
       return 'accounting'
     case 'project_manager':
       return 'managing'
+    case 'product_owner':
+      return 'managing'
     case 'offline':
       return 'offline'
     default:
@@ -571,6 +573,8 @@ export function agentRoleLabel(job: AgentJob): string {
       return 'Accounting'
     case 'project_manager':
       return 'Project Manager'
+    case 'product_owner':
+      return 'Product Owner'
     case 'offline':
       return 'Offline'
   }
@@ -725,7 +729,7 @@ export function getAgentParameters(
     base *= codeHallucinationParamMultiplier(meta)
   }
   const tuneRole = job === 'conductor' ? 'conductor' : job
-  if (tuneRole === 'procurement' || tuneRole === 'sales' || tuneRole === 'marketing' || tuneRole === 'customer' || tuneRole === 'accounting' || tuneRole === 'project_manager' || tuneRole === 'offline') {
+  if (tuneRole === 'procurement' || tuneRole === 'sales' || tuneRole === 'marketing' || tuneRole === 'customer' || tuneRole === 'accounting' || tuneRole === 'project_manager' || tuneRole === 'product_owner' || tuneRole === 'offline') {
     return base
   }
   const tuneId = `tune-${modelTierIndex}-${tuneRole}`
@@ -743,6 +747,7 @@ export const AUTOMATION_AGENT_JOBS = [
   'customer',
   'accounting',
   'project_manager',
+  'product_owner',
   'offline',
 ] as const satisfies readonly AgentJob[]
 
@@ -778,6 +783,10 @@ export function hasProjectManagerActive(agents: Agent[]): boolean {
   return hasActiveAutomationAgent(agents, 'project_manager')
 }
 
+export function hasProductOwnerActive(agents: Agent[]): boolean {
+  return hasActiveAutomationAgent(agents, 'product_owner')
+}
+
 export function automationAgentDutyLabel(job: AutomationAgentJob): string {
   switch (job) {
     case 'procurement':
@@ -791,7 +800,9 @@ export function automationAgentDutyLabel(job: AutomationAgentJob): string {
     case 'accounting':
       return 'Creative accounting'
     case 'project_manager':
-      return 'Auto-delivering & conducting'
+      return 'Auto-delivering client gigs & conducting'
+    case 'product_owner':
+      return 'Auto-starting & shipping in-house features'
     case 'offline':
       return 'Hallucinating elapsed time'
   }
