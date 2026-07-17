@@ -58,7 +58,7 @@ import {
   MAX_OFFLINE_SECONDS,
   MIN_OFFLINE_APPLY_SEC,
   OFFLINE_CATCHUP_CHUNK_SEC,
-  OFFLINE_ASYNC_YIELD_EVERY_CHUNKS,
+  OFFLINE_CATCHUP_FRAME_BUDGET_MS,
   ON_TIME_REP_BONUS,
   PRESTIGE_START_CASH,
   PROCUREMENT_CASH_FRACTION,
@@ -436,18 +436,29 @@ export async function applyOfflineProgressAsync(
 
   let advanced = state
   let remaining = capped
-  let chunksDone = 0
   while (remaining > 0) {
-    const chunk = Math.min(remaining, OFFLINE_CATCHUP_CHUNK_SEC)
-    advanced = advanceTime(advanced, chunk, at)
-    remaining -= chunk
-    chunksDone += 1
-    if (remaining > 0 && chunksDone % OFFLINE_ASYNC_YIELD_EVERY_CHUNKS === 0) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    const frameDeadline = performance.now() + OFFLINE_CATCHUP_FRAME_BUDGET_MS
+    while (remaining > 0 && performance.now() < frameDeadline) {
+      const chunk = Math.min(remaining, OFFLINE_CATCHUP_CHUNK_SEC)
+      advanced = advanceTime(advanced, chunk, at)
+      remaining -= chunk
+    }
+    if (remaining > 0) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     }
   }
 
   return finalizeOfflineProgress(state, advanced, capped, at)
+}
+
+/** Async tab-return catch-up; keeps the UI responsive after long backgrounding. */
+export async function returnFromHiddenAsync(
+  state: GameState,
+  elapsedSec: number,
+  at: number,
+): Promise<GameState> {
+  const progressed = await applyOfflineProgressAsync(state, elapsedSec, at)
+  return syncOfflineSpecialist(progressed, false, at)
 }
 
 /** Auto-assign or unassign the Offline specialist when the app tab hides or shows. */

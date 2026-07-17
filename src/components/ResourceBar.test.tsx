@@ -1,10 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 import { SAVE_KEY } from '../game/constants'
 import { createInitialState } from '../game/simulation/gameLogic'
 import { partializeSave } from '../runtime/persist'
-import { GameRuntimeProvider } from '../runtime/GameRuntime'
+import { GameRuntimeProvider, useGameRuntime } from '../runtime/GameRuntime'
 import { ResourceBar } from './ResourceBar'
+
+function Hydrated({ children }: { children: ReactNode }) {
+  const { hydrated } = useGameRuntime()
+  if (!hydrated) return null
+  return children
+}
 
 describe('ResourceBar', () => {
   it('shows cash and reputation from game state', async () => {
@@ -13,7 +20,9 @@ describe('ResourceBar', () => {
 
     render(
       <GameRuntimeProvider>
-        <ResourceBar />
+        <Hydrated>
+          <ResourceBar />
+        </Hydrated>
       </GameRuntimeProvider>,
     )
 

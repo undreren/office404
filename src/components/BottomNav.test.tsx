@@ -1,11 +1,18 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SAVE_KEY } from '../game/constants'
 import { createInitialState } from '../game/simulation/gameLogic'
 import { partializeSave } from '../runtime/persist'
 import { TabNavProvider } from '../context/TabNavContext'
-import { GameRuntimeProvider } from '../runtime/GameRuntime'
+import { GameRuntimeProvider, useGameRuntime } from '../runtime/GameRuntime'
 import { BottomNav } from './BottomNav'
+
+function Hydrated({ children }: { children: ReactNode }) {
+  const { hydrated } = useGameRuntime()
+  if (!hydrated) return null
+  return children
+}
 
 vi.mock('../runtime/persist', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../runtime/persist')>()
@@ -37,9 +44,11 @@ describe('BottomNav product tab', () => {
 
     render(
       <GameRuntimeProvider>
-        <TabNavProvider>
-          <BottomNav />
-        </TabNavProvider>
+        <Hydrated>
+          <TabNavProvider>
+            <BottomNav />
+          </TabNavProvider>
+        </Hydrated>
       </GameRuntimeProvider>,
     )
 
@@ -57,9 +66,11 @@ describe('BottomNav product tab', () => {
 
     render(
       <GameRuntimeProvider>
-        <TabNavProvider>
-          <BottomNav />
-        </TabNavProvider>
+        <Hydrated>
+          <TabNavProvider>
+            <BottomNav />
+          </TabNavProvider>
+        </Hydrated>
       </GameRuntimeProvider>,
     )
 

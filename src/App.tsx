@@ -53,11 +53,20 @@ function HydratedApp() {
 
   if (!hydrated) {
     return (
-      <div className="app">
+      <div className="app app--booting">
         <div className="scanlines" aria-hidden="true" />
         <p className="hydration-loading">
           {catchingUp ? 'Catching up while you were away…' : 'Loading save…'}
         </p>
+      </div>
+    )
+  }
+
+  if (catchingUp) {
+    return (
+      <div className="app app--booting">
+        <div className="scanlines" aria-hidden="true" />
+        <p className="hydration-loading">Catching up while you were away…</p>
       </div>
     )
   }
