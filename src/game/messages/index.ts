@@ -12,6 +12,7 @@ import {
   adjustRoleCount,
   advanceTime,
   applyOfflineProgress,
+  applyOfflineProgressAsync,
   buyAgentSlot,
   buyFineTune,
   buyGpuTick,
@@ -58,6 +59,13 @@ export function hydrateFromSave(saved: GameState, at: number): GameMessage {
       return next
     },
   }
+}
+
+export async function hydrateFromSaveAsync(saved: GameState, at: number): Promise<GameState> {
+  const elapsedSec = Math.max(0, (at - saved.snapshotAt) / 1000)
+  let next = { ...saved, snapshotAt: at }
+  next = await applyOfflineProgressAsync(next, elapsedSec, at)
+  return next
 }
 
 export function selectTaskMsg(at: number, taskId: string | null): GameMessage {

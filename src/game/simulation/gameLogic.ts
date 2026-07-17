@@ -57,12 +57,13 @@ import {
   MAX_EVENTS,
   MAX_OFFLINE_SECONDS,
   MIN_OFFLINE_APPLY_SEC,
+  OFFLINE_CATCHUP_CHUNK_SEC,
+  OFFLINE_ASYNC_YIELD_EVERY_CHUNKS,
   ON_TIME_REP_BONUS,
   PRESTIGE_START_CASH,
   PROCUREMENT_CASH_FRACTION,
   RENT_INTERVAL_DAYS,
   SECONDS_PER_GAME_DAY,
-  TICK_INTERVAL_MS,
 } from '../constants'
 import {
   agentRoleLabel,
@@ -377,17 +378,29 @@ export function applyOfflineProgress(
   const capped = Math.min(Math.max(0, elapsedSec), MAX_OFFLINE_SECONDS)
   if (capped < MIN_OFFLINE_APPLY_SEC) return state
 
-  const tickSec = TICK_INTERVAL_MS / 1000
+  const advanced = advanceOfflineChunks(state, capped, at)
+  return finalizeOfflineProgress(state, advanced, capped, at)
+}
+
+function advanceOfflineChunks(state: GameState, cappedSec: number, at: number): GameState {
   let advanced = state
-  let remaining = capped
+  let remaining = cappedSec
   while (remaining > 0) {
-    const chunk = Math.min(remaining, tickSec)
+    const chunk = Math.min(remaining, OFFLINE_CATCHUP_CHUNK_SEC)
     advanced = advanceTime(advanced, chunk, at)
     remaining -= chunk
   }
+  return advanced
+}
 
+function finalizeOfflineProgress(
+  state: GameState,
+  advanced: GameState,
+  cappedSec: number,
+  at: number,
+): GameState {
   const ctx = ctxFrom(advanced)
-  const awayMinutes = Math.floor(capped / 60)
+  const awayMinutes = Math.floor(cappedSec / 60)
   const awayLabel =
     awayMinutes >= 60
       ? `${Math.floor(awayMinutes / 60)}h ${awayMinutes % 60}m`
@@ -408,6 +421,33 @@ export function applyOfflineProgress(
     ctx,
     at,
   )
+}
+
+/** Async offline catch-up that yields so the UI can paint during long absences. */
+export async function applyOfflineProgressAsync(
+  state: GameState,
+  elapsedSec: number,
+  at: number,
+): Promise<GameState> {
+  if (!hasOfflineCourse(state.vibingCourses) || state.phase !== 'playing') return state
+
+  const capped = Math.min(Math.max(0, elapsedSec), MAX_OFFLINE_SECONDS)
+  if (capped < MIN_OFFLINE_APPLY_SEC) return state
+
+  let advanced = state
+  let remaining = capped
+  let chunksDone = 0
+  while (remaining > 0) {
+    const chunk = Math.min(remaining, OFFLINE_CATCHUP_CHUNK_SEC)
+    advanced = advanceTime(advanced, chunk, at)
+    remaining -= chunk
+    chunksDone += 1
+    if (remaining > 0 && chunksDone % OFFLINE_ASYNC_YIELD_EVERY_CHUNKS === 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
+  }
+
+  return finalizeOfflineProgress(state, advanced, capped, at)
 }
 
 /** Auto-assign or unassign the Offline specialist when the app tab hides or shows. */
