@@ -66,6 +66,17 @@
           transform: rotate(360deg);
         }
       }
+
+      .boot-splash__recover {
+        margin: 0.5rem 0 0;
+        font-size: 0.8rem;
+      }
+
+      .boot-splash__recover a {
+        color: #39d98a;
+        text-decoration: underline;
+        text-underline-offset: 0.15em;
+      }
     </style>
   </head>
   <body>
@@ -73,6 +84,9 @@
       <p class="boot-splash__title">Office 404</p>
       <div class="boot-splash__spinner" aria-hidden="true"></div>
       <p class="boot-splash__status">Loading…</p>
+      <p class="boot-splash__recover">
+        <a href="recover.html">Blank screen? Recover your save</a>
+      </p>
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
