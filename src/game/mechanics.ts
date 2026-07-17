@@ -209,12 +209,12 @@ export function clientProjectBoardSlots(
   let maxOccupied = 0
   for (const p of projects) {
     if (p.kind === 'client' && p.status === 'active') {
-      maxOccupied = Math.max(maxOccupied, p.slotIndex + 1)
+      maxOccupied = Math.max(maxOccupied, (p.slotIndex ?? 0) + 1)
     }
   }
   for (const l of leads) {
     if (l.status === 'available') {
-      maxOccupied = Math.max(maxOccupied, l.slotIndex + 1)
+      maxOccupied = Math.max(maxOccupied, (l.slotIndex ?? 0) + 1)
     }
   }
   return Math.max(chosen, active, maxOccupied)
