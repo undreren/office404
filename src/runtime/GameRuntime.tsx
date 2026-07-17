@@ -25,6 +25,7 @@ import { createRngSeed } from '../game/rng'
 import type { GameState } from '../game/types'
 import { createInitialState, returnFromHiddenAsync } from '../game/simulation/gameLogic'
 import { applyFixtureFromUrl } from './fixture-loader'
+import { updateBootSplash } from './bootSplash'
 import { loadPersistedState, savePersistedState } from './persist'
 
 type GameRuntimeContextValue = {
@@ -59,6 +60,21 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   const hiddenAtRef = useRef<number | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const catchUpRunRef = useRef(0)
+
+  useEffect(() => {
+    if (!hydrated) {
+      updateBootSplash({
+        visible: true,
+        status: catchingUp ? 'Catching up while you were away…' : 'Loading save…',
+      })
+      return
+    }
+    if (catchingUp) {
+      updateBootSplash({ visible: true, status: 'Catching up while you were away…' })
+      return
+    }
+    updateBootSplash({ visible: false })
+  }, [hydrated, catchingUp])
 
   useEffect(() => {
     let cancelled = false
