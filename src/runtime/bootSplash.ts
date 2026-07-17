@@ -5,6 +5,7 @@ const SPLASH_HTML = `
   <p class="boot-splash__title">Office 404</p>
   <div class="boot-splash__spinner" aria-hidden="true"></div>
   <p class="boot-splash__status">Loading…</p>
+  <p class="boot-splash__recover"><a href="recover.html">Blank screen? Recover your save</a></p>
 `
 
 /** Inline styles so the splash paints even when cached HTML/CSS is stale. */
@@ -44,6 +45,15 @@ const SPLASH_CSS_TEXT = `
     border-top-color: #39d98a;
     border-radius: 50%;
     animation: boot-spin 0.9s linear infinite;
+  }
+  #boot-splash .boot-splash__recover {
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+  }
+  #boot-splash .boot-splash__recover a {
+    color: #39d98a;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
   }
 `
 
