@@ -23,7 +23,7 @@ import {
 } from '../game/messages'
 import { createRngSeed } from '../game/rng'
 import type { GameState } from '../game/types'
-import { createInitialState } from '../game/simulation/gameLogic'
+import { createInitialState, returnFromHiddenAsync } from '../game/simulation/gameLogic'
 import { applyFixtureFromUrl } from './fixture-loader'
 import { loadPersistedState, savePersistedState } from './persist'
 
@@ -48,35 +48,19 @@ function needsAsyncOfflineCatchUp(saved: GameState, at: number): boolean {
   return offlineCatchUpSec(saved, at) >= MIN_OFFLINE_APPLY_SEC
 }
 
-function trySyncBoot(): { state: GameState | null; hydrated: boolean; catchingUp: boolean } {
-  const saved = loadPersistedState()
-  if (!saved) return { state: null, hydrated: false, catchingUp: false }
-  const at = Date.now()
-  if (needsAsyncOfflineCatchUp(saved, at)) {
-    return { state: null, hydrated: false, catchingUp: true }
-  }
-  return {
-    state: dispatch(saved, hydrateFromSave(saved, at)),
-    hydrated: true,
-    catchingUp: false,
-  }
-}
-
 export function GameRuntimeProvider({ children }: { children: ReactNode }) {
-  const boot = trySyncBoot()
-  const [state, setState] = useState<GameState | null>(boot.state)
-  const [hydrated, setHydrated] = useState(boot.hydrated)
-  const [catchingUp, setCatchingUp] = useState(boot.catchingUp)
+  const [state, setState] = useState<GameState | null>(null)
+  const [hydrated, setHydrated] = useState(false)
+  const [catchingUp, setCatchingUp] = useState(false)
   const [paused, setPaused] = useState(false)
   const [tabHidden, setTabHidden] = useState(() =>
     typeof document !== 'undefined' ? document.hidden : false,
   )
   const hiddenAtRef = useRef<number | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const catchUpRunRef = useRef(0)
 
   useEffect(() => {
-    if (hydrated) return
-
     let cancelled = false
     void (async () => {
       const at = Date.now()
@@ -111,7 +95,7 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [hydrated])
+  }, [])
 
   const dispatchMsg = useCallback((message: GameMessage) => {
     setState((prev) => (prev ? dispatch(prev, message) : prev))
@@ -150,7 +134,20 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
       const since = hiddenAtRef.current
       hiddenAtRef.current = null
       const elapsedSec = since ? (at - since) / 1000 : 0
-      dispatchMsg(returnFromHiddenMsg(at, elapsedSec))
+      if (elapsedSec < MIN_OFFLINE_APPLY_SEC) {
+        dispatchMsg(returnFromHiddenMsg(at, elapsedSec))
+        return
+      }
+
+      const runId = catchUpRunRef.current + 1
+      catchUpRunRef.current = runId
+      setCatchingUp(true)
+      void (async () => {
+        const next = await returnFromHiddenAsync(state, elapsedSec, at)
+        if (catchUpRunRef.current !== runId) return
+        setState(next)
+        setCatchingUp(false)
+      })()
     }
 
     document.addEventListener('visibilitychange', onVisibility)
@@ -158,7 +155,7 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   }, [hydrated, dispatchMsg, state])
 
   useEffect(() => {
-    if (!hydrated || !state || paused) return
+    if (!hydrated || !state || paused || catchingUp) return
     if (state.vibingCourses.includes('offline') && tabHidden) return
 
     const interval = setInterval(() => {
@@ -166,7 +163,7 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
       dispatchMsg(timeElapsed(at, TICK_INTERVAL_MS / 1000))
     }, TICK_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [hydrated, dispatchMsg, state, paused, tabHidden])
+  }, [hydrated, dispatchMsg, state, paused, tabHidden, catchingUp])
 
   useEffect(() => {
     if (!hydrated || !state) return

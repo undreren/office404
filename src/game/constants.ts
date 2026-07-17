@@ -83,5 +83,5 @@ export const MAX_OFFLINE_SECONDS = 8 * 60 * 60
 export const MIN_OFFLINE_APPLY_SEC = 5
 /** Coarser simulation step for offline catch-up (must divide SECONDS_PER_GAME_DAY). */
 export const OFFLINE_CATCHUP_CHUNK_SEC = 10
-/** Yield to the browser every N offline chunks during async hydration. */
-export const OFFLINE_ASYNC_YIELD_EVERY_CHUNKS = 8
+/** Max main-thread ms per frame while simulating offline catch-up. */
+export const OFFLINE_CATCHUP_FRAME_BUDGET_MS = 12
