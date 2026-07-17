@@ -8,10 +8,19 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { TICK_INTERVAL_MS } from '../game/constants'
+import { MIN_OFFLINE_APPLY_SEC, TICK_INTERVAL_MS } from '../game/constants'
 import { dispatch } from '../game/engine/dispatch'
 import type { GameMessage } from '../game/engine/Message'
-import { hydrateFromSave, newGame, resetGameMsg, returnFromHiddenMsg, stateChanged, syncOfflineSpecialistMsg, timeElapsed } from '../game/messages'
+import {
+  hydrateFromSave,
+  hydrateFromSaveAsync,
+  newGame,
+  resetGameMsg,
+  returnFromHiddenMsg,
+  stateChanged,
+  syncOfflineSpecialistMsg,
+  timeElapsed,
+} from '../game/messages'
 import { createRngSeed } from '../game/rng'
 import type { GameState } from '../game/types'
 import { createInitialState } from '../game/simulation/gameLogic'
@@ -19,25 +28,45 @@ import { applyFixtureFromUrl } from './fixture-loader'
 import { loadPersistedState, savePersistedState } from './persist'
 
 type GameRuntimeContextValue = {
-  state: GameState
+  state: GameState | null
   dispatch: (message: GameMessage) => void
   dispatchPurchase: (message: GameMessage) => boolean
   hydrated: boolean
+  catchingUp: boolean
   paused: boolean
   setPaused: (paused: boolean) => void
 }
 
 const GameRuntimeContext = createContext<GameRuntimeContextValue | null>(null)
 
-function bootState(at: number): GameState {
+function offlineCatchUpSec(saved: GameState, at: number): number {
+  if (!saved.vibingCourses.includes('offline') || saved.phase !== 'playing') return 0
+  return Math.max(0, (at - saved.snapshotAt) / 1000)
+}
+
+function needsAsyncOfflineCatchUp(saved: GameState, at: number): boolean {
+  return offlineCatchUpSec(saved, at) >= MIN_OFFLINE_APPLY_SEC
+}
+
+function trySyncBoot(): { state: GameState | null; hydrated: boolean; catchingUp: boolean } {
   const saved = loadPersistedState()
-  if (saved) return dispatch(saved, hydrateFromSave(saved, at))
-  return createInitialState(at, createRngSeed())
+  if (!saved) return { state: null, hydrated: false, catchingUp: false }
+  const at = Date.now()
+  if (needsAsyncOfflineCatchUp(saved, at)) {
+    return { state: null, hydrated: false, catchingUp: true }
+  }
+  return {
+    state: dispatch(saved, hydrateFromSave(saved, at)),
+    hydrated: true,
+    catchingUp: false,
+  }
 }
 
 export function GameRuntimeProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<GameState | null>(null)
-  const [hydrated, setHydrated] = useState(false)
+  const boot = trySyncBoot()
+  const [state, setState] = useState<GameState | null>(boot.state)
+  const [hydrated, setHydrated] = useState(boot.hydrated)
+  const [catchingUp, setCatchingUp] = useState(boot.catchingUp)
   const [paused, setPaused] = useState(false)
   const [tabHidden, setTabHidden] = useState(() =>
     typeof document !== 'undefined' ? document.hidden : false,
@@ -46,6 +75,8 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
+    if (hydrated) return
+
     let cancelled = false
     void (async () => {
       const at = Date.now()
@@ -53,15 +84,34 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       if (fixture) {
         setState(dispatch(fixture, hydrateFromSave(fixture, at)))
-      } else {
-        setState(bootState(at))
+        setHydrated(true)
+        return
       }
+
+      const saved = loadPersistedState()
+      if (!saved) {
+        setState(createInitialState(at, createRngSeed()))
+        setHydrated(true)
+        return
+      }
+
+      if (!needsAsyncOfflineCatchUp(saved, at)) {
+        setState(dispatch(saved, hydrateFromSave(saved, at)))
+        setHydrated(true)
+        return
+      }
+
+      setCatchingUp(true)
+      const next = await hydrateFromSaveAsync(saved, at)
+      if (cancelled) return
+      setState(next)
+      setCatchingUp(false)
       setHydrated(true)
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [hydrated])
 
   const dispatchMsg = useCallback((message: GameMessage) => {
     setState((prev) => (prev ? dispatch(prev, message) : prev))
@@ -127,14 +177,18 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
     }
   }, [state, hydrated])
 
-  const value = useMemo((): GameRuntimeContextValue | null => {
-    if (!state) return null
-    return { state, dispatch: dispatchMsg, dispatchPurchase, hydrated, paused, setPaused }
-  }, [state, dispatchMsg, dispatchPurchase, hydrated, paused])
-
-  if (!value) {
-    return null
-  }
+  const value = useMemo(
+    (): GameRuntimeContextValue => ({
+      state,
+      dispatch: dispatchMsg,
+      dispatchPurchase,
+      hydrated,
+      catchingUp,
+      paused,
+      setPaused,
+    }),
+    [state, dispatchMsg, dispatchPurchase, hydrated, catchingUp, paused],
+  )
 
   return <GameRuntimeContext.Provider value={value}>{children}</GameRuntimeContext.Provider>
 }
@@ -146,7 +200,9 @@ export function useGameRuntime(): GameRuntimeContextValue {
 }
 
 export function useGameState(): GameState {
-  return useGameRuntime().state
+  const state = useGameRuntime().state
+  if (!state) throw new Error('useGameState requires hydrated game state')
+  return state
 }
 
 export function useGameDispatch() {

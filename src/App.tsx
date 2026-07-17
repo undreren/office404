@@ -49,13 +49,15 @@ function AppShell() {
 }
 
 function HydratedApp() {
-  const { hydrated } = useGameRuntime()
+  const { hydrated, catchingUp } = useGameRuntime()
 
   if (!hydrated) {
     return (
       <div className="app">
         <div className="scanlines" aria-hidden="true" />
-        <p className="hydration-loading">Loading save…</p>
+        <p className="hydration-loading">
+          {catchingUp ? 'Catching up while you were away…' : 'Loading save…'}
+        </p>
       </div>
     )
   }
