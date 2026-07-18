@@ -412,12 +412,17 @@ export function generateLead(
   slotIndex: number,
   source: LeadSource = 'real',
   syntheticPayMult = 1,
+  scopeMultiplier = 1,
 ): Lead {
   const repFactor = Math.max(1, Math.max(0, reputation) / 10)
   const dayFactor = 1 + Math.pow(gameDay / 100, 1.2) * 0.5
   const isUnreasonable = reputation > 25
 
-  const storyPoints = pickLeadTotalStoryPoints(ctx.rng, reputation)
+  const baseSp = pickLeadTotalStoryPoints(ctx.rng, reputation)
+  const storyPoints = Math.min(
+    MAX_CLIENT_TASK_SP,
+    Math.max(1, Math.round(baseSp * Math.max(1, scopeMultiplier))),
+  )
   const durationDays = Math.max(
     MIN_PROJECT_DAYS,
     Math.round(
