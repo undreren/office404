@@ -28,6 +28,7 @@ import {
 import { HOUSING_CONFIG } from './housing'
 import { FINE_TUNE_BONUS } from './models'
 import type { MetaProgress } from './meta'
+import { startingGpuBonus, startingRamBonus } from './prestige'
 import { getHallucinationLevel } from './meta'
 import { stackIndexOnTask } from './projects'
 import { codeHallucinationParamMultiplier, effectiveModelParams, maxClientProjectSlots } from './prestige'
@@ -639,8 +640,9 @@ export function formatAgentProjectViewDutyLabel(
   return null
 }
 
-export function totalRamGb(state: Pick<GameState, 'agentSlotPurchases' | 'meta'>): number {
-  return BASE_RAM_GB + state.agentSlotPurchases * RAM_PER_UPGRADE_GB
+export function totalRamGb(state: Pick<GameState, 'agentSlotPurchases' | 'meta' | 'tutorialDone'>): number {
+  const bonusGb = state.tutorialDone ? startingRamBonus(state.meta) * RAM_PER_UPGRADE_GB : 0
+  return BASE_RAM_GB + state.agentSlotPurchases * RAM_PER_UPGRADE_GB + bonusGb
 }
 
 /** Model footprint in GB — prestige model size only (no cash fine-tunes). */
@@ -663,12 +665,13 @@ export function availableRamGb(state: GameState, paramsFor: (agent: Agent) => nu
   return totalRamGb(state) - rosterAgentRamGb(state.agents, paramsFor)
 }
 
-export function totalAgentSlots(state: Pick<GameState, 'agentSlotPurchases' | 'meta'>): number {
+export function totalAgentSlots(state: Pick<GameState, 'agentSlotPurchases' | 'meta' | 'tutorialDone'>): number {
   return totalRamGb(state)
 }
 
-export function totalGpuTicks(state: Pick<GameState, 'gpuTickPurchases'>): number {
-  return BASE_GPU_TICKS + state.gpuTickPurchases
+export function totalGpuTicks(state: Pick<GameState, 'gpuTickPurchases' | 'meta' | 'tutorialDone'>): number {
+  const bonus = state.tutorialDone ? startingGpuBonus(state.meta) : 0
+  return BASE_GPU_TICKS + state.gpuTickPurchases + bonus
 }
 
 export function ramSlotCost(purchases: number): number {

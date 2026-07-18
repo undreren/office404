@@ -71,12 +71,14 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   starting_ram: {
     label: 'Starting RAM',
     tagline: 'Pre-installed headcount. No interview loop.',
-    description: '+1 RAM purchase immediately on purchase, and on each new run after retirement. Subject to housing caps for further shop buys.',
+    description:
+      '+10 GB RAM immediately on purchase, and on each new run after retirement. Free capacity — does not count toward shop RAM limits or pricing.',
   },
   starting_gpu: {
     label: 'Starting GPU',
     tagline: 'Silicon you definitely paid for. Probably.',
-    description: '+1 GPU tick immediately on purchase, and on each new run after retirement. Shared across active coders.',
+    description:
+      '+1 GPU tick immediately on purchase, and on each new run after retirement. Free capacity — does not count toward shop GPU limits or pricing.',
   },
   in_house: {
     label: 'In-house product',

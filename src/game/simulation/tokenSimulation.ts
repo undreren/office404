@@ -22,7 +22,7 @@ export function contextTokensForState(state: Pick<GameState, 'meta'>): number {
 }
 
 export function agentOutputTokensPerSec(
-  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers' | 'gpuTickPurchases' | 'agents'>,
+  state: Pick<GameState, 'meta' | 'purchasedFineTunes' | 'fineTuneTiers' | 'gpuTickPurchases' | 'agents' | 'tutorialDone'>,
   _agent: Agent,
   job: AgentJob,
   agents: Agent[],
