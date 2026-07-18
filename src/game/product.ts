@@ -1,6 +1,5 @@
 import type { MetaProgress } from './meta'
 import { getHallucinationLevel } from './meta'
-import { IN_HOUSE_FIRST_FEATURE_COST } from './constants'
 import { computeMrrGain, FIBONACCI } from './mechanics'
 import { HOUSING_CONFIG } from './housing'
 import type { ProductBacklogItem, Project } from './types'
@@ -23,7 +22,6 @@ export function createProductBacklogItem(ctx: SimCtx, sp: number): ProductBacklo
     id: uid(ctx, 'prod'),
     title: ctx.rng.pick(PRODUCT_TITLES),
     storyPoints: sp,
-    cost: IN_HOUSE_FIRST_FEATURE_COST,
     status: 'queued',
   }
 }

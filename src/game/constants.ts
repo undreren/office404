@@ -64,7 +64,6 @@ export const GPU_TICK_COST_MULT = 1.85
 
 export const MAX_CLIENT_TASK_SP = 89
 export const MRR_BASE_RATE = 8
-export const IN_HOUSE_FIRST_FEATURE_COST = 50_000
 export const PROCUREMENT_CASH_FRACTION = 0.1
 
 export const PLATEAU_HOURS = 2

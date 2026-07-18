@@ -24,7 +24,7 @@ describe('in-house-unlocks-product-tab', () => {
     expect(state.productBacklog.some((item) => item.status === 'queued')).toBe(true)
   })
 
-  it('activates a queued backlog feature into a product project when affordable', () => {
+  it('activates a queued backlog feature into a product project', () => {
     const before = {
       ...initialPlaying(),
       cash: 100_000,
@@ -37,7 +37,6 @@ describe('in-house-unlocks-product-tab', () => {
           id: 'prod-1',
           title: 'Auth module',
           storyPoints: 5,
-          cost: 50_000,
           status: 'queued' as const,
         },
       ],
@@ -45,7 +44,7 @@ describe('in-house-unlocks-product-tab', () => {
 
     const state = dispatchChain(before, [activateProductFeatureMsg(T0 + 1000, 'prod-1')])
 
-    expect(state.cash).toBe(50_000)
+    expect(state.cash).toBe(100_000)
     expect(state.projects.some((p) => p.kind === 'product' && p.status === 'active')).toBe(true)
     expect(state.productBacklog.find((item) => item.id === 'prod-1')?.status).toBe('active')
   })

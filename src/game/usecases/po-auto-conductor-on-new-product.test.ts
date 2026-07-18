@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { IN_HOUSE_FIRST_FEATURE_COST } from '../constants'
 import {
   activateProductFeatureMsg,
   buyAgentSlotMsg,
@@ -7,30 +6,26 @@ import {
   toggleSpecialistRoleMsg,
 } from '../messages'
 import { PRODUCT_OWNER_COURSE_ID } from '../upgrades'
+import type { GameState } from '../types'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
-import { stateWithCash } from './_helpers/stateWithCash'
 import { T0 } from './_helpers/testConstants'
 
 describe('po-auto-conductor-on-new-product', () => {
-  function baseState() {
-    return stateWithCash(
-      {
-        ...initialPlaying(),
-        tutorialDone: true,
-        meta: { ...initialPlaying().meta, hallucinationLevels: { in_house: 1 } },
-        productBacklog: [
-          {
-            id: 'prod-1',
-            title: 'Auth module',
-            storyPoints: 5,
-            cost: IN_HOUSE_FIRST_FEATURE_COST,
-            status: 'queued',
-          },
-        ],
-      },
-      IN_HOUSE_FIRST_FEATURE_COST + 1_000,
-    )
+  function baseState(): GameState {
+    return {
+      ...initialPlaying(),
+      tutorialDone: true,
+      meta: { ...initialPlaying().meta, hallucinationLevels: { in_house: 1 } },
+      productBacklog: [
+        {
+          id: 'prod-1',
+          title: 'Auth module',
+          storyPoints: 5,
+          status: 'queued' as const,
+        },
+      ],
+    }
   }
 
   it('enables conductor on new product work when PO is active and Conductor is owned', () => {
