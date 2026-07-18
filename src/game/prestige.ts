@@ -95,7 +95,7 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
     label: 'Customer agent',
     tagline: 'The leads are coming from inside the GPU.',
     description:
-      'Unlock the customer specialist slot (assignable only — no automation yet). Level 3+ is required to accept Singularity at Dyson Sphere housing.',
+      'Unlock the customer specialist. When assigned, +10% negotiated pay per level on accepted leads. Level 3+ unlocks Singularity at Dyson Sphere. Enables synthetic leads with Marketing.',
   },
   project_manager: {
     label: 'Project manager',
@@ -144,20 +144,21 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   marketing: {
     label: 'Marketing boost',
     tagline: 'Our funnel is optimized. We do not discuss the funnel.',
-    maxLevel: 1,
-    description: 'Unlock the marketing specialist slot only. Lead spawn rate and scope boosts are not implemented yet.',
+    description:
+      'Unlock the marketing specialist. When assigned, +10% lead scope per level and faster synthetic lead spawns (requires Customer hallucination).',
   },
   accounting: {
     label: 'Accounting tricks',
     tagline: 'Creative deductions since Tuesday.',
-    maxLevel: 1,
-    description: 'Unlock the accounting specialist slot only. Client payment boosts are not implemented yet.',
+    description:
+      'Unlock the accounting specialist. When assigned, +5% client payout per level on delivery.',
   },
   super_conductor: {
     label: 'Super conductor',
     tagline: 'One babysitter to rule them all.',
     maxLevel: 1,
-    description: 'Not implemented yet. No gameplay effect — purchasing only records your ambition.',
+    description:
+      'While the PM specialist is on duty, client projects use conductor automation without staffing a conductor agent.',
   },
 }
 

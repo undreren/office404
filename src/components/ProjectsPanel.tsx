@@ -14,6 +14,7 @@ import {
   taskEarnedTokens,
   taskTokensRequired,
 } from '../game/mechanics'
+import { pmAbsorbsClientConductor } from '../game/hallucinationAutomation'
 import { getHallucinationLevel } from '../game/meta'
 import {
   agentsPerTaskForProject,
@@ -461,10 +462,12 @@ function RoleCounter({
 
 export function ProjectCard({ project }: { project: Project }) {
   const state = useGameState()
-  const { selectedTaskId, agents, vibingCourses, vibingCourseTiers } = state
+  const { selectedTaskId, agents, vibingCourses, vibingCourseTiers, meta } = state
   const dispatchAt = useGameDispatchAt()
 
-  const conductorUnlocked = hasConductorCourse(vibingCourses)
+  const conductorUnlocked =
+    hasConductorCourse(vibingCourses) ||
+    (project.kind === 'client' && pmAbsorbsClientConductor(meta, agents))
   const { used: rosterUsed, max: rosterMax } = agentCapacity(state)
   const idleAgents = countRosterIdleAgents(agents)
 

@@ -3,6 +3,7 @@ import type {
   AgentJob,
   GameEvent,
   GameState,
+  LeadSource,
   MainTabId,
   MetaProgress,
   Project,
@@ -137,11 +138,47 @@ import {
   mrrOnShip,
 } from '../product'
 import { formatCash } from '../cash'
+import {
+  accountingPaymentMultiplier,
+  canMarketingSpawnSyntheticLeads,
+  canToggleConductorOnProject,
+  customerNegotiateMultiplier,
+  marketingScopeMultiplier,
+  pmAbsorbsClientConductor,
+  projectUsesConductorAutomation,
+  projectUsesVirtualConductor,
+  shouldAutoConductorClientProject,
+  syntheticLeadIntervalDays,
+  syntheticLeadPayMultiplier,
+} from '../hallucinationAutomation'
 import { derangeText, unhingedPrefix, unhingedTier } from '../unhinged'
 import { findCheapestProcurementPurchase, procurementEventMessage } from '../procurement'
 import { VIBING_COURSES, isVibingCourseVisible, PRODUCT_OWNER_COURSE_ID, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
+
+function spawnLeadForState(
+  ctx: SimCtx,
+  state: Pick<GameState, 'meta' | 'agents'>,
+  reputation: number,
+  gameDay: number,
+  slotIndex: number,
+  source: LeadSource = 'real',
+) {
+  const scopeMultiplier = marketingScopeMultiplier(state.meta, state.agents)
+  const syntheticPayMult = source === 'synthetic' ? syntheticLeadPayMultiplier(state.meta) : 1
+  return generateLead(ctx, reputation, gameDay, slotIndex, source, syntheticPayMult, scopeMultiplier)
+}
+
+function autoConductorRoleCounts(
+  state: GameState,
+  project: Project,
+): ProjectRoleCounts {
+  const virtual = project.kind === 'client' && pmAbsorbsClientConductor(state.meta, state.agents)
+  return virtual
+    ? { ...project.roleCounts, conductor: 0, refine: 0, code: 0, review: 0, test: 0 }
+    : { ...project.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 }
+}
 
 export type { SimCtx } from './simCtx'
 
@@ -638,7 +675,15 @@ function queueConductorMoveCost(agents: Agent[], projectId: string): Agent[] {
   return next
 }
 
-function conductorCanAutoStaff(agents: Agent[], projectId: string): boolean {
+function conductorCanAutoStaff(
+  agents: Agent[],
+  projectId: string,
+  state?: GameState,
+  project?: Project,
+): boolean {
+  if (state && project && projectUsesVirtualConductor(state.meta, state.agents, project)) {
+    return true
+  }
   const conductor = agents.find((a) => a.projectId === projectId && a.job === 'conductor')
   if (!conductor) return false
   if ((conductor.conductorMoveRemaining ?? 0) > 0) return false
@@ -891,7 +936,7 @@ function nextConductorStaffCandidate(
   options?: { spawnWhenNoWorkers?: boolean },
 ): ConductorStaffCandidate | null {
   const synced = projects.find((p) => p.id === project.id) ?? project
-  if (!synced.useConductor || !hasConductorCourse(state.vibingCourses)) return null
+  if (!projectUsesConductorAutomation(state.vibingCourses, state.meta, state.agents, synced)) return null
 
   const conductorStaffOptions = {
     spawnWhenNoWorkers: options?.spawnWhenNoWorkers,
@@ -900,8 +945,14 @@ function nextConductorStaffCandidate(
 
   const hasConductor = projectAgents(project.id, 'conductor', agents).length > 0
   const desiredConductor = synced.useConductor ? 1 : synced.roleCounts.conductor > 0 ? 1 : 0
+  const virtualConductor = projectUsesVirtualConductor(state.meta, state.agents, synced)
 
-  if (desiredConductor > 0 && !hasConductor && projectHasConductorPipelineWork(synced)) {
+  if (
+    desiredConductor > 0 &&
+    !hasConductor &&
+    !virtualConductor &&
+    projectHasConductorPipelineWork(synced)
+  ) {
     if (!canStaffConductorOnProject({ ...state, agents }, agents, project.id, conductorStaffOptions)) return null
     return {
       project: synced,
@@ -910,7 +961,7 @@ function nextConductorStaffCandidate(
     }
   }
 
-  if (!conductorCanAutoStaff(agents, project.id)) return null
+  if (!conductorCanAutoStaff(agents, project.id, state, synced)) return null
 
   const maxPerTask = (role: StaffJob) =>
     agentsPerTaskForProject(synced, role, agents, state.vibingCourseTiers)
@@ -1389,12 +1440,16 @@ function reconcileProjectStaffing(
   const maxPerTask = (role: StaffJob) =>
     agentsPerTaskForProject(syncedProject(), role, nextAgents, state.vibingCourseTiers)
 
-  if (project.useConductor && hasConductorCourse(state.vibingCourses)) {
+  if (project.useConductor && projectUsesConductorAutomation(state.vibingCourses, state.meta, state.agents, project)) {
+    if (projectUsesVirtualConductor(state.meta, state.agents, project)) {
+      return { agents: nextAgents, projects: nextProjects }
+    }
+
     const conductors = projectAgents(project.id, 'conductor', nextAgents)
     const hasConductor = conductors.length > 0
     const desiredConductor = project.useConductor ? 1 : project.roleCounts.conductor > 0 ? 1 : 0
 
-    if (conductorCanAutoStaff(nextAgents, project.id)) {
+    if (conductorCanAutoStaff(nextAgents, project.id, state, syncedProject())) {
       const workers = nextAgents.filter(
         (a) => a.projectId === project.id && a.job && a.job !== 'conductor',
       )
@@ -1507,7 +1562,7 @@ export function canStaffRoleOnProject(state: GameState, _projectId: string, job:
 
 function tryHotSwapCompactingAgent(
   _ctx: SimCtx,
-  _state: GameState,
+  state: GameState,
   compacting: Agent,
   agents: Agent[],
   projects: Project[],
@@ -1515,7 +1570,7 @@ function tryHotSwapCompactingAgent(
 ): void {
   if (!hasHotSwappingCourse(vibingCourses) || !compacting.projectId || !compacting.job) return
   const project = projects.find((p) => p.id === compacting.projectId)
-  if (!project?.useConductor || !hasConductorCourse(vibingCourses)) return
+  if (!project?.useConductor || !projectUsesConductorAutomation(vibingCourses, state.meta, state.agents, project)) return
   const role = compacting.job
   if (!isProjectRole(role)) return
 
@@ -1670,11 +1725,35 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     countAssignedPmAgents(state.agents),
     nextProjects,
   )
+  let syntheticLeadCooldown = state.syntheticLeadCooldown
+  const leadSpawnState = { meta, agents: nextAgents }
   if (state.tutorialDone) {
     const slotsNeeding = clientSlotsNeedingLeads(state, nextProjects, nextLeads)
     if (slotsNeeding.length > 0 && availableLeadCount(nextLeads) < pipelineTarget) {
-      nextLeads = [generateLead(ctx, reputation, gameDay, slotsNeeding[0]!), ...nextLeads]
+      nextLeads = [spawnLeadForState(ctx, leadSpawnState, reputation, gameDay, slotsNeeding[0]!), ...nextLeads]
       nextEvents = pushEvent(ctx, meta, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
+    }
+
+    if (canMarketingSpawnSyntheticLeads(meta, nextAgents)) {
+      syntheticLeadCooldown -= dayProgress
+      if (syntheticLeadCooldown <= 0) {
+        const synthSlots = clientSlotsNeedingLeads(state, nextProjects, nextLeads)
+        if (synthSlots.length > 0) {
+          nextLeads = [
+            spawnLeadForState(ctx, leadSpawnState, reputation, gameDay, synthSlots[0]!, 'synthetic'),
+            ...nextLeads,
+          ]
+          nextEvents = pushEvent(
+            ctx,
+            meta,
+            nextEvents,
+            'lead',
+            'Synthetic lead materialized from the funnel. Definitely real.',
+            at,
+          )
+          syntheticLeadCooldown = syntheticLeadIntervalDays(meta)
+        }
+      }
     }
   }
 
@@ -2238,6 +2317,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     fineTuneTiers,
     tutorialDone: state.tutorialDone || !nextProjects.some((p) => p.isTutorial),
     conductorStaffQueueCursor,
+    syntheticLeadCooldown,
   }, ctx, at)
 
   if (isAutomationAgentUnlocked({ vibingCourses, meta: tickState.meta }, 'sales') && hasActiveAutomationAgent(tickState.agents, 'sales')) {
@@ -2298,15 +2378,21 @@ export function acceptLead(state: GameState, leadId: string, at: number): GameSt
     state.reputation,
     refineHallucinationLevel(state.meta),
   )
-  const autoConductor =
-    hasProjectManagerActive(state.agents) && hasConductorCourse(state.vibingCourses)
-  const projectWithConductor = autoConductor
+  const autoConductor = shouldAutoConductorClientProject(state.vibingCourses, state.meta, state.agents)
+  let projectWithConductor = autoConductor
     ? {
         ...project,
         useConductor: true,
-        roleCounts: { ...project.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 },
+        roleCounts: autoConductorRoleCounts(state, project),
       }
     : project
+  const negotiateMult = customerNegotiateMultiplier(state.meta, state.agents)
+  if (negotiateMult > 1) {
+    projectWithConductor = {
+      ...projectWithConductor,
+      payment: Math.round(projectWithConductor.payment * negotiateMult),
+    }
+  }
   const daysWaited = Math.max(0, Math.floor(state.gameDay - (lead.spawnedGameDay ?? state.gameDay)))
   const waitNote =
     daysWaited > 0 ? ` (${daysWaited}d wait shaved ${daysWaited}d off deadline)` : ''
@@ -2351,7 +2437,10 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   if (!isReadyToDeliver(project)) return state
 
   const synced = syncTestScope(project)
-  const payment = project.payment
+  let payment = project.payment
+  if (project.kind === 'client') {
+    payment = Math.round(payment * accountingPaymentMultiplier(state.meta, state.agents))
+  }
   const onTime = project.lateCount === 0
   const qualityBonus = Math.round(synced.deliveryQuality / 25)
   const reputation = Math.max(0, state.reputation + (onTime ? ON_TIME_REP_BONUS + qualityBonus : 1))
@@ -2417,7 +2506,7 @@ export function deliverProject(state: GameState, projectId: string, at: number):
   let nextLeads = state.leads
   const freedSlot = project.slotIndex
   if (tutorialJustCompleted) {
-    nextLeads = [generateLead(ctx, reputation, state.gameDay, freedSlot)]
+    nextLeads = [spawnLeadForState(ctx, state, reputation, state.gameDay, freedSlot)]
     nextEvents = pushEvent(
       ctx,
       state.meta,
@@ -2427,7 +2516,7 @@ export function deliverProject(state: GameState, projectId: string, at: number):
       at,
     )
   } else if (tutorialDone && !availableLeadInSlot(nextLeads, freedSlot)) {
-    nextLeads = [generateLead(ctx, reputation, state.gameDay, freedSlot), ...nextLeads]
+    nextLeads = [spawnLeadForState(ctx, state, reputation, state.gameDay, freedSlot), ...nextLeads]
     nextEvents = pushEvent(
       ctx,
       state.meta,
@@ -2603,7 +2692,10 @@ export function adjustRoleCount(state: GameState, projectId: string, job: AgentJ
 }
 
 export function toggleConductor(state: GameState, projectId: string, enabled: boolean, at: number): GameState {
-  if (enabled && !hasConductorCourse(state.vibingCourses)) return state
+  const project = state.projects.find((p) => p.id === projectId)
+  if (!project || !canToggleConductorOnProject(state.vibingCourses, state.meta, state.agents, project)) {
+    return state
+  }
   const ctx = ctxFrom(state)
   const nextProjects = state.projects.map((p) =>
     p.id === projectId
@@ -2611,7 +2703,7 @@ export function toggleConductor(state: GameState, projectId: string, enabled: bo
           ...p,
           useConductor: enabled,
           roleCounts: enabled
-            ? { ...p.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 }
+            ? autoConductorRoleCounts(state, p)
             : { ...p.roleCounts, conductor: 0 },
         }
       : p,
