@@ -64,6 +64,7 @@ import {
   PROCUREMENT_CASH_FRACTION,
   RENT_INTERVAL_DAYS,
   SECONDS_PER_GAME_DAY,
+  STARTING_CAPITAL_BONUS_PER_LEVEL,
 } from '../constants'
 import {
   agentRoleLabel,
@@ -2239,7 +2240,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     conductorStaffQueueCursor,
   }, ctx, at)
 
-  if (vibingCourses.includes('sales') && hasActiveAutomationAgent(tickState.agents, 'sales')) {
+  if (isAutomationAgentUnlocked({ vibingCourses, meta: tickState.meta }, 'sales') && hasActiveAutomationAgent(tickState.agents, 'sales')) {
     tickState = runSalesAutomation(tickState, at)
   }
 
@@ -2793,7 +2794,7 @@ export function upgradeApartment(state: GameState, at: number): GameState {
 }
 
 export function retire(state: GameState, at: number): GameState {
-  if (state.phase !== 'playing' || !canRetire(state.cash, state.meta.retirementCount)) return state
+  if (state.phase !== 'playing' || !canRetire(state.cash, state.meta.highestRungEver)) return state
 
   const points = hallucinationPointsFromRetirement(state.cash, state.meta.highestRungEver)
   const newMeta: MetaProgress = {
@@ -2833,6 +2834,20 @@ export function prestigeHallucinationBuy(
   )
   if (track === 'in_house') {
     next = syncProductBacklog(next, ctx)
+  }
+  if (track === 'starting_capital') {
+    next = {
+      ...next,
+      cash: next.cash + STARTING_CAPITAL_BONUS_PER_LEVEL,
+      events: pushEvent(
+        ctx,
+        state.meta,
+        next.events,
+        'hallucination',
+        `Starting capital: +${formatCash(STARTING_CAPITAL_BONUS_PER_LEVEL)}.`,
+        at,
+      ),
+    }
   }
   return withCtx(next, ctx, at)
 }

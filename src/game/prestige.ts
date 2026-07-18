@@ -1,11 +1,11 @@
 import type { MetaProgress } from './meta'
 import { getHallucinationLevel } from './meta'
+import { STARTING_CAPITAL_BONUS_PER_LEVEL } from './constants'
 
 export { getHallucinationLevel } from './meta'
 
 export const LADDER_BASE_CASH = 1_000_000
 export const LADDER_GROWTH = 1.1
-export const RETIREMENT_THRESHOLD_GROWTH = 1.1
 export const PLATEAU_HOURS = 2
 export const PRESTIGE_START_CASH = 200
 
@@ -50,64 +50,69 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   model: {
     label: 'Model tier',
     tagline: 'Bigger brains. Bigger invoices.',
-    description: '+1B effective parameters per level (4B base → 5B, 6B, …). Faster story points and larger context windows.',
+    description:
+      '+1B effective parameters per level (4B base). Higher token output per second and more RAM per agent.',
   },
   context: {
     label: 'Context window',
     tagline: "It's not forgetting — it's prioritizing.",
-    description: '+4k tokens per level on top of your model tier base (e.g. 16k → 20k → 24k at 4B).',
+    description: 'Multiplies agent context capacity: 4,000 × (1 + level) tokens (4k → 8k → 12k …).',
   },
   compaction: {
     label: 'Faster compaction',
     tagline: 'Turn the existential crisis down to a brisk panic.',
-    description: '−5s reboot time per level after context overflow (30s base, 5s minimum).',
+    description: '−5s context reboot time per level after overflow (30s base, 5s minimum).',
   },
   starting_capital: {
     label: 'Starting capital',
     tagline: 'Inherited trauma, inherited liquidity.',
-    description: '+$2,500 starting cash per level on every new run after retirement.',
+    description: `+$${STARTING_CAPITAL_BONUS_PER_LEVEL.toLocaleString()} cash immediately on purchase, and on each new run after retirement.`,
   },
   starting_ram: {
     label: 'Starting RAM',
     tagline: 'Pre-installed headcount. No interview loop.',
-    description: '+1 roster slot (RAM) per level on every new prestige run. Counts toward housing caps.',
+    description: '+1 roster RAM purchase on each new run (not the current run). Subject to housing caps.',
   },
   starting_gpu: {
     label: 'Starting GPU',
     tagline: 'Silicon you definitely paid for. Probably.',
-    description: '+1 GPU work unit per level on every new prestige run. Split across active coders, reviewers, refiners, and testers.',
+    description: '+1 GPU tick purchase on each new run (not the current run). Shared across active coders.',
   },
   in_house: {
     label: 'In-house product',
     tagline: 'Build your own pyramid scheme. Call it a platform.',
-    description: 'Unlock the Product tab. Ship features for MRR (√SP × $8/day base, scaled by housing).',
+    description:
+      'Level 1 unlocks the Product tab. Each level adds +1 concurrent in-house product slot. Ship features for MRR (√SP × $8/day base, scaled by housing).',
   },
   procurement: {
     label: 'Procurement AI',
     tagline: 'One-click regret purchases.',
+    maxLevel: 1,
     description:
-      'Unlock the procurement specialist. Auto-buys housing, RAM, GPU, fine-tunes, and vibing courses when each costs ≤10% of cash.',
+      'Unlock the procurement specialist without buying the vibing course. When assigned, auto-buys housing, RAM, GPU, fine-tunes, and courses costing ≤10% of cash.',
   },
   customer: {
     label: 'Customer agent',
     tagline: 'The leads are coming from inside the GPU.',
-    description: 'Unlock customer specialist. Synthetic leads, negotiate bonuses, deeper psychosis at higher levels.',
+    description:
+      'Unlock the customer specialist slot (assignable only — no automation yet). Level 3+ is required to accept Singularity at Dyson Sphere housing.',
   },
   project_manager: {
     label: 'Project manager',
     tagline: 'Agile ceremonies, but the stand-up is just you crying.',
-    description: 'Unlock PM specialist. +1 concurrent client gig per assigned PM (course tier). Duplicate projects at higher hallucination levels.',
+    description:
+      'Unlock the PM specialist. When assigned, auto-delivers completed client projects. Each level adds +1 in-house product slot (requires In-house). Does not add client project slots.',
   },
   project_slots: {
     label: 'Client project slots',
     tagline: 'More Jira boards. Same amount of sleep.',
-    description: '+1 concurrent client project slot per level (no PM required for the bonus slot).',
+    description: '+1 concurrent client project slot per level. Independent of the PM specialist.',
   },
   refine: {
     label: 'Idealized requirements',
     tagline: 'The brief was perfect. You merely discovered it.',
     description:
-      'New projects spawn finer requirement chunks for longer — 89 SP monsters need much more rep to appear.',
+      'Splits new projects into smaller requirement chunks for longer — high-SP gigs need more reputation to appear.',
     maxLevel: PIPELINE_HALLUCINATION_MAX_LEVEL,
   },
   code: {
@@ -119,7 +124,7 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   review: {
     label: 'Rubber-stamp engine',
     tagline: 'LGTM. Literally. No notes.',
-    description: 'Review spawns −1 comment per level (minimum zero). Hallucinated quality, fewer nitpicks.',
+    description: 'Review spawns −1 comment task per level (minimum zero).',
     maxLevel: PIPELINE_HALLUCINATION_MAX_LEVEL,
   },
   test: {
@@ -132,22 +137,27 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
   sales: {
     label: 'Sales automation',
     tagline: 'Closed-Won Bot 3000.',
-    description: 'Unlock sales specialist. Auto-accept real leads and auto-deliver completed client projects.',
+    maxLevel: 1,
+    description:
+      'Unlock the sales specialist without buying the vibing course. When assigned, auto-accepts eligible real leads; also accepts synthetic leads.',
   },
   marketing: {
     label: 'Marketing boost',
     tagline: 'Our funnel is optimized. We do not discuss the funnel.',
-    description: 'Unlock marketing specialist. Faster lead spawn and larger project scopes.',
+    maxLevel: 1,
+    description: 'Unlock the marketing specialist slot only. Lead spawn rate and scope boosts are not implemented yet.',
   },
   accounting: {
     label: 'Accounting tricks',
     tagline: 'Creative deductions since Tuesday.',
-    description: 'Unlock accounting specialist. Boost client payments; tax-code windfalls with hallucinations.',
+    maxLevel: 1,
+    description: 'Unlock the accounting specialist slot only. Client payment boosts are not implemented yet.',
   },
   super_conductor: {
     label: 'Super conductor',
     tagline: 'One babysitter to rule them all.',
-    description: 'Cross-project conductor automation. (Coming soon — points accepted, delusion delivered later.)',
+    maxLevel: 1,
+    description: 'Not implemented yet. No gameplay effect — purchasing only records your ambition.',
   },
 }
 
@@ -195,8 +205,14 @@ export function rungsClearedByCash(cash: number): number {
   return Math.floor(Math.log(cash / LADDER_BASE_CASH) / Math.log(LADDER_GROWTH)) + 1
 }
 
-export function personalRetirementThreshold(retirementCount: number): number {
-  return LADDER_BASE_CASH * Math.pow(RETIREMENT_THRESHOLD_GROWTH, retirementCount)
+/** Cash required to earn the next hallucination point on retirement. */
+export function nextHallucinationPointCashThreshold(highestRungEver: number): number {
+  return rungCashThreshold(highestRungEver + 1)
+}
+
+/** @deprecated Prefer nextHallucinationPointCashThreshold — kept for call-site clarity. */
+export function personalRetirementThreshold(highestRungEver: number): number {
+  return nextHallucinationPointCashThreshold(highestRungEver)
 }
 
 /** New hallucination points from this retirement cash. */
@@ -209,8 +225,8 @@ export function nextHighestRung(cash: number, highestRungEver: number): number {
   return Math.max(highestRungEver, rungsClearedByCash(cash))
 }
 
-export function canRetire(cash: number, retirementCount: number): boolean {
-  return cash >= personalRetirementThreshold(retirementCount)
+export function canRetire(cash: number, highestRungEver: number): boolean {
+  return cash >= nextHallucinationPointCashThreshold(highestRungEver)
 }
 
 export function hallucinationUpgradeCost(track: HallucinationTrack, currentLevel: number): number {
@@ -272,7 +288,7 @@ export function effectiveModelParams(meta: MetaProgress): number {
 }
 
 export function startingCapitalBonus(meta: MetaProgress): number {
-  return getHallucinationLevel(meta, 'starting_capital') * 2500
+  return getHallucinationLevel(meta, 'starting_capital') * STARTING_CAPITAL_BONUS_PER_LEVEL
 }
 
 export function startingRamBonus(meta: MetaProgress): number {

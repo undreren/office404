@@ -9,8 +9,8 @@ export function NewGameButton() {
   const dispatchAt = useGameDispatchAt()
   const [confirming, setConfirming] = useState(false)
 
-  const eligible = canRetire(cash, meta.retirementCount)
-  const threshold = personalRetirementThreshold(meta.retirementCount)
+  const eligible = canRetire(cash, meta.highestRungEver)
+  const threshold = personalRetirementThreshold(meta.highestRungEver)
 
   function handleClick() {
     if (eligible) {

@@ -71,6 +71,7 @@ export const PROCUREMENT_CASH_FRACTION = 0.1
 export const PLATEAU_HOURS = 2
 export const LADDER_BASE_CASH = 1_000_000
 export const PRESTIGE_START_CASH = 200
+export const STARTING_CAPITAL_BONUS_PER_LEVEL = 2_500
 
 /** Sublinear exponent for client lead total payment (1 = linear; lower = flatter $/SP at high SP). */
 export const CLIENT_PAY_SP_EXPONENT = 0.75
