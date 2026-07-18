@@ -124,8 +124,6 @@ import {
   refineHallucinationLevel,
   reviewHallucinationLevel,
   startingCapitalBonus,
-  startingGpuBonus,
-  startingRamBonus,
   maxProductProjectSlots,
   type HallucinationTrack,
 } from '../prestige'
@@ -557,8 +555,8 @@ export function createInitialState(
     rentDueInDays: RENT_INTERVAL_DAYS,
     apartment: 'cardboard',
     apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
-    agentSlotPurchases: includeTutorial ? 0 : startingRamBonus(meta),
-    gpuTickPurchases: includeTutorial ? 0 : startingGpuBonus(meta),
+    agentSlotPurchases: 0,
+    gpuTickPurchases: 0,
     mrr: 0,
     productFeaturesShipped: 0,
     purchasedFineTunes: [],
@@ -1642,7 +1640,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   const contextTokens = contextTokensForState({ meta })
   const compactDuration = compactionDurationSec(meta)
   const refineTier = refinementTier(state.vibingCourseTiers, vibingCourses)
-  const tickStateBase = { meta, purchasedFineTunes, fineTuneTiers, gpuTickPurchases, agents: nextAgents }
+  const tickStateBase = { meta, purchasedFineTunes, fineTuneTiers, gpuTickPurchases, agents: nextAgents, tutorialDone: state.tutorialDone }
 
   gameDay += dayProgress
   rentDueInDays -= dayProgress
@@ -2944,7 +2942,6 @@ export function prestigeHallucinationBuy(
   if (track === 'starting_ram') {
     next = {
       ...next,
-      agentSlotPurchases: next.agentSlotPurchases + 1,
       events: pushEvent(
         ctx,
         state.meta,
@@ -2958,7 +2955,6 @@ export function prestigeHallucinationBuy(
   if (track === 'starting_gpu') {
     next = {
       ...next,
-      gpuTickPurchases: next.gpuTickPurchases + 1,
       events: pushEvent(
         ctx,
         state.meta,
