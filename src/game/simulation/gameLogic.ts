@@ -2849,6 +2849,34 @@ export function prestigeHallucinationBuy(
       ),
     }
   }
+  if (track === 'starting_ram') {
+    next = {
+      ...next,
+      agentSlotPurchases: next.agentSlotPurchases + 1,
+      events: pushEvent(
+        ctx,
+        state.meta,
+        next.events,
+        'hallucination',
+        'Starting RAM: +10 GB roster capacity.',
+        at,
+      ),
+    }
+  }
+  if (track === 'starting_gpu') {
+    next = {
+      ...next,
+      gpuTickPurchases: next.gpuTickPurchases + 1,
+      events: pushEvent(
+        ctx,
+        state.meta,
+        next.events,
+        'hallucination',
+        'Starting GPU: +1 GPU tick.',
+        at,
+      ),
+    }
+  }
   return withCtx(next, ctx, at)
 }
 
