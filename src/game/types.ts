@@ -230,7 +230,6 @@ export interface ProductBacklogItem {
   id: string
   title: string
   storyPoints: number
-  cost: number
   status: 'queued' | 'active' | 'shipped'
 }
 

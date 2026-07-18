@@ -2505,7 +2505,6 @@ function runPoAutomation(state: GameState, at: number): GameState {
   const queued = tickState.productBacklog.find((item) => item.status === 'queued')
   if (
     queued &&
-    tickState.cash >= queued.cost &&
     countActiveProductProjects(tickState.projects) < maxProductProjectSlots(tickState.meta)
   ) {
     tickState = activateProductFeatureFromBacklog(tickState, queued.id, at)
@@ -2863,7 +2862,7 @@ export function activateProductFeatureFromBacklog(
 ): GameState {
   if (!canAccessProduct(state.meta)) return state
   const item = state.productBacklog.find((i) => i.id === itemId && i.status === 'queued')
-  if (!item || state.cash < item.cost) return state
+  if (!item) return state
   if (countActiveProductProjects(state.projects) >= maxProductProjectSlots(state.meta)) return state
 
   const ctx = ctxFrom(state)
@@ -2888,7 +2887,6 @@ export function activateProductFeatureFromBacklog(
   return withCtx(
     {
       ...state,
-      cash: state.cash - item.cost,
       agents: reconciled.agents,
       projects: reconciled.projects,
       conductorStaffQueueCursor: reconciled.conductorStaffQueueCursor,
@@ -2898,7 +2896,7 @@ export function activateProductFeatureFromBacklog(
         state.meta,
         state.events,
         'product',
-        `Started in-house feature: ${item.title} (−${formatCash(item.cost)}).`,
+        `Started in-house feature: ${item.title}.`,
         at,
       ),
     },

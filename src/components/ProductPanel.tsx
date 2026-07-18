@@ -9,7 +9,7 @@ import { ProjectCard } from './ProjectsPanel'
 export function ProductPanel() {
   const state = useGameState()
   const dispatchPurchase = useGameDispatchPurchase()
-  const { meta, cash, mrr, productBacklog, projects, productFeaturesShipped } = state
+  const { meta, mrr, productBacklog, projects, productFeaturesShipped } = state
 
   if (!canAccessProduct(meta)) {
     return (
@@ -40,8 +40,7 @@ export function ProductPanel() {
           <h3 id="product-backlog-heading">Backlog</h3>
           <ul className="product-backlog__list">
             {queuedItems.map((item) => {
-              const affordable = cash >= item.cost
-              const canStart = affordable && slotsAvailable
+              const canStart = slotsAvailable
               return (
                 <li key={item.id}>
                   <article className="vendor-card" aria-label={`${item.title}, ${formatStoryPoints(item.storyPoints)} story points`}>
@@ -51,7 +50,7 @@ export function ProductPanel() {
                     </header>
                     <p className="hint">
                       {slotsAvailable
-                        ? `Kick off for ${formatCash(item.cost)}. Ship for recurring revenue.`
+                        ? 'Kick off for free. Ship for recurring revenue.'
                         : 'All product slots are busy — ship an active feature first.'}
                     </p>
                     <button
@@ -61,14 +60,12 @@ export function ProductPanel() {
                       disabled={!canStart}
                       aria-label={
                         canStart
-                          ? `Start ${item.title} for ${formatCash(item.cost)}`
-                          : !affordable
-                            ? `Cannot afford ${item.title} (${formatCash(item.cost)} required)`
-                            : `No open product slots for ${item.title}`
+                          ? `Start ${item.title}`
+                          : `No open product slots for ${item.title}`
                       }
                       onClick={() => dispatchPurchase(activateProductFeatureMsg(Date.now(), item.id))}
                     >
-                      Start ({formatCash(item.cost)})
+                      Start
                     </button>
                   </article>
                 </li>
