@@ -1,5 +1,6 @@
 import type { MetaProgress } from './meta'
 import { getHallucinationLevel } from './meta'
+import { PRODUCT_FEATURE_SP_INCREMENT } from './constants'
 import { computeMrrGain, FIBONACCI } from './mechanics'
 import { HOUSING_CONFIG } from './housing'
 import type { ProductBacklogItem, Project } from './types'
@@ -61,7 +62,8 @@ export function canAccessProduct(meta: MetaProgress): boolean {
 export function nextProductFeatureSp(featuresShipped: number): number {
   if (featuresShipped < FIBONACCI.length) return FIBONACCI[featuresShipped]
   const last = FIBONACCI[FIBONACCI.length - 1]
-  return Math.round(last * Math.pow(1.5, featuresShipped - FIBONACCI.length + 1))
+  const beyond = featuresShipped - FIBONACCI.length + 1
+  return last + beyond * PRODUCT_FEATURE_SP_INCREMENT
 }
 
 export function countActiveProductProjects(projects: Project[]): number {
