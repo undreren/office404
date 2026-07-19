@@ -10,6 +10,8 @@ type TabNavContextValue = {
   setActiveTab: (tab: TabId) => void
   projectIndex: number
   setProjectIndex: (index: number) => void
+  productIndex: number
+  setProductIndex: (index: number) => void
   shopIndex: number
   setShopIndex: (index: number) => void
   acceptLead: (leadId: string) => void
@@ -20,6 +22,7 @@ const TabNavContext = createContext<TabNavContextValue | null>(null)
 export function TabNavProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTab] = useState<TabId>('projects')
   const [projectIndex, setProjectIndex] = useState(0)
+  const [productIndex, setProductIndex] = useState(0)
   const [shopIndex, setShopIndex] = useState(0)
   const { tutorialDone, projects } = useGameState()
   const projectCount = projects.length
@@ -64,11 +67,13 @@ export function TabNavProvider({ children }: { children: ReactNode }) {
       setActiveTab,
       projectIndex,
       setProjectIndex,
+      productIndex,
+      setProductIndex,
       shopIndex,
       setShopIndex,
       acceptLead,
     }),
-    [activeTab, projectIndex, shopIndex, acceptLead],
+    [activeTab, projectIndex, productIndex, shopIndex, acceptLead],
   )
 
   return <TabNavContext.Provider value={value}>{children}</TabNavContext.Provider>
