@@ -1,5 +1,6 @@
 import type { MetaProgress } from './meta'
 import { getHallucinationLevel } from './meta'
+import { maxProductProjectSlots } from './prestige'
 import { PRODUCT_FEATURE_SP_INCREMENT } from './constants'
 import { computeMrrGain, FIBONACCI } from './mechanics'
 import { HOUSING_CONFIG } from './housing'
@@ -70,11 +71,27 @@ export function countActiveProductProjects(projects: Project[]): number {
   return projects.filter((p) => p.kind === 'product' && p.status === 'active').length
 }
 
+export function targetQueuedProductBacklogCount(
+  meta: MetaProgress,
+  projects: Project[],
+): number {
+  if (!canAccessProduct(meta)) return 0
+  return Math.max(0, maxProductProjectSlots(meta) - countActiveProductProjects(projects))
+}
+
 export function ensureProductBacklogQueued(
   ctx: SimCtx,
   backlog: ProductBacklogItem[],
   featuresShipped: number,
+  minQueued = 1,
 ): ProductBacklogItem[] {
-  if (backlog.some((item) => item.status === 'queued')) return backlog
-  return [...backlog, createProductBacklogItem(ctx, nextProductFeatureSp(featuresShipped))]
+  let result = backlog
+  while (result.filter((item) => item.status === 'queued').length < minQueued) {
+    const pipelineSize = result.filter(
+      (item) => item.status === 'queued' || item.status === 'active',
+    ).length
+    const sp = nextProductFeatureSp(featuresShipped + pipelineSize)
+    result = [...result, createProductBacklogItem(ctx, sp)]
+  }
+  return result
 }

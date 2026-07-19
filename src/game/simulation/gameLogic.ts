@@ -133,6 +133,7 @@ import {
   canAccessProduct,
   countActiveProductProjects,
   ensureProductBacklogQueued,
+  targetQueuedProductBacklogCount,
   mrrOnShip,
 } from '../product'
 import { formatCash } from '../cash'
@@ -2466,6 +2467,7 @@ export function deliverProject(state: GameState, projectId: string, at: number):
         item.status === 'active' ? { ...item, status: 'shipped' as const } : item,
       ),
       productFeaturesShipped,
+      targetQueuedProductBacklogCount(state.meta, nextProjects),
     )
     nextEvents = pushEvent(
       ctx,
@@ -2981,7 +2983,13 @@ export function acceptSingularity(state: GameState, at: number): GameState {
 
 export function syncProductBacklog(state: GameState, ctx: SimCtx): GameState {
   if (!canAccessProduct(state.meta)) return state
-  const backlog = ensureProductBacklogQueued(ctx, state.productBacklog, state.productFeaturesShipped)
+  const minQueued = targetQueuedProductBacklogCount(state.meta, state.projects)
+  const backlog = ensureProductBacklogQueued(
+    ctx,
+    state.productBacklog,
+    state.productFeaturesShipped,
+    minQueued,
+  )
   if (backlog === state.productBacklog) return state
   return { ...state, productBacklog: backlog }
 }
@@ -3007,13 +3015,18 @@ export function activateProductFeatureFromBacklog(
       roleCounts: { ...project.roleCounts, conductor: 1, refine: 0, code: 0, review: 0, test: 0 },
     }
   }
-  const nextBacklog = state.productBacklog.map((i) =>
-    i.id === itemId ? { ...i, status: 'active' as const } : i,
-  )
   const nextProjects = [...state.projects, project]
   const reconciled = reconcileAllProjectStaffingInSlotOrder(ctx, state, state.agents, nextProjects, {
     spawnWhenNoWorkers: autoConductor,
   })
+  const nextBacklog = ensureProductBacklogQueued(
+    ctx,
+    state.productBacklog.map((i) =>
+      i.id === itemId ? { ...i, status: 'active' as const } : i,
+    ),
+    state.productFeaturesShipped,
+    targetQueuedProductBacklogCount(state.meta, reconciled.projects),
+  )
 
   return withCtx(
     {
