@@ -437,16 +437,26 @@ export function refineJobDurationDays(taskSp: number, agentParams: number): numb
   return agentJobDurationDays(taskSp, agentParams) / REFINE_SPEED_MULTIPLIER / spPenalty
 }
 
+export function reviewCommentSpawnPlan(
+  rng: Rng,
+  taskSp: number,
+  reviewHallucinationLevel = 0,
+): { spawn: number; suppressed: number } {
+  let count = 1 + rng.int(0, 2)
+  if (taskSp >= 13) count = Math.max(count, 3)
+  if (taskSp >= 8) count = Math.max(count, 3)
+  const rolled = Math.min(4, Math.max(1, count))
+  const level = Math.max(0, reviewHallucinationLevel)
+  const spawn = Math.max(0, rolled - level)
+  return { spawn, suppressed: rolled - spawn }
+}
+
 export function reviewCommentSpawnCount(
   rng: Rng,
   taskSp: number,
   reviewHallucinationLevel = 0,
 ): number {
-  let count = 1 + rng.int(0, 2)
-  if (taskSp >= 13) count = Math.max(count, 3)
-  if (taskSp >= 8) count = Math.max(count, 3)
-  const rolled = Math.min(4, Math.max(1, count))
-  return Math.max(0, rolled - Math.max(0, reviewHallucinationLevel))
+  return reviewCommentSpawnPlan(rng, taskSp, reviewHallucinationLevel).spawn
 }
 
 export function fillAgentContextFromOutput(
