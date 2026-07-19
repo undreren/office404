@@ -26,7 +26,8 @@ import type { GameState } from '../game/types'
 import { createInitialState, returnFromHiddenAsync } from '../game/simulation/gameLogic'
 import { applyFixtureFromUrl } from './fixture-loader'
 import { updateBootSplash } from './bootSplash'
-import { loadPersistedState, savePersistedState } from './persist'
+import { loadPersistedState } from './persist'
+import { flushPersistSave, trackPersistSave } from './saveScheduler'
 
 type GameRuntimeContextValue = {
   state: GameState | null
@@ -58,8 +59,12 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
     typeof document !== 'undefined' ? document.hidden : false,
   )
   const hiddenAtRef = useRef<number | null>(null)
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stateRef = useRef<GameState | null>(null)
   const catchUpRunRef = useRef(0)
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
 
   useEffect(() => {
     if (!hydrated) {
@@ -134,12 +139,22 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hydrated || !state) return
 
+    const flushOnExit = () => {
+      const current = stateRef.current
+      if (!current) return
+      flushPersistSave(current, Date.now())
+    }
+
     const onVisibility = () => {
       const at = Date.now()
       const hidden = document.hidden
       setTabHidden(hidden)
 
-      if (!state.vibingCourses.includes('offline')) return
+      if (hidden) {
+        flushOnExit()
+      }
+
+      if (!stateRef.current?.vibingCourses.includes('offline')) return
 
       if (hidden) {
         hiddenAtRef.current = at
@@ -159,16 +174,24 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
       catchUpRunRef.current = runId
       setCatchingUp(true)
       void (async () => {
-        const next = await returnFromHiddenAsync(state, elapsedSec, at)
+        const current = stateRef.current
+        if (!current) return
+        const next = await returnFromHiddenAsync(current, elapsedSec, at)
         if (catchUpRunRef.current !== runId) return
         setState(next)
         setCatchingUp(false)
       })()
     }
 
+    const onPageHide = () => flushOnExit()
+
     document.addEventListener('visibilitychange', onVisibility)
-    return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [hydrated, dispatchMsg, state])
+    window.addEventListener('pagehide', onPageHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', onPageHide)
+    }
+  }, [hydrated, dispatchMsg])
 
   useEffect(() => {
     if (!hydrated || !state || paused || catchingUp) return
@@ -183,11 +206,7 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!hydrated || !state) return
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => savePersistedState(state), 500)
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-    }
+    trackPersistSave(state)
   }, [state, hydrated])
 
   const value = useMemo(
