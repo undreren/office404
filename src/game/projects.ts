@@ -10,7 +10,8 @@ import {
   clientPaymentForTotalSp,
   repZeroPaymentMultiplier,
   refinementAutoSplitChance,
-  reviewCommentSpawnCount,
+  reviewCommentSpawnPlan,
+  prQualityAfterComments,
   taskMeetsTokenGoal,
   taskTokensRequired,
   maxAgentsPerTask,
@@ -1065,16 +1066,29 @@ export function allReviewCommentsAddressed(project: Project, parentTaskId: strin
   return comments.every((c) => taskMeetsTokenGoal(c, 'code'))
 }
 
+export function effectiveReviewCommentResolutions(project: Project, task: Task): number {
+  return resolvedReviewComments(project, task.id).length + (task.reviewCommentsSuppressed ?? 0)
+}
+
+export function stagedPrQualityFromReviews(project: Project, task: Task): number {
+  const base = task.prQualityBase ?? task.prQualityStaging
+  return prQualityAfterComments(base, effectiveReviewCommentResolutions(project, task))
+}
+
 export function createReviewCommentTasks(
   ctx: SimCtx,
   parent: Task,
   reviewHallucinationLevel = 0,
-): Task[] {
-  const count = reviewCommentSpawnCount(ctx.rng, parent.storyPointsRequired, reviewHallucinationLevel)
+): { comments: Task[]; suppressed: number } {
+  const { spawn, suppressed } = reviewCommentSpawnPlan(
+    ctx.rng,
+    parent.storyPointsRequired,
+    reviewHallucinationLevel,
+  )
   const pool = [...REVIEW_COMMENT_TEXTS]
   const comments: Task[] = []
 
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < spawn; i++) {
     const idx = ctx.rng.int(0, pool.length - 1)
     const text = pool.splice(idx, 1)[0] ?? REVIEW_COMMENT_TEXTS[0]
     comments.push({
@@ -1083,7 +1097,7 @@ export function createReviewCommentTasks(
     })
   }
 
-  return comments
+  return { comments, suppressed }
 }
 
 export function effectiveAgentsPerTask(

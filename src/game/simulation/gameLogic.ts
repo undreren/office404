@@ -36,7 +36,8 @@ import {
   refineRequirementToTasks,
   refineTaskToTasks,
   repairStaleCodingAssignments,
-  resolvedReviewComments,
+  stagedPrQualityFromReviews,
+  effectiveReviewCommentResolutions,
   syncTestScope,
   taskIsTested,
   taskNeedsRefinement,
@@ -1212,10 +1213,10 @@ function mergeTaskOnProject(
     ? agentParamsFor(state, 'code')
     : agentParamsFor(state, 'code')
 
-  const resolvedCount = reviewed ? resolvedReviewComments(found.project, taskId).length : 0
+  const resolvedCount = reviewed ? effectiveReviewCommentResolutions(found.project, found.task) : 0
   const base =
-    reviewed && found.task.prQualityStaging > 0
-      ? found.task.prQualityStaging
+    reviewed && (found.task.prQualityBase ?? found.task.prQualityStaging) > 0
+      ? (found.task.prQualityBase ?? found.task.prQualityStaging)
       : computePrBaseQuality(
           authorParams,
           found.task.storyPointsRequired,
@@ -1332,16 +1333,19 @@ function tryProgressTask(
       if (t.isReviewComment) becameDone = true
       else becamePrReady = true
     }
-    const prQualityStaging =
+    const baseQuality =
       complete && !t.isReviewComment
         ? computePrBaseQuality(authorParams, t.storyPointsRequired, promptEngineering)
-        : t.prQualityStaging
+        : null
+    const prQualityStaging = baseQuality ?? t.prQualityStaging
+    const prQualityBase = baseQuality ?? t.prQualityBase
     if (role === 'test') {
       return {
         ...t,
         testStoryPointsEarned: nextEarned,
         status: t.status,
         prQualityStaging,
+        prQualityBase,
         completedByAgentId: complete ? completedByAgentId : t.completedByAgentId,
       }
     }
@@ -1350,6 +1354,7 @@ function tryProgressTask(
       storyPointsEarned: nextEarned,
       status,
       prQualityStaging,
+      prQualityBase,
       completedByAgentId: complete ? completedByAgentId : t.completedByAgentId,
     }
   })
@@ -1943,11 +1948,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 if (parentId) {
                   const parent = findTask(nextProjects, parentId)
                   if (parent) {
-                    const resolved = resolvedReviewComments(parent.project, parentId).length
-                    const staging = prQualityAfterComments(
-                      parent.task.prQualityStaging,
-                      resolved,
-                    )
+                    const staging = stagedPrQualityFromReviews(parent.project, parent.task)
                     nextProjects = updateTask(nextProjects, parentId, (t) => ({
                       ...t,
                       prQualityStaging: staging,
@@ -2016,7 +2017,15 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               agent.jobDuration = required
 
               if (reviewProgress >= required) {
-                const comments = createReviewCommentTasks(ctx, task, reviewHallucinationLevel(meta))
+                const { comments, suppressed } = createReviewCommentTasks(
+                  ctx,
+                  task,
+                  reviewHallucinationLevel(meta),
+                )
+                const reviewedStaging = prQualityAfterComments(
+                  task.prQualityBase ?? task.prQualityStaging,
+                  suppressed,
+                )
                 nextProjects = nextProjects.map((p) =>
                   p.id === project.id
                     ? {
@@ -2029,6 +2038,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                                   reviewed: true,
                                   reviewJobProgress: undefined,
                                   reviewJobDuration: undefined,
+                                  reviewCommentsSuppressed: suppressed,
+                                  prQualityStaging: reviewedStaging,
                                 }
                               : t,
                           ),

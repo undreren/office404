@@ -157,6 +157,10 @@ export interface Task {
   parentTaskId: string | null
   prQuality: number | null
   prQualityStaging: number
+  /** Base PR quality before review-comment boosts. */
+  prQualityBase?: number
+  /** Review comments skipped by the rubber-stamp hallucination, counted as addressed for quality. */
+  reviewCommentsSuppressed?: number
   hasUndiscoveredBug: boolean
   bugDiscovered: boolean
   isBugFix: boolean
