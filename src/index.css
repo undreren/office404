@@ -1808,3 +1808,9 @@ body {
   min-height: 0;
 }
 
+.product-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
