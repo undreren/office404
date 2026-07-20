@@ -84,6 +84,7 @@ describe('refineRequirementToTasks', () => {
 
     expect(tasks).toHaveLength(2)
     expect(tasks.every((t) => t.refinePassesRemaining === 1)).toBe(true)
+    expect(tasks.every((t) => t.refined === false)).toBe(true)
   })
 
   it('reaches the final split layout after all refine passes', () => {
