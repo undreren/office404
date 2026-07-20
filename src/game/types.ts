@@ -250,6 +250,8 @@ export interface GameState {
   cash: number
   reputation: number
   gameDay: number
+  /** Accumulated in-game seconds; keeps calendar rent/MRR aligned across tick chunk sizes. */
+  gameSecElapsed: number
   rentDueInDays: number
   apartment: ApartmentTier
   apartmentLeaseRemaining: number

@@ -46,6 +46,14 @@ function offlineCatchUpSec(saved: GameState, at: number): number {
   return Math.max(0, (at - saved.snapshotAt) / 1000)
 }
 
+/** Elapsed away seconds when the tab returns — uses hide timestamp or save snapshot as fallback. */
+function awayElapsedSec(hiddenAtMs: number | null, snapshotAtMs: number, nowMs: number): number {
+  if (hiddenAtMs != null) {
+    return Math.max(0, (nowMs - hiddenAtMs) / 1000)
+  }
+  return Math.max(0, (nowMs - snapshotAtMs) / 1000)
+}
+
 function needsAsyncOfflineCatchUp(saved: GameState, at: number): boolean {
   return offlineCatchUpSec(saved, at) >= MIN_OFFLINE_APPLY_SEC
 }
@@ -65,6 +73,18 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     stateRef.current = state
   }, [state])
+
+  const applyHydratedState = useCallback((next: GameState) => {
+    const at = Date.now()
+    const hidden = typeof document !== 'undefined' && document.hidden
+    const hydratedState =
+      hidden && next.vibingCourses.includes('offline')
+        ? dispatch(next, syncOfflineSpecialistMsg(at, true))
+        : next
+    if (hidden) hiddenAtRef.current = at
+    setState(hydratedState)
+    setHydrated(true)
+  }, [])
 
   useEffect(() => {
     if (!hydrated) {
@@ -88,8 +108,7 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
       const fixture = await applyFixtureFromUrl()
       if (cancelled) return
       if (fixture) {
-        setState(dispatch(fixture, hydrateFromSave(fixture, at)))
-        setHydrated(true)
+        applyHydratedState(dispatch(fixture, hydrateFromSave(fixture, at)))
         return
       }
 
@@ -101,22 +120,22 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
       }
 
       if (!needsAsyncOfflineCatchUp(saved, at)) {
-        setState(dispatch(saved, hydrateFromSave(saved, at)))
-        setHydrated(true)
+        const next = dispatch(saved, hydrateFromSave(saved, at))
+        if (cancelled) return
+        applyHydratedState(next)
         return
       }
 
       setCatchingUp(true)
       const next = await hydrateFromSaveAsync(saved, at)
       if (cancelled) return
-      setState(next)
       setCatchingUp(false)
-      setHydrated(true)
+      applyHydratedState(next)
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applyHydratedState])
 
   const dispatchMsg = useCallback((message: GameMessage) => {
     setState((prev) => (prev ? dispatch(prev, message) : prev))
@@ -150,21 +169,21 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
       const hidden = document.hidden
       setTabHidden(hidden)
 
-      if (hidden) {
-        flushOnExit()
+      if (!stateRef.current?.vibingCourses.includes('offline')) {
+        if (hidden) flushOnExit()
+        return
       }
-
-      if (!stateRef.current?.vibingCourses.includes('offline')) return
 
       if (hidden) {
         hiddenAtRef.current = at
         dispatchMsg(syncOfflineSpecialistMsg(at, true))
+        flushOnExit()
         return
       }
 
       const since = hiddenAtRef.current
       hiddenAtRef.current = null
-      const elapsedSec = since ? (at - since) / 1000 : 0
+      const elapsedSec = awayElapsedSec(since, stateRef.current.snapshotAt, at)
       if (elapsedSec < MIN_OFFLINE_APPLY_SEC) {
         dispatchMsg(returnFromHiddenMsg(at, elapsedSec))
         return

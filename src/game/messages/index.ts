@@ -49,23 +49,27 @@ export function newGame(at: number, rngSeed?: number): GameMessage {
   }
 }
 
+function hydrateOfflineCatchUp(saved: GameState, elapsedSec: number, at: number): GameState {
+  let next = syncOfflineSpecialist({ ...saved, snapshotAt: at }, true, at)
+  next = applyOfflineProgress(next, elapsedSec, at)
+  return syncOfflineSpecialist(next, false, at)
+}
+
 export function hydrateFromSave(saved: GameState, at: number): GameMessage {
   return {
     at,
     apply: () => {
       const elapsedSec = Math.max(0, (at - saved.snapshotAt) / 1000)
-      let next = { ...saved, snapshotAt: at }
-      next = applyOfflineProgress(next, elapsedSec, at)
-      return next
+      return hydrateOfflineCatchUp(saved, elapsedSec, at)
     },
   }
 }
 
 export async function hydrateFromSaveAsync(saved: GameState, at: number): Promise<GameState> {
   const elapsedSec = Math.max(0, (at - saved.snapshotAt) / 1000)
-  let next = { ...saved, snapshotAt: at }
+  let next = syncOfflineSpecialist({ ...saved, snapshotAt: at }, true, at)
   next = await applyOfflineProgressAsync(next, elapsedSec, at)
-  return next
+  return syncOfflineSpecialist(next, false, at)
 }
 
 export function selectTaskMsg(at: number, taskId: string | null): GameMessage {

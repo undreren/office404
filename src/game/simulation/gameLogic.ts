@@ -556,6 +556,7 @@ export function createInitialState(
     cash,
     reputation: INITIAL_REPUTATION,
     gameDay: 0,
+    gameSecElapsed: 0,
     rentDueInDays: RENT_INTERVAL_DAYS,
     apartment: 'cardboard',
     apartmentLeaseRemaining: RENT_INTERVAL_DAYS,
@@ -1651,16 +1652,19 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   const refineTier = refinementTier(state.vibingCourseTiers, vibingCourses)
   const tickStateBase = { meta, purchasedFineTunes, fineTuneTiers, gpuTickPurchases, agents: nextAgents, tutorialDone: state.tutorialDone }
 
-  gameDay += dayProgress
-  rentDueInDays -= dayProgress
+  const prevGameSecElapsed = state.gameSecElapsed ?? state.gameDay * SECONDS_PER_GAME_DAY
+  const gameSecElapsed = prevGameSecElapsed + simSec
+  const prevGameDay = prevGameSecElapsed / SECONDS_PER_GAME_DAY
+  gameDay = gameSecElapsed / SECONDS_PER_GAME_DAY
   apartmentLeaseRemaining -= dayProgress
   cash += effectiveMrr(mrr, meta) * dayProgress
 
-  if (rentDueInDays <= 0) {
-    const affordableHousingLevel = getHallucinationLevel(meta, 'affordable_housing')
-    const rent = effectiveHousingRent(state.apartment, affordableHousingLevel)
+  const affordableHousingLevel = getHallucinationLevel(meta, 'affordable_housing')
+  const rent = effectiveHousingRent(state.apartment, affordableHousingLevel)
+  const rentPayments =
+    Math.floor(gameDay / RENT_INTERVAL_DAYS) - Math.floor(prevGameDay / RENT_INTERVAL_DAYS)
+  for (let i = 0; i < rentPayments; i++) {
     cash -= rent
-    rentDueInDays += RENT_INTERVAL_DAYS
     nextEvents = pushEvent(
       ctx,
       meta,
@@ -1670,6 +1674,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
       at,
     )
   }
+  const rentRemainder = gameDay % RENT_INTERVAL_DAYS
+  rentDueInDays = rentRemainder === 0 ? RENT_INTERVAL_DAYS : RENT_INTERVAL_DAYS - rentRemainder
 
   if (isAutomationAgentUnlocked({ vibingCourses, meta }, 'procurement') && hasActiveAutomationAgent(nextAgents, 'procurement')) {
     while (true) {
@@ -2312,6 +2318,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     cash,
     reputation,
     gameDay,
+    gameSecElapsed,
     rentDueInDays,
     apartmentLeaseRemaining,
     apartment,

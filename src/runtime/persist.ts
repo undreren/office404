@@ -1,4 +1,4 @@
-import { SAVE_KEY } from '../game/constants'
+import { SAVE_KEY, SECONDS_PER_GAME_DAY } from '../game/constants'
 import { repairDuplicateTaskIds, repairStaleCodingAssignments } from '../game/projects'
 import { repairClientSlotIndexes } from '../game/mechanics'
 import { createDefaultMeta } from '../game/meta'
@@ -46,6 +46,9 @@ function normalizeLoadedState(state: GameState): GameState {
   const migrated = migrateAssignedSpecialistRoles(
     repairDuplicateTaskIds({
       ...(withoutContextRam as GameState),
+      gameSecElapsed:
+        (withoutContextRam as GameState).gameSecElapsed ??
+        (withoutContextRam as GameState).gameDay * SECONDS_PER_GAME_DAY,
       seenTabIntros: migrateTabIntros(state.seenTabIntros as string[]),
       seenCompactionIntro: state.seenCompactionIntro ?? false,
       fineTuneTiers: state.fineTuneTiers ?? {},
