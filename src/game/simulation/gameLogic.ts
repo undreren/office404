@@ -126,6 +126,7 @@ import {
   reviewHallucinationLevel,
   startingCapitalBonus,
   maxProductProjectSlots,
+  timeDistillationMultiplier,
   type HallucinationTrack,
 } from '../prestige'
 import { createDefaultMeta } from '../meta'
@@ -1602,7 +1603,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   const ctx = ctxFrom(state)
   if (state.phase !== 'playing') return state
 
-  const dayProgress = deltaSec / SECONDS_PER_GAME_DAY
+  const simSec = deltaSec * timeDistillationMultiplier(state.meta)
+  const dayProgress = simSec / SECONDS_PER_GAME_DAY
   let {
     cash,
     reputation,
@@ -1806,7 +1808,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   for (let agentIdx = 0; agentIdx < nextAgents.length; agentIdx++) {
     let agent = nextAgents[agentIdx]
     if (agent.status === 'compacting') {
-      agent.compactingRemainingSec = Math.max(0, agent.compactingRemainingSec - deltaSec)
+      agent.compactingRemainingSec = Math.max(0, agent.compactingRemainingSec - simSec)
       if (agent.compactingRemainingSec > 0) {
         nextAgents[agentIdx] = agent
         continue
@@ -1821,7 +1823,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     let agent = nextAgents[agentIdx]
     if (agent.job === 'conductor' && (agent.conductorMoveRemaining ?? 0) > 0) {
       const tokensPerSec = agentOutputTokensPerSec(workState, agent, 'conductor', nextAgents)
-      agent.conductorMoveRemaining = conductorMoveStep(agent, tokensPerSec, deltaSec, vibingCourses)
+      agent.conductorMoveRemaining = conductorMoveStep(agent, tokensPerSec, simSec, vibingCourses)
       if (agent.contextUsed >= contextTokens) {
         agent.contextUsed = contextTokens
         agent.status = 'compacting'
@@ -1913,7 +1915,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 agent.id,
                 params,
                 tokensPerSec,
-                deltaSec,
+                simSec,
                 bestOfNStackMultiplier(stackIdx),
                 hasPromptEngineering(vibingCourses),
                 'code',
@@ -1995,7 +1997,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 required,
                 reviewProgress,
                 tokensPerSec,
-                deltaSec,
+                simSec,
                 bestOfNStackMultiplier(stackIdx),
               )
               applyOutputTokensToContext(agent, increment, vibingCourses)
@@ -2118,7 +2120,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 refineRequired,
                 refineProgress,
                 tokensPerSec,
-                deltaSec,
+                simSec,
                 bestOfNStackMultiplier(stackIdx),
               )
               applyOutputTokensToContext(agent, increment, vibingCourses)
@@ -2234,7 +2236,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                     testRequired,
                     testTask.testStoryPointsEarned,
                     tokensPerSec,
-                    deltaSec,
+                    simSec,
                     bestOfNStackMultiplier(stackIdx),
                   )
               applyOutputTokensToContext(agent, testIncrement, vibingCourses)

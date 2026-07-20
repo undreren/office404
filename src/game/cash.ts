@@ -1,5 +1,9 @@
 /** Idle-game cash formatting and safe math for large values. */
 
+import type { MetaProgress } from './meta'
+import { SECONDS_PER_GAME_DAY } from './constants'
+import { timeDistillationMultiplier } from './prestige'
+
 const SUFFIXES = [
   '',
   'K',
@@ -52,6 +56,7 @@ export function estimateIncomePerGameDay(mrr: number): number {
 }
 
 /** Seconds of game time per real second. */
-export function gameDaysPerRealSecond(): number {
-  return 1 / 60
+export function gameDaysPerRealSecond(meta?: MetaProgress): number {
+  const mult = meta ? timeDistillationMultiplier(meta) : 1
+  return mult / SECONDS_PER_GAME_DAY
 }

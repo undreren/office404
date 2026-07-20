@@ -13,11 +13,12 @@ export { agentContextDisplayPct, agentJobDurationDays, agentWorkProgressPct } fr
 
 import type { Agent, GameState } from '../types'
 import { SECONDS_PER_GAME_DAY } from '../constants'
+import { timeDistillationMultiplier } from '../prestige'
 
 /** Elapsed game-days since the last committed snapshot. */
 export function elapsedGameDays(state: GameState, now: number): number {
   const elapsedSec = Math.max(0, (now - state.snapshotAt) / 1000)
-  return elapsedSec / SECONDS_PER_GAME_DAY
+  return (elapsedSec * timeDistillationMultiplier(state.meta)) / SECONDS_PER_GAME_DAY
 }
 
 /** Agent job progress derived from snapshot + wall clock (for refine/review roles). */

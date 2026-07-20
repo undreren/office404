@@ -10,6 +10,7 @@ export const PLATEAU_HOURS = 2
 export const PRESTIGE_START_CASH = 200
 
 export const PIPELINE_HALLUCINATION_MAX_LEVEL = 4
+export const TIME_DISTILLATION_MAX_LEVEL = 5
 
 export const PIPELINE_HALLUCINATION_TRACKS = ['refine', 'code', 'review', 'test'] as const
 export type PipelineHallucinationTrack = (typeof PIPELINE_HALLUCINATION_TRACKS)[number]
@@ -19,6 +20,7 @@ export const HALLUCINATION_TRACKS = [
   'model',
   'context',
   'compaction',
+  'time_distillation',
   'starting_capital',
   'starting_ram',
   'starting_gpu',
@@ -62,6 +64,12 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
     label: 'Faster compaction',
     tagline: 'Turn the existential crisis down to a brisk panic.',
     description: '−5s context reboot time per level after overflow (30s base, 5s minimum).',
+  },
+  time_distillation: {
+    label: 'Time distillation',
+    tagline: 'Distill models that can distill time.',
+    maxLevel: 5,
+    description: '+1× game time speed per level (1 day/min base → 2, 3, … days/min). Rent, deadlines, and agents all run hotter.',
   },
   starting_capital: {
     label: 'Starting capital',
@@ -168,6 +176,7 @@ const TRACK_BASE_COST: Record<HallucinationTrack, number> = {
   model: 1,
   context: 1,
   compaction: 2,
+  time_distillation: 2,
   starting_capital: 1,
   starting_ram: 2,
   starting_gpu: 2,
@@ -305,6 +314,11 @@ export function startingGpuBonus(meta: MetaProgress): number {
 export function compactionDurationSec(meta: MetaProgress): number {
   const level = getHallucinationLevel(meta, 'compaction')
   return Math.max(5, 30 - level * 5)
+}
+
+/** Multiplier on in-game time speed (days per real minute). Base 1, +1 per level. */
+export function timeDistillationMultiplier(meta: MetaProgress): number {
+  return 1 + Math.min(getHallucinationLevel(meta, 'time_distillation'), TIME_DISTILLATION_MAX_LEVEL)
 }
 
 export function hasInHouseUnlocked(meta: MetaProgress): boolean {
