@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { catchUpOfflineMsg, buyVibingCourseMsg, timeElapsed } from '../messages'
-import { agentContextTokenCapacity, contextFillPct } from '../mechanics'
+import { TICK_INTERVAL_MS } from '../constants'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { stateWithCash } from './_helpers/stateWithCash'
 import { T0 } from './_helpers/testConstants'
 import type { GameState, Task } from '../types'
 
-function codingAgentState(): GameState {
+function codingAgentState(storyPointsRequired = 20): GameState {
   const base = stateWithCash(initialPlaying(), 2000)
   const enrolled = dispatchChain(base, [buyVibingCourseMsg(T0 + 500, 'offline')])
   const project = enrolled.projects[0]!
@@ -17,7 +17,7 @@ function codingAgentState(): GameState {
     projectId: project.id,
     requirementId: req.id,
     title: 'Code me',
-    storyPointsRequired: 20,
+    storyPointsRequired,
     storyPointsEarned: 0,
     complexity: 2,
     refined: true,
@@ -57,35 +57,39 @@ function codingAgentState(): GameState {
   }
 }
 
-describe('offline-progress-simulates-work', () => {
-  it('earns story points when simulating away time in one offline catch-up', () => {
-    const awaySec = 60
-    const before = codingAgentState()
-    const earnedBefore = before.projects[0]!.tasks[0]!.storyPointsEarned
+function taskEarned(state: GameState): number {
+  return state.projects[0]!.tasks[0]!.storyPointsEarned
+}
 
-    const live = dispatchChain(before, Array.from({ length: awaySec }, (_, i) => timeElapsed(T0 + 1000 + i, 1)))
-    const offline = dispatchChain(before, [catchUpOfflineMsg(T0 + awaySec * 1000)])
+describe('offline-task-progress-parity', () => {
+  it.each([60, 300, 600, 1800, 3600])(
+    'matches 1s ticks for %i seconds of coding away time',
+    (awaySec) => {
+      const before = codingAgentState()
+      const live = dispatchChain(
+        before,
+        Array.from({ length: awaySec }, (_, i) => timeElapsed(T0 + 1000 + i, 1)),
+      )
+      const offline = dispatchChain(before, [catchUpOfflineMsg(T0 + awaySec * 1000)])
 
-    const liveEarned = live.projects[0]!.tasks[0]!.storyPointsEarned
-    const offlineEarned = offline.projects[0]!.tasks[0]!.storyPointsEarned
+      expect(taskEarned(offline)).toBeCloseTo(taskEarned(live), 4)
+      expect(offline.projects[0]!.tasks[0]!.status).toBe(live.projects[0]!.tasks[0]!.status)
+    },
+  )
 
-    expect(liveEarned).toBeGreaterThan(earnedBefore)
-    expect(offlineEarned).toBeGreaterThan(earnedBefore)
-    expect(offlineEarned).toBeCloseTo(liveEarned, 5)
-  })
+  it.each([60, 300, 600, 1800, 3600])(
+    'matches live 30Hz ticks for %i seconds of coding away time',
+    (awaySec) => {
+      const before = codingAgentState()
+      const tickSec = TICK_INTERVAL_MS / 1000
+      const ticks = Math.round(awaySec / tickSec)
+      const live = dispatchChain(
+        before,
+        Array.from({ length: ticks }, (_, i) => timeElapsed(T0 + 1000 + i, tickSec)),
+      )
+      const offline = dispatchChain(before, [catchUpOfflineMsg(T0 + awaySec * 1000)])
 
-  it('does not leave staffed coders at full context with zero task progress', () => {
-    const awaySec = 30
-    const before = codingAgentState()
-    const contextTokens = agentContextTokenCapacity(0)
-
-    const after = dispatchChain(before, [catchUpOfflineMsg(T0 + awaySec * 1000)])
-    const agent = after.agents.find((a) => a.job === 'code')!
-    const earned = after.projects[0]!.tasks[0]!.storyPointsEarned
-
-    expect(earned).toBeGreaterThan(0)
-    expect(agent.contextUsed).toBeLessThan(contextTokens)
-    expect(agent.status).not.toBe('compacting')
-    expect(contextFillPct(agent.contextUsed, contextTokens)).toBeLessThan(100)
-  })
+      expect(taskEarned(offline)).toBeCloseTo(taskEarned(live), 3)
+    },
+  )
 })

@@ -8,22 +8,22 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { MIN_OFFLINE_APPLY_SEC, TICK_INTERVAL_MS } from '../game/constants'
+import { MIN_OFFLINE_APPLY_SEC } from '../game/constants'
 import { dispatch } from '../game/engine/dispatch'
 import type { GameMessage } from '../game/engine/Message'
 import {
   hydrateFromSave,
-  hydrateFromSaveAsync,
   newGame,
   resetGameMsg,
   returnFromHiddenMsg,
   stateChanged,
   syncOfflineSpecialistMsg,
-  timeElapsed,
+  catchUpToMsg,
 } from '../game/messages'
 import { createRngSeed } from '../game/rng'
 import type { GameState } from '../game/types'
-import { createInitialState, returnFromHiddenAsync } from '../game/simulation/gameLogic'
+import { createInitialState, syncOfflineSpecialist } from '../game/simulation/gameLogic'
+import { catchUpTo, catchUpOffline } from '../game/time'
 import { applyFixtureFromUrl } from './fixture-loader'
 import { updateBootSplash } from './bootSplash'
 import { loadPersistedState } from './persist'
@@ -41,13 +41,16 @@ type GameRuntimeContextValue = {
 
 const GameRuntimeContext = createContext<GameRuntimeContextValue | null>(null)
 
-function offlineCatchUpSec(saved: GameState, at: number): number {
-  if (!saved.vibingCourses.includes('offline') || saved.phase !== 'playing') return 0
-  return Math.max(0, (at - saved.snapshotAt) / 1000)
+function needsOfflineCatchUp(saved: GameState, at: number): boolean {
+  if (!saved.vibingCourses.includes('offline') || saved.phase !== 'playing') return false
+  return at - saved.snapshotAt >= MIN_OFFLINE_APPLY_SEC * 1000
 }
 
-function needsAsyncOfflineCatchUp(saved: GameState, at: number): boolean {
-  return offlineCatchUpSec(saved, at) >= MIN_OFFLINE_APPLY_SEC
+function runCatchUp(state: GameState, at: number): GameState {
+  if (state.vibingCourses.includes('offline')) {
+    return catchUpOffline(state, at)
+  }
+  return catchUpTo(state, at)
 }
 
 export function GameRuntimeProvider({ children }: { children: ReactNode }) {
@@ -60,11 +63,22 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
   )
   const hiddenAtRef = useRef<number | null>(null)
   const stateRef = useRef<GameState | null>(null)
-  const catchUpRunRef = useRef(0)
 
   useEffect(() => {
     stateRef.current = state
   }, [state])
+
+  const applyHydratedState = useCallback((next: GameState) => {
+    const at = Date.now()
+    const hidden = typeof document !== 'undefined' && document.hidden
+    const hydratedState =
+      hidden && next.vibingCourses.includes('offline')
+        ? dispatch(next, syncOfflineSpecialistMsg(at, true))
+        : next
+    if (hidden) hiddenAtRef.current = at
+    setState(hydratedState)
+    setHydrated(true)
+  }, [])
 
   useEffect(() => {
     if (!hydrated) {
@@ -83,13 +97,12 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      const at = Date.now()
-      const fixture = await applyFixtureFromUrl()
+    const at = Date.now()
+    void applyFixtureFromUrl().then((fixture) => {
       if (cancelled) return
       if (fixture) {
-        setState(dispatch(fixture, hydrateFromSave(fixture, at)))
-        setHydrated(true)
+        const next = dispatch(fixture, hydrateFromSave(fixture, at))
+        applyHydratedState(next)
         return
       }
 
@@ -100,23 +113,18 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      if (!needsAsyncOfflineCatchUp(saved, at)) {
-        setState(dispatch(saved, hydrateFromSave(saved, at)))
-        setHydrated(true)
-        return
+      if (needsOfflineCatchUp(saved, at)) {
+        setCatchingUp(true)
       }
-
-      setCatchingUp(true)
-      const next = await hydrateFromSaveAsync(saved, at)
+      const next = dispatch(saved, hydrateFromSave(saved, at))
       if (cancelled) return
-      setState(next)
       setCatchingUp(false)
-      setHydrated(true)
-    })()
+      applyHydratedState(next)
+    })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applyHydratedState])
 
   const dispatchMsg = useCallback((message: GameMessage) => {
     setState((prev) => (prev ? dispatch(prev, message) : prev))
@@ -150,37 +158,31 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
       const hidden = document.hidden
       setTabHidden(hidden)
 
-      if (hidden) {
-        flushOnExit()
+      if (!stateRef.current?.vibingCourses.includes('offline')) {
+        if (hidden) flushOnExit()
+        return
       }
-
-      if (!stateRef.current?.vibingCourses.includes('offline')) return
 
       if (hidden) {
         hiddenAtRef.current = at
         dispatchMsg(syncOfflineSpecialistMsg(at, true))
+        flushOnExit()
         return
       }
 
-      const since = hiddenAtRef.current
       hiddenAtRef.current = null
-      const elapsedSec = since ? (at - since) / 1000 : 0
-      if (elapsedSec < MIN_OFFLINE_APPLY_SEC) {
-        dispatchMsg(returnFromHiddenMsg(at, elapsedSec))
+      const elapsedMs = at - (stateRef.current?.snapshotAt ?? at)
+      if (elapsedMs < MIN_OFFLINE_APPLY_SEC * 1000) {
+        dispatchMsg(returnFromHiddenMsg(at))
         return
       }
 
-      const runId = catchUpRunRef.current + 1
-      catchUpRunRef.current = runId
       setCatchingUp(true)
-      void (async () => {
-        const current = stateRef.current
-        if (!current) return
-        const next = await returnFromHiddenAsync(current, elapsedSec, at)
-        if (catchUpRunRef.current !== runId) return
-        setState(next)
-        setCatchingUp(false)
-      })()
+      const current = stateRef.current
+      if (!current) return
+      const next = syncOfflineSpecialist(runCatchUp(current, at), false, at)
+      setState(next)
+      setCatchingUp(false)
     }
 
     const onPageHide = () => flushOnExit()
@@ -199,8 +201,8 @@ export function GameRuntimeProvider({ children }: { children: ReactNode }) {
 
     const interval = setInterval(() => {
       const at = Date.now()
-      dispatchMsg(timeElapsed(at, TICK_INTERVAL_MS / 1000))
-    }, TICK_INTERVAL_MS)
+      dispatchMsg(catchUpToMsg(at))
+    }, 1000 / 30)
     return () => clearInterval(interval)
   }, [hydrated, dispatchMsg, state, paused, tabHidden, catchingUp])
 

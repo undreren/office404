@@ -57,7 +57,7 @@ describe('offline-agent-course', () => {
     expect(hidden.assignedSpecialistRoles).toContain('offline')
     expect(hidden.agents.some((a) => a.isAutomation && a.automationJob === 'offline')).toBe(true)
 
-    const visible = dispatchChain(hidden, [returnFromHiddenMsg(T0 + 8000, 60)])
+    const visible = dispatchChain(hidden, [returnFromHiddenMsg(T0 + 2000 + 60_000)])
     expect(visible.assignedSpecialistRoles).not.toContain('offline')
     expect(visible.agents.some((a) => a.automationJob === 'offline')).toBe(false)
   })

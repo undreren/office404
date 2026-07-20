@@ -10,9 +10,6 @@ import {
   acknowledgeStoryIntro,
   acknowledgeTutorialStep,
   adjustRoleCount,
-  advanceTime,
-  applyOfflineProgress,
-  applyOfflineProgressAsync,
   buyAgentSlot,
   buyFineTune,
   buyGpuTick,
@@ -34,11 +31,20 @@ import {
   upgradeApartment,
   upgradeModelTier,
 } from '../simulation/gameLogic'
+import { advanceByRealSeconds, catchUpOffline, catchUpTo } from '../time'
 
+/** @deprecated Use catchUpTo — kept for tests that advance by explicit real seconds. */
 export function timeElapsed(at: number, elapsedSec: number): GameMessage {
   return {
     at,
-    apply: (state) => advanceTime(state, elapsedSec, at),
+    apply: (state) => advanceByRealSeconds(state, elapsedSec, at),
+  }
+}
+
+export function catchUpToMsg(at: number): GameMessage {
+  return {
+    at,
+    apply: (state) => catchUpTo(state, at),
   }
 }
 
@@ -49,23 +55,27 @@ export function newGame(at: number, rngSeed?: number): GameMessage {
   }
 }
 
+function hydrateOfflineCatchUp(saved: GameState, at: number): GameState {
+  return catchUpOffline(saved, at)
+}
+
 export function hydrateFromSave(saved: GameState, at: number): GameMessage {
   return {
     at,
     apply: () => {
-      const elapsedSec = Math.max(0, (at - saved.snapshotAt) / 1000)
-      let next = { ...saved, snapshotAt: at }
-      next = applyOfflineProgress(next, elapsedSec, at)
-      return next
+      if (saved.phase !== 'playing') {
+        return { ...saved, snapshotAt: at }
+      }
+      if (!saved.vibingCourses.includes('offline')) {
+        return { ...saved, snapshotAt: at }
+      }
+      return hydrateOfflineCatchUp(saved, at)
     },
   }
 }
 
-export async function hydrateFromSaveAsync(saved: GameState, at: number): Promise<GameState> {
-  const elapsedSec = Math.max(0, (at - saved.snapshotAt) / 1000)
-  let next = { ...saved, snapshotAt: at }
-  next = await applyOfflineProgressAsync(next, elapsedSec, at)
-  return next
+export function hydrateFromSaveAsync(saved: GameState, at: number): Promise<GameState> {
+  return Promise.resolve(hydrateFromSave(saved, at).apply(saved))
 }
 
 export function selectTaskMsg(at: number, taskId: string | null): GameMessage {
@@ -169,14 +179,15 @@ export function syncOfflineSpecialistMsg(at: number, tabHidden: boolean): GameMe
   return { at, apply: (state) => syncOfflineSpecialist(state, tabHidden, at) }
 }
 
-export function applyOfflineProgressMsg(at: number, elapsedSec: number): GameMessage {
-  return { at, apply: (state) => applyOfflineProgress(state, elapsedSec, at) }
+/** Catch up offline progress using wall-clock absence (replaces applyOfflineProgressMsg). */
+export function catchUpOfflineMsg(at: number): GameMessage {
+  return { at, apply: (state) => catchUpOffline(state, at) }
 }
 
-export function returnFromHiddenMsg(at: number, elapsedSec: number): GameMessage {
+export function returnFromHiddenMsg(at: number): GameMessage {
   return {
     at,
-    apply: (state) => syncOfflineSpecialist(applyOfflineProgress(state, elapsedSec, at), false, at),
+    apply: (state) => syncOfflineSpecialist(catchUpOffline(state, at), false, at),
   }
 }
 
