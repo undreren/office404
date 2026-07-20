@@ -545,10 +545,12 @@ function tasksFromSplit(
       {
         ...createTask(ctx, projectId, titles[0], parts[0], fibIndex(parts[0]), parentTaskId, requirementId),
         refinePassesRemaining,
+        refined: refinePassesRemaining <= 0,
       },
       {
         ...createTask(ctx, projectId, titles[1], parts[1], fibIndex(parts[1]), parentTaskId, requirementId),
         refinePassesRemaining,
+        refined: refinePassesRemaining <= 0,
       },
     ]
   }
@@ -558,6 +560,7 @@ function tasksFromSplit(
     {
       ...createTask(ctx, projectId, title, sp, fibIndex(sp), parentTaskId, requirementId),
       refinePassesRemaining,
+      refined: refinePassesRemaining <= 0,
     },
   ]
 }
@@ -590,12 +593,13 @@ export function refineRequirementToTasks(
   }
 
   const [title] = pickSubtaskTitles(ctx.rng, requirement.title, 1)
-  return [
-    {
-      ...createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id),
-      refinePassesRemaining: passesAfter,
-    },
-  ]
+    return [
+      {
+        ...createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id),
+        refinePassesRemaining: passesAfter,
+        refined: passesAfter <= 0,
+      },
+    ]
 }
 
 export function taskNeedsRefinement(task: Task): boolean {

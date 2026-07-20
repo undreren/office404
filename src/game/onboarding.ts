@@ -1,3 +1,4 @@
+import { projectHasRefineWork } from './projects'
 import { isReadyToDeliver } from './selectors'
 import type { GameState, MainTabId } from './types'
 
@@ -21,8 +22,7 @@ export function getTutorialStep(state: GameState): TutorialStep | null {
   const tutorial = state.projects.find((p) => p.isTutorial && p.status === 'active')
   if (!tutorial) return null
 
-  const hasOpenRequirements = tutorial.requirements.some((r) => r.status === 'open')
-  if (hasOpenRequirements) return 0
+  if (projectHasRefineWork(tutorial)) return 0
 
   const coderAssigned =
     tutorial.roleCounts.code > 0 ||

@@ -74,6 +74,7 @@ describe('refine-passes-before-coding', () => {
     expect(tasks).toHaveLength(1)
     const task = tasks[0]!
     expect(task.refinePassesRemaining).toBe(1)
+    expect(task.refined).toBe(false)
     expect(taskNeedsRefinement(task)).toBe(true)
     expect(taskLifecycleLabel(task, { ...project, tasks: [task] })).toBe('refining')
     expect(task.status).not.toBe('pr_ready')
@@ -101,6 +102,7 @@ describe('refine-passes-before-coding', () => {
     expect(tasks.reduce((sum, task) => sum + task.storyPointsRequired, 0)).toBe(5)
     expect(tasks.every((task) => task.refinePassesRemaining === 1)).toBe(true)
     expect(tasks.every((task) => taskNeedsRefinement(task))).toBe(true)
+    expect(tasks.every((task) => task.refined === false)).toBe(true)
     expect(tasks.every((task) => taskLifecycleLabel(task, { ...project, tasks }) === 'refining')).toBe(
       true,
     )

@@ -271,13 +271,21 @@ function RequirementBlock({
   const refinePct = requirementRefineProgressPct(project, requirement, agents)
   const testPct = requirementTestPercent(project, requirement.id)
   const tasks = visibleTasksForRequirement(project, requirement.id)
+  const refinableTasks = tasks.filter(taskNeedsRefinement)
+  const requirementStillRefining = refinableTasks.length > 0
+  const taskRefinePct =
+    requirement.status !== 'open' && requirementStillRefining
+      ? Math.max(
+          ...refinableTasks.map((task) => taskRefineProgressPct(task, project, agents) ?? 0),
+        )
+      : null
   const hasRefinedTasks = requirement.status !== 'open'
   const requirementSummary = [
     `Requirement: ${requirement.title}`,
     `${formatStoryPoints(requirement.storyPoints)} story points`,
     requirement.status,
-    requirement.status === 'open' && refinePct !== null
-      ? `refining ${formatPercent(refinePct)}%`
+    (requirement.status === 'open' || requirementStillRefining) && (refinePct ?? taskRefinePct) !== null
+      ? `refining ${formatPercent(refinePct ?? taskRefinePct ?? 0)}%`
       : null,
     hasRefinedTasks ? `QA coverage ${formatPercent(testPct)}%` : null,
   ]
@@ -293,22 +301,22 @@ function RequirementBlock({
         <h5 className="requirement-item__title">{requirement.title}</h5>
         <span className="requirement-item__meta">
           {formatStoryPoints(requirement.storyPoints)} SP
-          {requirement.status === 'open' && ' · refining'}
-          {requirement.status === 'refined' && ' · in progress'}
-          {requirement.status === 'split' && ' · split'}
+          {(requirement.status === 'open' || requirementStillRefining) && ' · refining'}
+          {requirement.status === 'refined' && !requirementStillRefining && ' · in progress'}
+          {requirement.status === 'split' && !requirementStillRefining && ' · split'}
         </span>
       </div>
 
-      {requirement.status === 'open' && (
+      {(requirement.status === 'open' || requirementStillRefining) && (
         <div className="meter-row meter-row--nested">
           <label>Refining</label>
           <div className="meter meter--sm">
             <div
               className="meter__fill meter__fill--code"
-              style={{ width: `${refinePct ?? 0}%` }}
+              style={{ width: `${refinePct ?? taskRefinePct ?? 0}%` }}
             />
           </div>
-          <span>{formatPercent(refinePct ?? 0)}%</span>
+          <span>{formatPercent(refinePct ?? taskRefinePct ?? 0)}%</span>
         </div>
       )}
 
