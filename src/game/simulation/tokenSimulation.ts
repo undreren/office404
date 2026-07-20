@@ -10,7 +10,7 @@ import {
   gpuShareForAgents,
   taskTokensRequired,
   tokenProgressIncrement,
-  totalGpuTicks,
+  effectiveGpuTicks,
 } from '../mechanics'
 import { fineTuneId } from '../models'
 import { getHallucinationLevel } from '../prestige'
@@ -34,7 +34,7 @@ export function agentOutputTokensPerSec(
     state.purchasedFineTunes,
     fineTuneId(modelTierIndex, job === 'conductor' ? 'conductor' : job),
   )
-  const gpuShare = gpuShareForAgents(agents, totalGpuTicks(state))
+  const gpuShare = gpuShareForAgents(agents, effectiveGpuTicks(state))
   return agentTokensPerSec(params, level, gpuShare)
 }
 

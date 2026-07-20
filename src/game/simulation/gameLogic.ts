@@ -104,7 +104,7 @@ import {
   rosterAgentRamGb,
   taskTokensRequired,
   tokenProgressIncrement,
-  totalGpuTicks,
+  effectiveGpuTicks,
   totalRamGb,
   unlockedAutomationJobs,
   type AutomationAgentJob,
@@ -3167,7 +3167,7 @@ export function agentCapacity(state: GameState): {
     used: state.agents.length,
     max: maxAgents(state),
     agentSlots: totalRam,
-    gpuTicks: totalGpuTicks(state),
+    gpuTicks: effectiveGpuTicks(state),
     usedRamGb: usedRam,
   }
 }

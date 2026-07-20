@@ -28,7 +28,7 @@ import {
 import { HOUSING_CONFIG } from './housing'
 import { FINE_TUNE_BONUS } from './models'
 import type { MetaProgress } from './meta'
-import { startingGpuBonus, startingRamBonus } from './prestige'
+import { startingGpuBonus, startingRamBonus, gpuEfficiencyHallucinationMultiplier, ramEfficiencyHallucinationMultiplier } from './prestige'
 import { getHallucinationLevel } from './meta'
 import { stackIndexOnTask } from './projects'
 import { codeHallucinationParamMultiplier, effectiveModelParams, maxClientProjectSlots } from './prestige'
@@ -657,7 +657,7 @@ export function totalRamGb(state: Pick<GameState, 'agentSlotPurchases' | 'meta' 
 
 /** Model footprint in GB — prestige model size only (no cash fine-tunes). */
 export function getAgentRamParams(meta: MetaProgress): number {
-  return effectiveModelParams(meta)
+  return effectiveModelParams(meta) * ramEfficiencyHallucinationMultiplier(meta)
 }
 
 export function agentRamGb(ramParams: number): number {
@@ -682,6 +682,10 @@ export function totalAgentSlots(state: Pick<GameState, 'agentSlotPurchases' | 'm
 export function totalGpuTicks(state: Pick<GameState, 'gpuTickPurchases' | 'meta' | 'tutorialDone'>): number {
   const bonus = state.tutorialDone ? startingGpuBonus(state.meta) : 0
   return BASE_GPU_TICKS + state.gpuTickPurchases + bonus
+}
+
+export function effectiveGpuTicks(state: Pick<GameState, 'gpuTickPurchases' | 'meta' | 'tutorialDone'>): number {
+  return totalGpuTicks(state) * gpuEfficiencyHallucinationMultiplier(state.meta)
 }
 
 export function ramSlotCost(purchases: number): number {

@@ -10,7 +10,12 @@ export const PLATEAU_HOURS = 2
 export const PRESTIGE_START_CASH = 200
 
 export const PIPELINE_HALLUCINATION_MAX_LEVEL = 4
+<<<<<<< HEAD
 export const TIME_DISTILLATION_MAX_LEVEL = 5
+=======
+export const GPU_EFFICIENCY_HALLUCINATION_MAX_LEVEL = 4
+export const RAM_EFFICIENCY_HALLUCINATION_MAX_LEVEL = 5
+>>>>>>> 32d15b8 (Add GPU and RAM efficiency hallucination upgrades)
 
 export const PIPELINE_HALLUCINATION_TRACKS = ['refine', 'code', 'review', 'test'] as const
 export type PipelineHallucinationTrack = (typeof PIPELINE_HALLUCINATION_TRACKS)[number]
@@ -24,6 +29,8 @@ export const HALLUCINATION_TRACKS = [
   'starting_capital',
   'starting_ram',
   'starting_gpu',
+  'gpu_efficiency',
+  'ram_efficiency',
   'in_house',
   'procurement',
   'customer',
@@ -87,6 +94,20 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
     tagline: 'Silicon you definitely paid for. Probably.',
     description:
       '+1 GPU tick immediately on purchase, and on each new run after retirement. Free capacity — does not count toward shop GPU limits or pricing.',
+  },
+  gpu_efficiency: {
+    label: 'CUDA mirage',
+    tagline: 'The benchmark said 4090. The invoice said hope.',
+    description:
+      '+0.25× effective GPU count per level (1× base). Your silicon works harder because you believe in it.',
+    maxLevel: GPU_EFFICIENCY_HALLUCINATION_MAX_LEVEL,
+  },
+  ram_efficiency: {
+    label: 'Quantized dreams',
+    tagline: '4-bit weights, 100% confidence.',
+    description:
+      '−0.1× model RAM footprint per level (1× base). Models need less RAM when you squint at the tensor chart.',
+    maxLevel: RAM_EFFICIENCY_HALLUCINATION_MAX_LEVEL,
   },
   in_house: {
     label: 'In-house product',
@@ -180,6 +201,8 @@ const TRACK_BASE_COST: Record<HallucinationTrack, number> = {
   starting_capital: 1,
   starting_ram: 2,
   starting_gpu: 2,
+  gpu_efficiency: 2,
+  ram_efficiency: 2,
   in_house: 3,
   procurement: 2,
   project_manager: 2,
@@ -283,6 +306,22 @@ export function reviewHallucinationLevel(meta: MetaProgress): number {
 
 export function codeHallucinationParamMultiplier(meta: MetaProgress): number {
   return 1 + Math.min(getHallucinationLevel(meta, 'code'), PIPELINE_HALLUCINATION_MAX_LEVEL) * 0.1
+}
+
+export function gpuEfficiencyHallucinationMultiplier(meta: MetaProgress): number {
+  return (
+    1 +
+    Math.min(getHallucinationLevel(meta, 'gpu_efficiency'), GPU_EFFICIENCY_HALLUCINATION_MAX_LEVEL) *
+      0.25
+  )
+}
+
+export function ramEfficiencyHallucinationMultiplier(meta: MetaProgress): number {
+  return (
+    1 -
+    Math.min(getHallucinationLevel(meta, 'ram_efficiency'), RAM_EFFICIENCY_HALLUCINATION_MAX_LEVEL) *
+      0.1
+  )
 }
 
 export function instantTestHallucinationChance(meta: MetaProgress): number {
