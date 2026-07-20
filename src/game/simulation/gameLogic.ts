@@ -2916,30 +2916,84 @@ export function retire(state: GameState, at: number): GameState {
   return createInitialState(at, state.rng, newMeta, { includeTutorial: false })
 }
 
+const SPECIALIST_HALLUCINATION_TRACKS = [
+  'procurement',
+  'sales',
+  'marketing',
+  'customer',
+  'accounting',
+  'project_manager',
+] as const satisfies readonly HallucinationTrack[]
+
+type SpecialistHallucinationTrack = (typeof SPECIALIST_HALLUCINATION_TRACKS)[number]
+
+function isSpecialistHallucinationTrack(track: HallucinationTrack): track is SpecialistHallucinationTrack {
+  return (SPECIALIST_HALLUCINATION_TRACKS as readonly string[]).includes(track)
+}
+
+function enrollVibingCourseFromHallucination(
+  state: GameState,
+  courseId: string,
+  ctx: SimCtx,
+  at: number,
+): GameState {
+  if (state.vibingCourses.includes(courseId)) return state
+  const course = VIBING_COURSES.find((c) => c.id === courseId)
+  if (!course) return state
+
+  return {
+    ...state,
+    vibingCourses: [...state.vibingCourses, courseId],
+    vibingCourseTiers: { ...state.vibingCourseTiers, [courseId]: 1 },
+    events: pushEvent(
+      ctx,
+      state.meta,
+      state.events,
+      'hallucination',
+      `Hallucination enrolled in ${course.label}: "${course.tagline}"`,
+      at,
+    ),
+  }
+}
+
 export function prestigeHallucinationBuy(
   state: GameState,
   track: HallucinationTrack,
   at: number,
 ): GameState {
   const ctx = ctxFrom(state)
+  const previousLevel = getHallucinationLevel(state.meta, track)
   const newMeta = buyHallucinationUpgrade(state.meta, track)
   if (!newMeta) return state
   const level = getHallucinationLevel(newMeta, track)
-  let next = syncAutomationAgents(
-    {
-      ...state,
-      meta: newMeta,
-      events: pushEvent(
-        ctx,
-        state.meta,
-        state.events,
-        'hallucination',
-        `Hallucination upgrade: ${track} → level ${level}.`,
-        at,
-      ),
-    },
-    ctx,
-  )
+  let next: GameState = {
+    ...state,
+    meta: newMeta,
+    events: pushEvent(
+      ctx,
+      state.meta,
+      state.events,
+      'hallucination',
+      `Hallucination upgrade: ${track} → level ${level}.`,
+      at,
+    ),
+  }
+
+  const firstSpecialistUnlock =
+    previousLevel === 0 &&
+    level >= 1 &&
+    isSpecialistHallucinationTrack(track) &&
+    !state.vibingCourses.includes(track)
+
+  if (firstSpecialistUnlock) {
+    next = enrollVibingCourseFromHallucination(next, track, ctx, at)
+  }
+
+  next = syncAutomationAgents(next, ctx)
+
+  if (firstSpecialistUnlock) {
+    next = toggleSpecialistRole(next, track, true, at)
+  }
   if (track === 'in_house') {
     next = syncProductBacklog(next, ctx)
   }
