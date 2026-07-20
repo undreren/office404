@@ -9,7 +9,7 @@ export const PRODUCT_OWNER_COURSE_ID = 'product_owner'
 export const CONDUCTOR_COURSE_ID = 'conductor'
 
 export const REFINEMENT_COURSE_ID = 'refinement'
-export const REFINEMENT_MAX_TIER = 5
+export const REFINEMENT_MAX_TIER = 3
 
 import type { MetaProgress } from './meta'
 import { canAccessProduct } from './product'
@@ -52,7 +52,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'Split it once. Maybe twice if the vibes align.',
     cost: 250,
     description:
-      'Each tier adds +25% auto-split chance when refining requirements (max 100% at T4). Unsplit tasks get that many extra refine passes before coding.',
+      'Each tier recursively splits refined requirements into smaller Fibonacci tasks (0 = one task, 3 = three split levels). Tasks at 1 SP or below never split.',
     maxTier: REFINEMENT_MAX_TIER,
   },
   {

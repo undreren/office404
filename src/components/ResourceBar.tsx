@@ -3,7 +3,7 @@ import { HOUSING_CONFIG, effectiveHousingRent } from '../game/housing'
 import { formatGameClock, formatPercent } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
-import { personalRetirementThreshold } from '../game/prestige'
+import { effectiveMrr, personalRetirementThreshold } from '../game/prestige'
 import { agentCapacity } from '../game/selectors'
 import { useGamePaused, useGameState } from '../runtime/GameRuntime'
 import { NewGameButton } from './NewGameButton'
@@ -16,6 +16,7 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
   const state = useGameState()
   const { paused } = useGamePaused()
   const { cash, reputation, gameDay, rentDueInDays, apartment, mrr, meta } = state
+  const displayMrr = effectiveMrr(mrr, meta)
 
   const { used, max, agentSlots, gpuTicks, usedRamGb } = agentCapacity(state)
   const modelLevel = getHallucinationLevel(meta, 'model')
@@ -29,7 +30,7 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
     ? [
         `Cash ${formatCash(cash)}`,
         `retire ${formatCash(cash)} of ${formatCash(retireThreshold)}`,
-        `MRR ${formatCash(mrr)}/day`,
+        `MRR ${formatCash(displayMrr)}/day`,
         `reputation ${Math.floor(reputation)}`,
         `home ${housing.label}`,
         `agents ${used}/${max}`,
@@ -81,9 +82,9 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
 
         {!compact && (
           <>
-            <div className="resource resource--inline" aria-label={`MRR: ${formatCash(mrr)} per day`}>
+            <div className="resource resource--inline" aria-label={`MRR: ${formatCash(displayMrr)} per day`}>
               <label>MRR</label>
-              <span className="value value--sm">{formatCash(mrr)}/d</span>
+              <span className="value value--sm">{formatCash(displayMrr)}/d</span>
             </div>
 
             <div className="resource resource--inline" aria-label={`Reputation: ${Math.floor(reputation)}`}>

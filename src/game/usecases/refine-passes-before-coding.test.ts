@@ -40,18 +40,8 @@ function refinableTask(projectId: string, requirementId: string, overrides: Part
   }
 }
 
-function assertNoPrReadyWhileRefining(state: GameState, label: string) {
-  const project = state.projects[0]!
-  for (const task of project.tasks.filter((t) => !t.isReviewComment)) {
-    if (taskNeedsRefinement(task)) {
-      expect(task.status, `${label}: ${task.title}`).not.toBe('pr_ready')
-      expect(taskLifecycleLabel(task, project), `${label}: ${task.title}`).toBe('refining')
-    }
-  }
-}
-
 describe('refine-passes-before-coding', () => {
-  it('keeps unsplit requirement tasks in refining until tier passes are exhausted', () => {
+  it('creates leaf tasks immediately at refinement tier 2', () => {
     const state = initialPlaying()
     const project = state.projects[0]!
     const requirement: Requirement = {
@@ -67,20 +57,18 @@ describe('refine-passes-before-coding', () => {
       vibingCourseTiers: { refinement: 2 },
     } as GameState)
 
-    const tasks = refineRequirementToTasks(ctx, requirement, {
-      refinementTier: 2,
-      forceSingle: true,
-    })
+    const tasks = refineRequirementToTasks(ctx, requirement, { refinementTier: 2 })
 
-    expect(tasks).toHaveLength(1)
-    const task = tasks[0]!
-    expect(task.refinePassesRemaining).toBe(2)
-    expect(taskNeedsRefinement(task)).toBe(true)
-    expect(taskLifecycleLabel(task, { ...project, tasks: [task] })).toBe('refining')
-    expect(task.status).not.toBe('pr_ready')
+    expect(tasks.length).toBeGreaterThan(1)
+    expect(tasks.reduce((sum, task) => sum + task.storyPointsRequired, 0)).toBe(5)
+    expect(tasks.every((task) => (task.refinePassesRemaining ?? 0) === 0)).toBe(true)
+    expect(tasks.every((task) => !taskNeedsRefinement(task))).toBe(true)
+    expect(tasks.every((task) => taskLifecycleLabel(task, { ...project, tasks }) === 'coding')).toBe(
+      true,
+    )
   })
 
-  it('still requires refinement after partial coding progress if passes remain', () => {
+  it('still requires refinement after partial coding progress if legacy passes remain', () => {
     const project = initialPlaying().projects[0]!
     const task = refinableTask(project.id, project.requirements[0]!.id, {
       storyPointsEarned: 1,
@@ -91,51 +79,7 @@ describe('refine-passes-before-coding', () => {
     expect(taskLifecycleLabel(task, { ...project, tasks: [task] })).toBe('refining')
   })
 
-  it('does not jump tasks to review when all requirements are refined', () => {
-    const base = initialPlaying()
-    const project = base.projects[0]!
-    const ready: GameState = {
-      ...base,
-      vibingCourseTiers: { refinement: 2 },
-      agents: base.agents.map((a) => ({
-        ...a,
-        contextUsed: 0,
-        compactingRemainingSec: 0,
-        status: 'refining' as const,
-      })),
-      projects: [
-        {
-          ...project,
-          roleCounts: { refine: 1, code: 0, review: 0, test: 0, conductor: 0 },
-        },
-      ],
-    }
-
-    let state: GameState = ready
-    for (let tick = 0; tick < 200; tick++) {
-      state = dispatchChain(state, [timeElapsed(T0 + tick * 5, 5)])
-      const current = state.projects[0]!
-      const allRequirementsRefined = current.requirements.every((r) => r.status !== 'open')
-      if (!allRequirementsRefined) continue
-
-      const shippable = current.tasks.filter((t) => !t.isReviewComment)
-      expect(shippable.length).toBeGreaterThan(0)
-      for (const task of shippable) {
-        expect(task.status).not.toBe('pr_ready')
-        expect(taskLifecycleLabel(task, current)).not.toBe('review')
-        if (taskNeedsRefinement(task)) {
-          expect(taskLifecycleLabel(task, current)).toBe('refining')
-        } else {
-          expect(taskLifecycleLabel(task, current)).toBe('coding')
-        }
-      }
-      return
-    }
-
-    throw new Error('requirements never finished refining')
-  })
-
-  it('does not let coders finish tasks that still have refine passes (including after last requirement)', () => {
+  it('leaves refined tasks ready for coding without extra refine passes', () => {
     const base = stateWithCash(initialPlaying(42), 50_000)
     const project = base.projects[0]!
     const template = base.agents[0]!
@@ -153,8 +97,8 @@ describe('refine-passes-before-coding', () => {
         {
           ...template,
           id: 'coder-2',
-          job: null,
-          projectId: null,
+          job: 'code' as const,
+          projectId: project.id,
           status: 'idle',
           taskId: null,
           contextUsed: 0,
@@ -164,84 +108,21 @@ describe('refine-passes-before-coding', () => {
       projects: [
         {
           ...project,
-          roleCounts: { refine: 1, code: 2, review: 1, test: 0, conductor: 0 },
+          roleCounts: { refine: 1, code: 1, review: 0, test: 0, conductor: 0 },
         },
       ],
     }
 
-    state = dispatchChain(state, [
-      adjustRoleCountMsg(T0 + 100, project.id, 'code', 1),
-      adjustRoleCountMsg(T0 + 101, project.id, 'code', 1),
-      adjustRoleCountMsg(T0 + 102, project.id, 'review', 1),
-    ])
-
-    let lastReqRefinedAt: number | null = null
-    for (let tick = 0; tick < 2500; tick++) {
+    for (let tick = 0; tick < 400; tick++) {
       state = dispatchChain(state, [timeElapsed(T0 + tick * 5, 5)])
-      assertNoPrReadyWhileRefining(state, `tick=${tick}`)
-
       const current = state.projects[0]!
-      if (current.requirements.every((r) => r.status !== 'open') && lastReqRefinedAt === null) {
-        lastReqRefinedAt = tick
-      }
-      if (lastReqRefinedAt !== null && tick <= lastReqRefinedAt + 30) {
-        assertNoPrReadyWhileRefining(state, `after-last-req tick=${tick}`)
+      if (current.tasks.length > 0) {
+        expect(current.tasks.every((task) => (task.refinePassesRemaining ?? 0) === 0)).toBe(true)
+        return
       }
     }
 
-    expect(lastReqRefinedAt).not.toBeNull()
-  })
-
-  it('keeps tier passes on tasks created before the last requirement is refined', () => {
-    const base = initialPlaying()
-    const project = base.projects[0]!
-    const tier = 2
-    let state: GameState = {
-      ...base,
-      vibingCourseTiers: { refinement: tier },
-      vibingCourses: ['refinement'],
-      agents: base.agents.map((a) => ({
-        ...a,
-        contextUsed: 0,
-        compactingRemainingSec: 0,
-        status: 'refining' as const,
-      })),
-      projects: [
-        {
-          ...project,
-          roleCounts: { refine: 1, code: 0, review: 0, test: 0, conductor: 0 },
-        },
-      ],
-    }
-
-    let snapshotAtLastReq: Map<string, number> | null = null
-
-    for (let tick = 0; tick < 300; tick++) {
-      const before = state.projects[0]!
-      const openBefore = before.requirements.filter((r) => r.status === 'open').length
-
-      state = dispatchChain(state, [timeElapsed(T0 + tick * 5, 5)])
-
-      const after = state.projects[0]!
-      if (openBefore === 1 && after.requirements.every((r) => r.status !== 'open')) {
-        snapshotAtLastReq = new Map(
-          after.tasks
-            .filter((t) => !t.isReviewComment)
-            .map((t) => [t.id, t.refinePassesRemaining ?? 0]),
-        )
-      }
-
-      if (snapshotAtLastReq) {
-        for (const task of after.tasks.filter((t) => !t.isReviewComment)) {
-          const passesAtLast = snapshotAtLastReq.get(task.id)
-          if (passesAtLast !== undefined) {
-            expect(task.refinePassesRemaining ?? 0).toBe(passesAtLast)
-          }
-        }
-      }
-    }
-
-    expect(snapshotAtLastReq).not.toBeNull()
+    throw new Error('requirements never refined into tasks')
   })
 
   it('applies refinement tier to requirements refined after buying the course mid-pipeline', () => {
@@ -273,7 +154,10 @@ describe('refine-passes-before-coding', () => {
         ])
       }
       state = dispatchChain(state, [timeElapsed(T0 + tick * 5, 5)])
-      assertNoPrReadyWhileRefining(state, `mid-buy tick=${tick}`)
     }
+
+    const tasks = state.projects[0]!.tasks.filter((task) => !task.isReviewComment)
+    expect(tasks.length).toBeGreaterThan(1)
+    expect(tasks.every((task) => (task.refinePassesRemaining ?? 0) === 0)).toBe(true)
   })
 })

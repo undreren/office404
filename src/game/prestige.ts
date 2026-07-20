@@ -13,6 +13,7 @@ export const PIPELINE_HALLUCINATION_MAX_LEVEL = 4
 export const TIME_DISTILLATION_MAX_LEVEL = 5
 export const GPU_EFFICIENCY_HALLUCINATION_MAX_LEVEL = 4
 export const RAM_EFFICIENCY_HALLUCINATION_MAX_LEVEL = 5
+export const HAPPY_CUSTOMERS_MAX_LEVEL = 5
 export const AFFORDABLE_HOUSING_MAX_LEVEL = 9
 
 export const PIPELINE_HALLUCINATION_TRACKS = ['refine', 'code', 'review', 'test'] as const
@@ -43,6 +44,7 @@ export const HALLUCINATION_TRACKS = [
   'marketing',
   'accounting',
   'super_conductor',
+  'happy_customers',
 ] as const
 
 export type HallucinationTrack = (typeof HALLUCINATION_TRACKS)[number]
@@ -196,6 +198,12 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
     description:
       'While the PM specialist is on duty, client projects use conductor automation without staffing a conductor agent.',
   },
+  happy_customers: {
+    label: 'Happy customers',
+    tagline: 'NPS is a feeling. Revenue is a spreadsheet.',
+    maxLevel: HAPPY_CUSTOMERS_MAX_LEVEL,
+    description: '+25% MRR per level. They love the product. The product does not exist.',
+  },
 }
 
 const TRACK_BASE_COST: Record<HallucinationTrack, number> = {
@@ -222,6 +230,7 @@ const TRACK_BASE_COST: Record<HallucinationTrack, number> = {
   marketing: 2,
   accounting: 2,
   super_conductor: 2,
+  happy_customers: 1,
 }
 
 const TRACK_COST_MULT = 2
@@ -271,7 +280,9 @@ export function canRetire(cash: number, highestRungEver: number): boolean {
 }
 
 export function hallucinationUpgradeCost(track: HallucinationTrack, currentLevel: number): number {
-  if (track === 'affordable_housing') return currentLevel + 1
+  if (track === 'happy_customers' || track === 'affordable_housing') {
+    return currentLevel + 1
+  }
   const base = TRACK_BASE_COST[track]
   return Math.ceil(base * Math.pow(TRACK_COST_MULT, currentLevel))
 }
@@ -365,6 +376,16 @@ export function compactionDurationSec(meta: MetaProgress): number {
 /** Multiplier on in-game time speed (days per real minute). Base 1, +1 per level. */
 export function timeDistillationMultiplier(meta: MetaProgress): number {
   return 1 + Math.min(getHallucinationLevel(meta, 'time_distillation'), TIME_DISTILLATION_MAX_LEVEL)
+}
+
+/** +25% effective MRR per happy_customers level. */
+export function happyCustomersMrrMultiplier(meta: MetaProgress): number {
+  const level = Math.min(getHallucinationLevel(meta, 'happy_customers'), HAPPY_CUSTOMERS_MAX_LEVEL)
+  return 1 + level * 0.25
+}
+
+export function effectiveMrr(mrr: number, meta: MetaProgress): number {
+  return mrr * happyCustomersMrrMultiplier(meta)
 }
 
 export function hasInHouseUnlocked(meta: MetaProgress): boolean {

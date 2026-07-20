@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { formatCash } from '../game/cash'
 import { formatStoryPoints } from '../game/mechanics'
-import { maxProductProjectSlots } from '../game/prestige'
+import { maxProductProjectSlots, effectiveMrr } from '../game/prestige'
 import { canAccessProduct, countActiveProductProjects } from '../game/product'
 import { isReadyToDeliver } from '../game/simulation/gameLogic'
 import { activateProductFeatureMsg } from '../game/messages'
@@ -52,6 +52,7 @@ export function ProductPanel() {
   const dispatchPurchase = useGameDispatchPurchase()
   const { productIndex, setProductIndex } = useTabNav()
   const { meta, mrr, productBacklog, projects, productFeaturesShipped } = state
+  const displayMrr = effectiveMrr(mrr, meta)
   const columnsRef = useRef<HTMLDivElement>(null)
   const unlocked = canAccessProduct(meta)
   const maxSlots = unlocked ? maxProductProjectSlots(meta) : 0
@@ -93,9 +94,9 @@ export function ProductPanel() {
         <p className="panel__subtitle">In-house features that print MRR. Same pipeline, fewer client tantrums.</p>
         <p
           className="hint"
-          aria-label={`MRR ${formatCash(mrr)} per day, ${productFeaturesShipped} features shipped`}
+          aria-label={`MRR ${formatCash(displayMrr)} per day, ${productFeaturesShipped} features shipped`}
         >
-          {formatCash(mrr)}/day MRR · {productFeaturesShipped} feature
+          {formatCash(displayMrr)}/day MRR · {productFeaturesShipped} feature
           {productFeaturesShipped === 1 ? '' : 's'} shipped · {activeCount}/{maxSlots} active slot
           {maxSlots === 1 ? '' : 's'}
         </p>

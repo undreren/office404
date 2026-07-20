@@ -127,6 +127,7 @@ import {
   startingCapitalBonus,
   maxProductProjectSlots,
   timeDistillationMultiplier,
+  effectiveMrr,
   type HallucinationTrack,
 } from '../prestige'
 import { createDefaultMeta } from '../meta'
@@ -1653,7 +1654,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   gameDay += dayProgress
   rentDueInDays -= dayProgress
   apartmentLeaseRemaining -= dayProgress
-  cash += mrr * dayProgress
+  cash += effectiveMrr(mrr, meta) * dayProgress
 
   if (rentDueInDays <= 0) {
     const affordableHousingLevel = getHallucinationLevel(meta, 'affordable_housing')
@@ -3115,8 +3116,8 @@ export function setMaxClientProjects(state: GameState, slots: number, at: number
   return withCtx(nextState, ctx, at)
 }
 
-export function getNetWorth(state: Pick<GameState, 'cash' | 'mrr'>): number {
-  return state.cash + state.mrr * 30
+export function getNetWorth(state: Pick<GameState, 'cash' | 'mrr' | 'meta'>): number {
+  return state.cash + effectiveMrr(state.mrr, state.meta) * 30
 }
 
 export function getNextApartment(state: Pick<GameState, 'apartment'>): import('../types').ApartmentTier | null {

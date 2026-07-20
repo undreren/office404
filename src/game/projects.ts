@@ -9,7 +9,6 @@ import {
   pickLeadTotalStoryPoints,
   clientPaymentForTotalSp,
   repZeroPaymentMultiplier,
-  refinementAutoSplitChance,
   reviewCommentSpawnPlan,
   prQualityAfterComments,
   taskMeetsTokenGoal,
@@ -18,9 +17,8 @@ import {
   bestOfNTier,
 } from './mechanics'
 import { pickBugDescription, pickSubtaskTitles } from './refinementContent'
+import { REFINEMENT_MAX_TIER } from './upgrades'
 import { type SimCtx, ctxFrom, uid } from './simulation/simCtx'
-
-export type { SimCtx } from './simulation/simCtx'
 
 const BLURBS = [
   'Rebuild the dashboard but make it "pop".',
@@ -517,23 +515,24 @@ function splitStoryPoints(total: number): [number, number] | null {
   return [spA, spB]
 }
 
+/** Recursive Fibonacci splits — depth is the number of split levels applied. */
+export function storyPointsAfterRefinementSplit(sp: number, depth: number): number[] {
+  if (depth <= 0 || sp <= 1) return [sp]
+  const split = splitStoryPoints(sp)
+  if (split === null) return [sp]
+  const [spA, spB] = split
+  return [
+    ...storyPointsAfterRefinementSplit(spA, depth - 1),
+    ...storyPointsAfterRefinementSplit(spB, depth - 1),
+  ]
+}
+
+export function refinementSplitDepth(refinementTierLevel: number): number {
+  return Math.min(REFINEMENT_MAX_TIER, Math.max(0, refinementTierLevel))
+}
+
 function passesAfterRefine(task: Task): number {
   return Math.max(0, (task.refinePassesRemaining ?? 0) - 1)
-}
-
-function splitOptionsForTier(refinementTierLevel: number): { autoSplitChance: number } {
-  return { autoSplitChance: refinementAutoSplitChance(refinementTierLevel) }
-}
-
-function shouldSplitStoryPoints(
-  ctx: SimCtx,
-  sp: number,
-  options: { autoSplitChance?: number; forceSingle?: boolean },
-): boolean {
-  const { autoSplitChance = 0, forceSingle = false } = options
-  if (forceSingle || sp < 2 || splitStoryPoints(sp) === null) return false
-  if (autoSplitChance <= 0) return false
-  return ctx.rng.chance(autoSplitChance)
 }
 
 function tasksFromSplit(
@@ -575,25 +574,24 @@ export function refineRequirementToTasks(
   options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean; refinementTier?: number } = {},
 ): Task[] {
   const { refinementTier: refinementTierLevel = 0, forceSingle = false } = options
-  const tierSplit = splitOptionsForTier(refinementTierLevel)
-  const sp = requirement.storyPoints
-  const shouldSplit = shouldSplitStoryPoints(ctx, sp, {
-    autoSplitChance: options.forceSplit || options.preferSplit ? 1 : tierSplit.autoSplitChance,
-    forceSingle,
-  })
+  let depth = refinementSplitDepth(refinementTierLevel)
+  if (forceSingle) depth = 0
+  if (options.forceSplit || options.preferSplit) depth = Math.max(depth, 1)
 
-  if (shouldSplit) {
-    return tasksFromSplit(ctx, requirement.projectId, requirement.title, sp, requirement.id, null, 0)
-  }
-
-  const refinePassesRemaining = refinementTierLevel
-  const [title] = pickSubtaskTitles(ctx.rng, requirement.title, 1)
-  return [
-    {
-      ...createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id),
-      refinePassesRemaining,
-    },
-  ]
+  const chunks = storyPointsAfterRefinementSplit(requirement.storyPoints, depth)
+  const titles = pickSubtaskTitles(ctx.rng, requirement.title, chunks.length)
+  return chunks.map((sp, index) => ({
+    ...createTask(
+      ctx,
+      requirement.projectId,
+      titles[index]!,
+      sp,
+      fibIndex(sp),
+      null,
+      requirement.id,
+    ),
+    refinePassesRemaining: 0,
+  }))
 }
 
 export function taskNeedsRefinement(task: Task): boolean {
