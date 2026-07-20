@@ -83,5 +83,3 @@ export const REP_ZERO_MAX_TASK_SP = 3
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60
 /** Ignore sub-threshold gaps so tab flips do not spam catch-up. */
 export const MIN_OFFLINE_APPLY_SEC = 5
-/** Max wall-clock ms per catch-up step (keeps conductor reassignment cadence). */
-export const CATCHUP_MAX_STEP_MS = 1000

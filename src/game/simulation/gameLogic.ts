@@ -1805,6 +1805,7 @@ function advanceTimeCore(
               nextProjects = result.projects
               if (result.becamePrReady) {
                 agent.taskId = null
+                agent.status = 'idle'
                 emitter.emit(
                   ctx,
                   meta, 'project',
@@ -1813,6 +1814,7 @@ function advanceTimeCore(
                 )
               } else if (result.becameDone) {
                 agent.taskId = null
+                agent.status = 'idle'
                 const parentId = taskRef.task.parentTaskId
                 emitter.emit(
                   ctx,

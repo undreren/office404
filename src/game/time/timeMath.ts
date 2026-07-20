@@ -2,6 +2,22 @@ import { SECONDS_PER_GAME_DAY, TICK_INTERVAL_MS } from '../constants'
 import { timeDistillationMultiplier } from '../prestige'
 import type { GameState } from '../types'
 
+/** Wall-clock ms when no further simulation events are scheduled. */
+export const TIME_NEVER = Number.POSITIVE_INFINITY
+
+/** Earliest timestamp strictly after `afterMs`, or TIME_NEVER when none. */
+export function earliestAfter(boundaries: readonly number[], afterMs: number): number {
+  const future = boundaries.filter((t) => Number.isFinite(t) && t > afterMs)
+  if (future.length === 0) return TIME_NEVER
+  return Math.min(...future)
+}
+
+/** Catch-up step horizon: min(target, next event), or target when nothing is scheduled. */
+export function stepBoundaryMs(timeToNext: number, targetTime: number, afterMs: number): number {
+  if (!Number.isFinite(timeToNext) || timeToNext <= afterMs) return targetTime
+  return Math.min(targetTime, timeToNext)
+}
+
 /** Real milliseconds corresponding to simulated seconds at the current distillation rate. */
 export function wallMsForSimSec(state: GameState, simSec: number): number {
   const distillation = timeDistillationMultiplier(state.meta)

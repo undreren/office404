@@ -1,16 +1,32 @@
 import type { GameState } from '../types'
 import type { AdvanceTimeResult } from './types'
 import { advanceGameStateStep } from './catchUp'
-import { advanceAgentTime } from './composites/agentTime'
-import { advanceCalendarTime } from './composites/calendarTime'
-import { advanceLeadPipelineTime } from './composites/leadTime'
-import { advanceProjectTime } from './composites/projectTime'
+import { advanceAgentTime, timeToNextAgent } from './composites/agentTime'
+import { advanceCalendarTime, timeToNextCalendar } from './composites/calendarTime'
+import { advanceLeadPipelineTime, timeToNextLeadPipeline } from './composites/leadTime'
+import { advanceProjectTime, timeToNextProject } from './composites/projectTime'
 import { mergeAdvanceResults, syncChildAdvances } from './syncChildren'
+import { TIME_NEVER } from './timeMath'
 
-export { advanceAgentTime } from './composites/agentTime'
-export { advanceProjectTime } from './composites/projectTime'
-export { advanceCalendarTime } from './composites/calendarTime'
-export { advanceLeadPipelineTime } from './composites/leadTime'
+export { advanceAgentTime, timeToNextAgent } from './composites/agentTime'
+export { advanceProjectTime, timeToNextProject } from './composites/projectTime'
+export { advanceCalendarTime, timeToNextCalendar } from './composites/calendarTime'
+export { advanceLeadPipelineTime, timeToNextLeadPipeline } from './composites/leadTime'
+
+/** Earliest wall-clock ms when any child composite must pause simulation. */
+export function timeToNextGameState(state: GameState): number {
+  if (state.phase !== 'playing') return TIME_NEVER
+
+  const childTimes = [
+    timeToNextCalendar(state),
+    timeToNextLeadPipeline(state),
+    ...state.projects.map((project) => timeToNextProject(project, state)),
+    ...state.agents.map((agent) => timeToNextAgent(agent, state)),
+  ]
+  const finite = childTimes.filter((t) => Number.isFinite(t))
+  if (finite.length === 0) return TIME_NEVER
+  return Math.min(...finite)
+}
 
 /** Negotiate the next simulation step horizon from composite boundary probes. */
 export function negotiateStepBoundary(state: GameState, targetTime: number): number {

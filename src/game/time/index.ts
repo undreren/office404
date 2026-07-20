@@ -17,6 +17,11 @@ export {
   advanceProjectTime,
   advanceCalendarTime,
   advanceLeadPipelineTime,
+  timeToNextGameState,
+  timeToNextAgent,
+  timeToNextProject,
+  timeToNextCalendar,
+  timeToNextLeadPipeline,
 } from './gameStateTime'
 export {
   gameDayAt,
@@ -24,4 +29,7 @@ export {
   isCaughtUp,
   simSecForWallMs,
   wallMsForSimSec,
+  TIME_NEVER,
+  earliestAfter,
+  stepBoundaryMs,
 } from './timeMath'

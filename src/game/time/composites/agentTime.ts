@@ -8,7 +8,7 @@ import {
 import type { Agent, GameState } from '../../types'
 import { agentOutputTokensPerSec, contextTokensForState } from '../../simulation/tokenSimulation'
 import type { AdvanceTimeResult } from '../types'
-import { wallMsForSimSec } from '../timeMath'
+import { earliestAfter, stepBoundaryMs, wallMsForSimSec } from '../timeMath'
 
 function compactionEndMs(state: GameState, agent: Agent): number | null {
   if (agent.status !== 'compacting' || agent.compactingRemainingSec <= 0) return null
@@ -79,8 +79,7 @@ function refineCompleteMs(state: GameState, agent: Agent, agents: Agent[]): numb
   return taskRoleCompleteMs(state, agent, agents, savedProgress, required, targetId)
 }
 
-function probeAgentBoundaryMs(state: GameState, agent: Agent, targetTime: number): number {
-  const from = state.snapshotAt
+function agentEventBoundaries(state: GameState, agent: Agent): number[] {
   const boundaries: number[] = []
   const contextTokens = contextTokensForState(state)
   const compactDuration = compactionDurationSec(state.meta)
@@ -145,9 +144,12 @@ function probeAgentBoundaryMs(state: GameState, agent: Agent, targetTime: number
     boundaries.push(state.snapshotAt + wallMsForSimSec(state, compactDuration))
   }
 
-  const finite = boundaries.filter((t) => Number.isFinite(t) && t > from && t <= targetTime)
-  if (finite.length === 0) return targetTime
-  return Math.min(targetTime, ...finite)
+  return boundaries
+}
+
+/** Earliest wall-clock ms when this agent emits a time-driven simulation event. */
+export function timeToNextAgent(agent: Agent, state: GameState): number {
+  return earliestAfter(agentEventBoundaries(state, agent), state.snapshotAt)
 }
 
 /** Probe when this agent would next emit a time-driven simulation event. */
@@ -156,6 +158,6 @@ export function advanceAgentTime(
   targetTime: number,
   state: GameState,
 ): AdvanceTimeResult<Agent> {
-  const timestamp = probeAgentBoundaryMs(state, agent, targetTime)
+  const timestamp = stepBoundaryMs(timeToNextAgent(agent, state), targetTime, state.snapshotAt)
   return { value: agent, messages: [], timestamp }
 }
