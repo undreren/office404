@@ -7,7 +7,17 @@ export {
   applyAdvanceStep,
 } from './catchUp'
 export { catchUpOffline } from './offlineCatchUp'
+export { advanceSimulationDelta } from './simulation'
 export { findNextBoundaryMs } from './nextBoundary'
+export {
+  advanceTime,
+  negotiateStepBoundary,
+  syncAgentAdvances,
+  advanceAgentTime,
+  advanceProjectTime,
+  advanceCalendarTime,
+  advanceLeadPipelineTime,
+} from './gameStateTime'
 export {
   gameDayAt,
   gameSecElapsedAt,
