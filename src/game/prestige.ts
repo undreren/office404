@@ -14,6 +14,7 @@ export const TIME_DISTILLATION_MAX_LEVEL = 5
 export const GPU_EFFICIENCY_HALLUCINATION_MAX_LEVEL = 4
 export const RAM_EFFICIENCY_HALLUCINATION_MAX_LEVEL = 5
 export const HAPPY_CUSTOMERS_MAX_LEVEL = 5
+export const AFFORDABLE_HOUSING_MAX_LEVEL = 9
 
 export const PIPELINE_HALLUCINATION_TRACKS = ['refine', 'code', 'review', 'test'] as const
 export type PipelineHallucinationTrack = (typeof PIPELINE_HALLUCINATION_TRACKS)[number]
@@ -27,6 +28,7 @@ export const HALLUCINATION_TRACKS = [
   'starting_capital',
   'starting_ram',
   'starting_gpu',
+  'affordable_housing',
   'gpu_efficiency',
   'ram_efficiency',
   'in_house',
@@ -93,6 +95,12 @@ export const HALLUCINATION_TRACK_DEFS: Record<HallucinationTrack, HallucinationT
     tagline: 'Silicon you definitely paid for. Probably.',
     description:
       '+1 GPU tick immediately on purchase, and on each new run after retirement. Free capacity — does not count toward shop GPU limits or pricing.',
+  },
+  affordable_housing: {
+    label: 'Affordable Housing',
+    tagline: 'Rent control, but the controller is a language model.',
+    maxLevel: AFFORDABLE_HOUSING_MAX_LEVEL,
+    description: '−10% rent and move-in costs per level (90% off at max).',
   },
   gpu_efficiency: {
     label: 'CUDA mirage',
@@ -206,6 +214,7 @@ const TRACK_BASE_COST: Record<HallucinationTrack, number> = {
   starting_capital: 1,
   starting_ram: 2,
   starting_gpu: 2,
+  affordable_housing: 1,
   gpu_efficiency: 2,
   ram_efficiency: 2,
   in_house: 3,
@@ -271,7 +280,7 @@ export function canRetire(cash: number, highestRungEver: number): boolean {
 }
 
 export function hallucinationUpgradeCost(track: HallucinationTrack, currentLevel: number): number {
-  if (track === 'happy_customers') {
+  if (track === 'happy_customers' || track === 'affordable_housing') {
     return currentLevel + 1
   }
   const base = TRACK_BASE_COST[track]
