@@ -515,20 +515,14 @@ function splitStoryPoints(total: number): [number, number] | null {
   return [spA, spB]
 }
 
-/** Recursive Fibonacci splits — depth is the number of split levels applied. */
-export function storyPointsAfterRefinementSplit(sp: number, depth: number): number[] {
-  if (depth <= 0 || sp <= 1) return [sp]
-  const split = splitStoryPoints(sp)
-  if (split === null) return [sp]
-  const [spA, spB] = split
-  return [
-    ...storyPointsAfterRefinementSplit(spA, depth - 1),
-    ...storyPointsAfterRefinementSplit(spB, depth - 1),
-  ]
-}
-
+/** Remaining split rounds after one refine step at the given tier. */
 export function refinementSplitDepth(refinementTierLevel: number): number {
   return Math.min(REFINEMENT_MAX_TIER, Math.max(0, refinementTierLevel))
+}
+
+function passesAfterRequirementRefine(refinementTierLevel: number): number {
+  const tier = refinementSplitDepth(refinementTierLevel)
+  return Math.max(0, tier - 1)
 }
 
 function passesAfterRefine(task: Task): number {
@@ -574,24 +568,34 @@ export function refineRequirementToTasks(
   options: { preferSplit?: boolean; forceSplit?: boolean; forceSingle?: boolean; refinementTier?: number } = {},
 ): Task[] {
   const { refinementTier: refinementTierLevel = 0, forceSingle = false } = options
-  let depth = refinementSplitDepth(refinementTierLevel)
-  if (forceSingle) depth = 0
-  if (options.forceSplit || options.preferSplit) depth = Math.max(depth, 1)
+  const sp = requirement.storyPoints
 
-  const chunks = storyPointsAfterRefinementSplit(requirement.storyPoints, depth)
-  const titles = pickSubtaskTitles(ctx.rng, requirement.title, chunks.length)
-  return chunks.map((sp, index) => ({
-    ...createTask(
-      ctx,
-      requirement.projectId,
-      titles[index]!,
-      sp,
-      fibIndex(sp),
-      null,
-      requirement.id,
-    ),
-    refinePassesRemaining: 0,
-  }))
+  if (options.forceSplit || options.preferSplit) {
+    return tasksFromSplit(ctx, requirement.projectId, requirement.title, sp, requirement.id, null, 0)
+  }
+
+  if (forceSingle || refinementSplitDepth(refinementTierLevel) <= 0) {
+    const [title] = pickSubtaskTitles(ctx.rng, requirement.title, 1)
+    return [
+      {
+        ...createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id),
+        refinePassesRemaining: 0,
+      },
+    ]
+  }
+
+  const passesAfter = passesAfterRequirementRefine(refinementTierLevel)
+  if (splitStoryPoints(sp) !== null) {
+    return tasksFromSplit(ctx, requirement.projectId, requirement.title, sp, requirement.id, null, passesAfter)
+  }
+
+  const [title] = pickSubtaskTitles(ctx.rng, requirement.title, 1)
+  return [
+    {
+      ...createTask(ctx, requirement.projectId, title, sp, fibIndex(sp), null, requirement.id),
+      refinePassesRemaining: passesAfter,
+    },
+  ]
 }
 
 export function taskNeedsRefinement(task: Task): boolean {

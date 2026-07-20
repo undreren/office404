@@ -52,7 +52,7 @@ export const VIBING_COURSES: VibingCourse[] = [
     tagline: 'Split it once. Maybe twice if the vibes align.',
     cost: 250,
     description:
-      'Each tier recursively splits refined requirements into smaller Fibonacci tasks (0 = one task, 3 = three split levels). Tasks at 1 SP or below never split.',
+      'Each tier adds one split round — requirements split once per refine step (0 = one task, 3 = three rounds). Tasks at 1 SP or below never split.',
     maxTier: REFINEMENT_MAX_TIER,
   },
   {
