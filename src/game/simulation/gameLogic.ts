@@ -2913,7 +2913,14 @@ export function retire(state: GameState, at: number): GameState {
     retirementCount: state.meta.retirementCount + 1,
   }
 
-  return createInitialState(at, state.rng, newMeta, { includeTutorial: false })
+  const next = createInitialState(at, state.rng, newMeta, { includeTutorial: false })
+  return {
+    ...next,
+    seenStoryIntro: state.seenStoryIntro,
+    acknowledgedTutorialStep: state.acknowledgedTutorialStep,
+    seenTabIntros: state.seenTabIntros,
+    seenCompactionIntro: state.seenCompactionIntro,
+  }
 }
 
 const SPECIALIST_HALLUCINATION_TRACKS = [
