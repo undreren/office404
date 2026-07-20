@@ -187,3 +187,17 @@ export function housingMeetsRequirement(current: ApartmentTier, required: Apartm
 export function isSingularityEligible(apartment: ApartmentTier, customerHallucinationLevel: number): boolean {
   return apartment === 'dyson_sphere' && customerHallucinationLevel >= 3
 }
+
+/** Multiplier on rent and move-in costs from Affordable Housing hallucination (−10% per level, min 10%). */
+export function housingCostMultiplier(affordableHousingLevel: number): number {
+  const level = Math.min(Math.max(0, affordableHousingLevel), 9)
+  return Math.max(0.1, 1 - level * 0.1)
+}
+
+export function effectiveHousingRent(apartment: ApartmentTier, affordableHousingLevel = 0): number {
+  return Math.round(HOUSING_CONFIG[apartment].rent * housingCostMultiplier(affordableHousingLevel))
+}
+
+export function effectiveHousingUpgradeCost(apartment: ApartmentTier, affordableHousingLevel = 0): number {
+  return Math.round(HOUSING_CONFIG[apartment].upgradeCost * housingCostMultiplier(affordableHousingLevel))
+}

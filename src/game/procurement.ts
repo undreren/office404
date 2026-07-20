@@ -1,5 +1,5 @@
 import { formatCash } from './cash'
-import { HOUSING_CONFIG, nextHousingTier } from './housing'
+import { HOUSING_CONFIG, effectiveHousingUpgradeCost, nextHousingTier } from './housing'
 import { getHallucinationLevel } from './meta'
 import {
   FINE_TUNE_LABELS,
@@ -73,7 +73,8 @@ export function findCheapestProcurementPurchase(
 
   const nextApt = nextHousingTier(state.apartment)
   if (nextApt) {
-    const cost = HOUSING_CONFIG[nextApt].upgradeCost
+    const affordableHousingLevel = getHallucinationLevel(state.meta, 'affordable_housing')
+    const cost = effectiveHousingUpgradeCost(nextApt, affordableHousingLevel)
     consider({ kind: 'housing', cost, next: nextApt }, cost)
   }
 

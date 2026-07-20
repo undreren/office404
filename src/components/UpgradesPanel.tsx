@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { HOUSING_CONFIG } from '../game/housing'
+import { HOUSING_CONFIG, effectiveHousingRent, effectiveHousingUpgradeCost } from '../game/housing'
 import { getHallucinationLevel } from '../game/meta'
 import {
   FINE_TUNE_DESCRIPTIONS,
@@ -82,10 +82,13 @@ function ShopMaxedToggle({
 }
 
 function HousingSection() {
-  const { cash, apartment } = useGameState()
+  const { cash, apartment, meta } = useGameState()
   const dispatchPurchase = useGameDispatchPurchase()
   const nextApt = getNextApartment({ apartment })
   const housing = HOUSING_CONFIG[apartment]
+  const affordableHousingLevel = getHallucinationLevel(meta, 'affordable_housing')
+  const nextRent = nextApt ? effectiveHousingRent(nextApt, affordableHousingLevel) : 0
+  const nextMoveCost = nextApt ? effectiveHousingUpgradeCost(nextApt, affordableHousingLevel) : 0
 
   return (
     <div className="market-section">
@@ -102,17 +105,17 @@ function HousingSection() {
           </header>
           <p className="vendor-tagline">&ldquo;{HOUSING_CONFIG[nextApt].tagline}&rdquo;</p>
           <p className="hint">
-            Rent ${HOUSING_CONFIG[nextApt].rent}/30d · up to {HOUSING_CONFIG[nextApt].maxRamPurchases} RAM &amp;{' '}
+            Rent ${nextRent}/30d · up to {HOUSING_CONFIG[nextApt].maxRamPurchases} RAM &amp;{' '}
             {HOUSING_CONFIG[nextApt].maxGpuPurchases} GPU total · MRR ×{HOUSING_CONFIG[nextApt].mrrMultiplier}
           </p>
           <button
           type="button"
           className="btn btn--deploy"
-          aria-label={`Move to ${HOUSING_CONFIG[nextApt].label} for ${formatCash(HOUSING_CONFIG[nextApt].upgradeCost)}`}
+          aria-label={`Move to ${HOUSING_CONFIG[nextApt].label} for ${formatCash(nextMoveCost)}`}
           onClick={() => dispatchPurchase(upgradeApartmentMsg(Date.now()))}
-          disabled={cash < HOUSING_CONFIG[nextApt].upgradeCost}
+          disabled={cash < nextMoveCost}
         >
-          Move to {HOUSING_CONFIG[nextApt].label} ({formatCash(HOUSING_CONFIG[nextApt].upgradeCost)})
+          Move to {HOUSING_CONFIG[nextApt].label} ({formatCash(nextMoveCost)})
         </button>
         </article>
       )}

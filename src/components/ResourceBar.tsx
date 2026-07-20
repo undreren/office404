@@ -1,5 +1,5 @@
 import { formatCash } from '../game/cash'
-import { HOUSING_CONFIG } from '../game/housing'
+import { HOUSING_CONFIG, effectiveHousingRent } from '../game/housing'
 import { formatGameClock, formatPercent } from '../game/mechanics'
 import { getHallucinationLevel } from '../game/meta'
 import { MODEL_TIERS } from '../game/models'
@@ -23,7 +23,8 @@ export function ResourceBar({ compact = false }: ResourceBarProps) {
   const retireThreshold = personalRetirementThreshold(meta.highestRungEver)
   const retirePct = Math.min(100, (cash / retireThreshold) * 100)
   const housing = HOUSING_CONFIG[apartment]
-  const rentAmount = housing.rent
+  const affordableHousingLevel = getHallucinationLevel(meta, 'affordable_housing')
+  const rentAmount = effectiveHousingRent(apartment, affordableHousingLevel)
   const compactSummary = compact
     ? [
         `Cash ${formatCash(cash)}`,
