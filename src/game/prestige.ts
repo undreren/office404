@@ -10,12 +10,9 @@ export const PLATEAU_HOURS = 2
 export const PRESTIGE_START_CASH = 200
 
 export const PIPELINE_HALLUCINATION_MAX_LEVEL = 4
-<<<<<<< HEAD
 export const TIME_DISTILLATION_MAX_LEVEL = 5
-=======
 export const GPU_EFFICIENCY_HALLUCINATION_MAX_LEVEL = 4
 export const RAM_EFFICIENCY_HALLUCINATION_MAX_LEVEL = 5
->>>>>>> 32d15b8 (Add GPU and RAM efficiency hallucination upgrades)
 
 export const PIPELINE_HALLUCINATION_TRACKS = ['refine', 'code', 'review', 'test'] as const
 export type PipelineHallucinationTrack = (typeof PIPELINE_HALLUCINATION_TRACKS)[number]
