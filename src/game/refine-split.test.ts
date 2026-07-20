@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { refinementAutoSplitChance } from './mechanics'
-import { refineRequirementToTasks } from './projects'
+import { refinementSplitDepth, refineRequirementToTasks, storyPointsAfterRefinementSplit } from './projects'
 import { ctxFrom } from './simulation/simCtx'
 import type { GameState, Requirement } from './types'
 import { initialPlaying } from './usecases/_helpers/initialPlaying'
 
 describe('refineRequirementToTasks', () => {
-  it('auto-splits at refinement tier 4 with deterministic rng', () => {
+  it('keeps a single task at refinement tier 0', () => {
     const state = initialPlaying()
     const project = state.projects[0]!
     const requirement: Requirement = {
@@ -19,20 +18,45 @@ describe('refineRequirementToTasks', () => {
     }
     const ctx = ctxFrom(state as GameState)
 
-    const tasks = refineRequirementToTasks(ctx, requirement, {
-      refinementTier: 4,
-      forceSplit: true,
-    })
+    const tasks = refineRequirementToTasks(ctx, requirement, { refinementTier: 0 })
+
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]!.storyPointsRequired).toBe(5)
+    expect(tasks[0]!.refinePassesRemaining).toBe(0)
+  })
+
+  it('splits once at refinement tier 1', () => {
+    const state = initialPlaying()
+    const project = state.projects[0]!
+    const requirement: Requirement = {
+      id: 'req-5',
+      projectId: project.id,
+      title: 'Big feature',
+      storyPoints: 5,
+      status: 'open',
+      refinePassesUsed: 0,
+    }
+    const ctx = ctxFrom(state as GameState)
+
+    const tasks = refineRequirementToTasks(ctx, requirement, { refinementTier: 1 })
 
     expect(tasks).toHaveLength(2)
     expect(tasks[0]!.storyPointsRequired + tasks[1]!.storyPointsRequired).toBe(5)
     expect(tasks.every((t) => (t.refinePassesRemaining ?? 0) === 0)).toBe(true)
   })
 
-  it('adds 25% auto-split chance per refinement tier', () => {
-    expect(refinementAutoSplitChance(0)).toBe(0)
-    expect(refinementAutoSplitChance(1)).toBe(0.25)
-    expect(refinementAutoSplitChance(4)).toBe(1)
-    expect(refinementAutoSplitChance(5)).toBe(1)
+  it('recursively splits to depth 2', () => {
+    expect(storyPointsAfterRefinementSplit(5, 2)).toEqual([2, 1, 1, 1])
+    expect(storyPointsAfterRefinementSplit(5, 2).reduce((sum, sp) => sum + sp, 0)).toBe(5)
+  })
+
+  it('does not split 1-SP tasks', () => {
+    expect(storyPointsAfterRefinementSplit(1, 3)).toEqual([1])
+  })
+
+  it('caps refinement split depth at three', () => {
+    expect(refinementSplitDepth(5)).toBe(3)
+    expect(refinementSplitDepth(2)).toBe(2)
+    expect(refinementSplitDepth(0)).toBe(0)
   })
 })
