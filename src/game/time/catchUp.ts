@@ -1,7 +1,7 @@
 import { dispatch } from '../engine/dispatch'
 import type { GameMessage } from '../engine/Message'
 import type { GameState } from '../types'
-import { advanceSimulationDelta } from '../simulation/gameLogic'
+import { advanceSimulationDelta } from './simulation'
 import type { AdvanceTimeResult } from './types'
 import { findNextBoundaryMs } from './nextBoundary'
 import { isCaughtUp } from './timeMath'

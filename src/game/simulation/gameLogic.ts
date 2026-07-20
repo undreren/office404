@@ -1,7 +1,6 @@
 import type {
   Agent,
   AgentJob,
-  GameEvent,
   GameState,
   LeadSource,
   MainTabId,
@@ -56,7 +55,6 @@ import {
   JUST_MERGE_PR_QUALITY,
   LATE_FEE_PERCENT,
   LATE_REP_PENALTY_BASE,
-  MAX_EVENTS,
   ON_TIME_REP_BONUS,
   PRESTIGE_START_CASH,
   PROCUREMENT_CASH_FRACTION,
@@ -149,12 +147,13 @@ import {
   syntheticLeadIntervalDays,
   syntheticLeadPayMultiplier,
 } from '../hallucinationAutomation'
-import { derangeText, unhingedPrefix, unhingedTier } from '../unhinged'
 import { findCheapestProcurementPurchase, procurementEventMessage } from '../procurement'
 import { VIBING_COURSES, isVibingCourseVisible, PRODUCT_OWNER_COURSE_ID, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
 import type { SimulationDeltaResult } from './simulationDelta'
+import { pushEvent } from './events'
+import { TickEmitter } from '../time/simulation/tickEmitter'
 
 function spawnLeadForState(
   ctx: SimCtx,
@@ -196,25 +195,6 @@ function isProjectRole(job: AgentJob): job is ProjectRole {
     job === 'conductor'
   )
 }
-
-function eventMessage(ctx: SimCtx, meta: MetaProgress, message: string): string {
-  const tier = unhingedTier(meta.totalHallucinationsEarned)
-  const text = typeof message === 'string' ? message : ''
-  return unhingedPrefix(tier) + derangeText(text, tier, ctx.rng.state)
-}
-
-function pushEvent(
-  ctx: SimCtx,
-  meta: MetaProgress,
-  events: GameEvent[],
-  type: GameEvent['type'],
-  message: string,
-  at: number,
-): GameEvent[] {
-  const entry: GameEvent = { id: uid(ctx, 'evt'), timestamp: at, type, message: eventMessage(ctx, meta, message) }
-  return [entry, ...events].slice(0, MAX_EVENTS)
-}
-
 
 function emptyAgentJob(): Pick<Agent, 'job' | 'taskId' | 'projectId' | 'jobProgress' | 'jobDuration' | 'status'> {
   return { job: null, taskId: null, projectId: null, jobProgress: 0, jobDuration: 0, status: 'idle' }
@@ -1504,7 +1484,12 @@ function tryHotSwapCompactingAgent(
   compacting.status = 'compacting'
 }
 
-export function advanceTime(state: GameState, deltaSec: number, at: number): GameState {
+function advanceTimeCore(
+  state: GameState,
+  deltaSec: number,
+  at: number,
+  emitter: TickEmitter,
+): GameState {
   const ctx = ctxFrom(state)
   if (state.phase !== 'playing') return state
 
@@ -1520,7 +1505,6 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     agents,
     projects,
     leads,
-    events,
     stats,
     selectedTaskId,
     vibingCourses,
@@ -1546,7 +1530,6 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     tasks: p.tasks.map((t) => ({ ...t })),
   }))
   let nextLeads = leads.map((l) => ({ ...l }))
-  let nextEvents = [...events]
   let nextStats = { ...stats }
   const phase: GameState['phase'] = state.phase
 
@@ -1565,11 +1548,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     const rent = effectiveHousingRent(state.apartment, affordableHousingLevel)
     cash -= rent
     rentDueInDays += RENT_INTERVAL_DAYS
-    nextEvents = pushEvent(
+    emitter.emit(
       ctx,
-      meta,
-      nextEvents,
-      'system',
+      meta, 'system',
       `Rent due: -${formatCash(rent)}. Landlord sends a heart emoji.`,
       at,
     )
@@ -1621,11 +1602,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
           break
       }
 
-      nextEvents = pushEvent(
+      emitter.emit(
         ctx,
-        meta,
-        nextEvents,
-        'milestone',
+        meta, 'milestone',
         procurementEventMessage(purchase),
         at,
       )
@@ -1643,7 +1622,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     const slotsNeeding = clientSlotsNeedingLeads(state, nextProjects, nextLeads)
     if (slotsNeeding.length > 0 && availableLeadCount(nextLeads) < pipelineTarget) {
       nextLeads = [spawnLeadForState(ctx, leadSpawnState, reputation, gameDay, slotsNeeding[0]!), ...nextLeads]
-      nextEvents = pushEvent(ctx, meta, nextEvents, 'lead', 'New client lead appeared. They want it yesterday.', at)
+      emitter.emit(ctx, meta, 'lead', 'New client lead appeared. They want it yesterday.', at)
     }
 
     if (canMarketingSpawnSyntheticLeads(meta, nextAgents)) {
@@ -1655,11 +1634,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
             spawnLeadForState(ctx, leadSpawnState, reputation, gameDay, synthSlots[0]!, 'synthetic'),
             ...nextLeads,
           ]
-          nextEvents = pushEvent(
+          emitter.emit(
             ctx,
-            meta,
-            nextEvents,
-            'lead',
+            meta, 'lead',
             'Synthetic lead materialized from the funnel. Definitely real.',
             at,
           )
@@ -1681,11 +1658,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
       const repHit = Math.round(LATE_REP_PENALTY_BASE * project.repPenaltyMultiplier * project.lateCount)
       reputation = Math.max(0, reputation - repHit)
       project.repPenaltyMultiplier += 0.25
-      nextEvents = pushEvent(
+      emitter.emit(
         ctx,
-        meta,
-        nextEvents,
-        'project',
+        meta, 'project',
         `${project.clientName}: LATE. -${formatCash(fee)} fee, -${repHit} rep. Extension granted. Suffering continues.`,
         at,
       )
@@ -1721,7 +1696,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
       }
       agent = finishCompaction(agent)
       nextAgents[agentIdx] = agent
-      nextEvents = pushEvent(ctx, meta, nextEvents, 'crash', `${agent.name} rebooted. Back on task.`, at)
+      emitter.emit(ctx, meta, 'crash', `${agent.name} rebooted. Back on task.`, at)
     }
   }
 
@@ -1736,11 +1711,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
         agent.compactingRemainingSec = compactDuration
         agent.conductorMoveRemaining = 0
         nextStats.compactionsSurvived += 1
-        nextEvents = pushEvent(
+        emitter.emit(
           ctx,
-          meta,
-          nextEvents,
-          'crash',
+          meta, 'crash',
           `${agent.name} context full — rebooting (${compactDuration}s)...`,
           at,
         )
@@ -1771,11 +1744,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
       agent.compactingRemainingSec = compactDuration
       if (agent.contextUsed < contextTokens) agent.contextUsed = contextTokens
       nextStats.compactionsSurvived += 1
-      nextEvents = pushEvent(
+      emitter.emit(
         ctx,
-        meta,
-        nextEvents,
-        'crash',
+        meta, 'crash',
         `${agent.name} context full — rebooting (${compactDuration}s)...`,
         at,
       )
@@ -1834,22 +1805,18 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
               nextProjects = result.projects
               if (result.becamePrReady) {
                 agent.taskId = null
-                nextEvents = pushEvent(
+                emitter.emit(
                   ctx,
-                  meta,
-                  nextEvents,
-                  'project',
+                  meta, 'project',
                   `${agent.name} finished "${taskRef.task.title}". PR opened — ready for review.`,
                   at,
                 )
               } else if (result.becameDone) {
                 agent.taskId = null
                 const parentId = taskRef.task.parentTaskId
-                nextEvents = pushEvent(
+                emitter.emit(
                   ctx,
-                  meta,
-                  nextEvents,
-                  'project',
+                  meta, 'project',
                   `${agent.name} addressed review comment: "${taskRef.task.title}".`,
                   at,
                 )
@@ -1865,7 +1832,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                   const autoMerge = tryAutoMergeReviewedPr(nextProjects, parentId, state)
                   nextProjects = autoMerge.projects
                   if (autoMerge.eventMessage) {
-                    nextEvents = pushEvent(ctx, meta, nextEvents, 'project', autoMerge.eventMessage, at)
+                    emitter.emit(ctx, meta, 'project', autoMerge.eventMessage, at)
                     nextStats.tasksMerged += 1
                   }
                 }
@@ -1962,11 +1929,9 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                   comments.length > 0
                     ? ` Left ${comments.length} review comment${comments.length > 1 ? 's' : ''}.`
                     : ''
-                nextEvents = pushEvent(
+                emitter.emit(
                   ctx,
-                  meta,
-                  nextEvents,
-                  'project',
+                  meta, 'project',
                   `${agent.name} reviewed "${task.title}". PR quality base: ${Math.round(task.prQualityStaging)}%.${commentNote}`,
                   at,
                 )
@@ -1974,7 +1939,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                 const autoMerge = tryAutoMergeReviewedPr(nextProjects, task.id, state)
                 nextProjects = autoMerge.projects
                 if (autoMerge.eventMessage) {
-                  nextEvents = pushEvent(ctx, meta, nextEvents, 'project', autoMerge.eventMessage, at)
+                  emitter.emit(ctx, meta, 'project', autoMerge.eventMessage, at)
                   nextStats.tasksMerged += 1
                 }
               }
@@ -2097,7 +2062,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                   newTasks.length > 1
                     ? `split "${targetTitle}" into ${newTasks.length} tasks (${newTasks.map((t) => formatStoryPoints(t.storyPointsRequired)).join(' + ')} SP)`
                     : `refined "${targetTitle}" into "${newTasks[0].title}" (${formatStoryPoints(newTasks[0].storyPointsRequired)} SP)`
-                nextEvents = pushEvent(ctx, meta, nextEvents, 'project', `${agent.name} ${taskSummary}.`, at)
+                emitter.emit(ctx, meta, 'project', `${agent.name} ${taskSummary}.`, at)
                 agent.jobProgress = 0
                 agent.taskId = null
               }
@@ -2177,20 +2142,16 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
                     tasks: updatedProject.tasks.concat(fixTask),
                     totalStoryPoints: updatedProject.totalStoryPoints + fixTask.storyPointsRequired,
                   }
-                nextEvents = pushEvent(
+                emitter.emit(
                   ctx,
-                  meta,
-                  nextEvents,
-                    'project',
+                  meta, 'project',
                     `${agent.name} found a bug in "${testTask.title}". ${formatStoryPoints(fixTask.storyPointsRequired)} SP fix task opened. PR was ${Math.round(testTask.prQuality ?? 0)}% clean.`,
                     at,
                   )
                 } else if (taskFullyTested) {
-                nextEvents = pushEvent(
+                emitter.emit(
                   ctx,
-                  meta,
-                  nextEvents,
-                    'project',
+                  meta, 'project',
                     `${agent.name} finished QA on "${testTask.title}". Clean at ${Math.round(testTask.prQuality ?? 0)}%.`,
                     at,
                   )
@@ -2208,7 +2169,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   nextProjects = autoMergeSweep.projects
   for (const message of autoMergeSweep.eventMessages) {
     nextStats.tasksMerged += 1
-    nextEvents = pushEvent(ctx, meta, nextEvents, 'project', message, at)
+    emitter.emit(ctx, meta, 'project', message, at)
   }
 
   let tickState = withCtx({
@@ -2222,7 +2183,7 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
     agents: nextAgents,
     projects: nextProjects,
     leads: nextLeads,
-    events: nextEvents,
+    events: state.events,
     stats: nextStats,
     selectedTaskId,
     phase,
@@ -2253,13 +2214,21 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   return tickState
 }
 
-/** Run one simulation interval; returns stepped state (messages reserved for future extraction). */
+/** Run one simulation interval; events are returned as dispatchable messages. */
 export function advanceSimulationDelta(
   state: GameState,
   deltaSec: number,
   at: number,
 ): SimulationDeltaResult {
-  return { state: advanceTime(state, deltaSec, at), messages: [] }
+  const emitter = new TickEmitter()
+  const stepped = advanceTimeCore(state, deltaSec, at, emitter)
+  return { state: stepped, messages: emitter.messages }
+}
+
+/** @deprecated Prefer advanceSimulationDelta — applies tick event messages inline. */
+export function advanceTime(state: GameState, deltaSec: number, at: number): GameState {
+  const { state: stepped, messages } = advanceSimulationDelta(state, deltaSec, at)
+  return messages.reduce((s, message) => message.apply(s), stepped)
 }
 
 export function selectTask(state: GameState, taskId: string | null, at: number): GameState {
