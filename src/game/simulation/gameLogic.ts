@@ -109,7 +109,7 @@ import {
   unlockedAutomationJobs,
   type AutomationAgentJob,
 } from '../mechanics'
-import { HOUSING_CONFIG, isSingularityEligible, nextHousingTier } from '../housing'
+import { HOUSING_CONFIG, effectiveHousingRent, effectiveHousingUpgradeCost, isSingularityEligible, nextHousingTier } from '../housing'
 import {
   buyHallucinationUpgrade,
   canRetire,
@@ -1656,7 +1656,8 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   cash += mrr * dayProgress
 
   if (rentDueInDays <= 0) {
-    const rent = HOUSING_CONFIG[state.apartment].rent
+    const affordableHousingLevel = getHallucinationLevel(meta, 'affordable_housing')
+    const rent = effectiveHousingRent(state.apartment, affordableHousingLevel)
     cash -= rent
     rentDueInDays += RENT_INTERVAL_DAYS
     nextEvents = pushEvent(
@@ -2878,7 +2879,8 @@ export function upgradeApartment(state: GameState, at: number): GameState {
   const ctx = ctxFrom(state)
   const next = nextHousingTier(state.apartment)
   if (!next) return state
-  const cost = HOUSING_CONFIG[next].upgradeCost
+  const affordableHousingLevel = getHallucinationLevel(state.meta, 'affordable_housing')
+  const cost = effectiveHousingUpgradeCost(next, affordableHousingLevel)
   if (state.cash < cost) return state
 
   return withCtx({
