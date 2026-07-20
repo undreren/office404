@@ -1,13 +1,19 @@
 import { SECONDS_PER_GAME_DAY } from '../../constants'
 import type { GameState } from '../../types'
 import type { AdvanceTimeResult } from '../types'
-import { wallMsForSimSec } from '../timeMath'
+import { earliestAfter, stepBoundaryMs, TIME_NEVER, wallMsForSimSec } from '../timeMath'
 
-function nextRentBoundaryMs(state: GameState, targetTime: number): number | null {
-  if (state.rentDueInDays <= 0) return state.snapshotAt
+function calendarEventBoundaries(state: GameState): number[] {
+  if (state.rentDueInDays <= 0) return []
   const simSec = state.rentDueInDays * SECONDS_PER_GAME_DAY
-  const at = state.snapshotAt + wallMsForSimSec(state, simSec)
-  return at <= targetTime ? at : null
+  return [state.snapshotAt + wallMsForSimSec(state, simSec)]
+}
+
+/** Earliest wall-clock ms when calendar-driven events (rent) must pause simulation. */
+export function timeToNextCalendar(state: GameState): number {
+  const boundaries = calendarEventBoundaries(state)
+  if (boundaries.length === 0) return TIME_NEVER
+  return earliestAfter(boundaries, state.snapshotAt)
 }
 
 /** Probe when calendar-driven events (rent) must pause simulation. */
@@ -15,7 +21,6 @@ export function advanceCalendarTime(state: GameState, targetTime: number): Advan
   const from = state.snapshotAt
   if (targetTime <= from) return { value: state, messages: [], timestamp: from }
 
-  const rentAt = nextRentBoundaryMs(state, targetTime)
-  const timestamp = rentAt ?? targetTime
+  const timestamp = stepBoundaryMs(timeToNextCalendar(state), targetTime, from)
   return { value: state, messages: [], timestamp }
 }

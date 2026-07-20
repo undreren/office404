@@ -1,4 +1,4 @@
-export { advanceAgentTime } from './agentTime'
-export { advanceCalendarTime } from './calendarTime'
-export { advanceLeadPipelineTime } from './leadTime'
-export { advanceProjectTime } from './projectTime'
+export { advanceAgentTime, timeToNextAgent } from './agentTime'
+export { advanceCalendarTime, timeToNextCalendar } from './calendarTime'
+export { advanceLeadPipelineTime, timeToNextLeadPipeline } from './leadTime'
+export { advanceProjectTime, timeToNextProject } from './projectTime'
