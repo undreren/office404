@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyOfflineProgressMsg, buyVibingCourseMsg, timeElapsed } from '../messages'
+import { catchUpOfflineMsg, buyVibingCourseMsg, timeElapsed } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { stateWithCash } from './_helpers/stateWithCash'
@@ -124,7 +124,7 @@ describe('offline-conductor-reassigns', () => {
     const before = conductorOfflineState()
 
     const live = dispatchChain(before, Array.from({ length: awaySec }, (_, i) => timeElapsed(T0 + 1000 + i, 1)))
-    const offline = dispatchChain(before, [applyOfflineProgressMsg(T0 + awaySec * 1000, awaySec)])
+    const offline = dispatchChain(before, [catchUpOfflineMsg(T0 + awaySec * 1000)])
 
     const liveRefine = live.agents.filter((a) => a.projectId === before.projects[0]!.id && a.job === 'refine').length
     const offlineRefine = offline.agents.filter(
@@ -140,7 +140,7 @@ describe('offline-conductor-reassigns', () => {
     const before = conductorMidAwayState()
 
     const live = dispatchChain(before, Array.from({ length: awaySec }, (_, i) => timeElapsed(T0 + 1000 + i, 1)))
-    const offline = dispatchChain(before, [applyOfflineProgressMsg(T0 + awaySec * 1000, awaySec)])
+    const offline = dispatchChain(before, [catchUpOfflineMsg(T0 + awaySec * 1000)])
     const lumped = dispatchChain(before, [timeElapsed(T0 + awaySec * 1000, awaySec)])
 
     const liveOpenReqs = live.projects[0]!.requirements.filter((r) => r.status === 'open').length
@@ -155,7 +155,7 @@ describe('offline-conductor-reassigns', () => {
   it('leaves conductor able to auto-staff after offline catch-up', () => {
     const awaySec = 60
     const before = conductorOfflineState()
-    const after = dispatchChain(before, [applyOfflineProgressMsg(T0 + awaySec * 1000, awaySec)])
+    const after = dispatchChain(before, [catchUpOfflineMsg(T0 + awaySec * 1000)])
     const conductor = after.agents.find((a) => a.job === 'conductor')!
     const openBefore = before.projects[0]!.requirements.filter((r) => r.status === 'open').length
     const openAfter = after.projects[0]!.requirements.filter((r) => r.status === 'open').length

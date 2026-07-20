@@ -126,7 +126,7 @@ describe('offline-matches-online-wait', () => {
     )
     const offlineHidden = dispatchChain(offlineBefore, [syncOfflineSpecialistMsg(T0 + 2000, true)])
     const offlineAfter = dispatchChain(offlineHidden, [
-      returnFromHiddenMsg(T0 + 2000 + AWAY_SEC * 1000, AWAY_SEC),
+      returnFromHiddenMsg(T0 + 2000 + AWAY_SEC * 1000),
     ])
 
     expect(offlineHidden.assignedSpecialistRoles).toContain('offline')

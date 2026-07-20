@@ -83,7 +83,5 @@ export const REP_ZERO_MAX_TASK_SP = 3
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60
 /** Ignore sub-threshold gaps so tab flips do not spam catch-up. */
 export const MIN_OFFLINE_APPLY_SEC = 5
-/** Coarser simulation step for offline catch-up (must divide SECONDS_PER_GAME_DAY). */
-export const OFFLINE_CATCHUP_CHUNK_SEC = 10
-/** Max main-thread ms per frame while simulating offline catch-up. */
-export const OFFLINE_CATCHUP_FRAME_BUDGET_MS = 12
+/** Max wall-clock ms per catch-up step (keeps conductor reassignment cadence). */
+export const CATCHUP_MAX_STEP_MS = 1000

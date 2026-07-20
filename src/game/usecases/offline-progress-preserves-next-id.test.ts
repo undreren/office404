@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyOfflineProgressMsg, buyVibingCourseMsg, timeElapsed } from '../messages'
+import { catchUpOfflineMsg, buyVibingCourseMsg, timeElapsed } from '../messages'
 import { dispatchChain } from './_helpers/dispatchChain'
 import { initialPlaying } from './_helpers/initialPlaying'
 import { stateWithCash } from './_helpers/stateWithCash'
@@ -71,7 +71,7 @@ describe('offline-progress-preserves-next-id', () => {
       before,
       Array.from({ length: AWAY_SEC }, (_, i) => timeElapsed(T0 + 1000 + i, 1)),
     )
-    const offline = dispatchChain(before, [applyOfflineProgressMsg(T0 + AWAY_SEC * 1000, AWAY_SEC)])
+    const offline = dispatchChain(before, [catchUpOfflineMsg(T0 + AWAY_SEC * 1000)])
 
     expect(live.nextId).toBeGreaterThan(before.nextId)
     expect(offline.nextId).toBeGreaterThanOrEqual(live.nextId)

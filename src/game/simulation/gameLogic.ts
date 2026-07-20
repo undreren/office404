@@ -57,10 +57,6 @@ import {
   LATE_FEE_PERCENT,
   LATE_REP_PENALTY_BASE,
   MAX_EVENTS,
-  MAX_OFFLINE_SECONDS,
-  MIN_OFFLINE_APPLY_SEC,
-  OFFLINE_CATCHUP_CHUNK_SEC,
-  OFFLINE_CATCHUP_FRAME_BUDGET_MS,
   ON_TIME_REP_BONUS,
   PRESTIGE_START_CASH,
   PROCUREMENT_CASH_FRACTION,
@@ -158,6 +154,7 @@ import { findCheapestProcurementPurchase, procurementEventMessage } from '../pro
 import { VIBING_COURSES, isVibingCourseVisible, PRODUCT_OWNER_COURSE_ID, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
+import type { SimulationDeltaResult } from './simulationDelta'
 
 function spawnLeadForState(
   ctx: SimCtx,
@@ -406,99 +403,6 @@ export function toggleSpecialistRole(
     ctx,
     at,
   )
-}
-
-export function applyOfflineProgress(
-  state: GameState,
-  elapsedSec: number,
-  at: number,
-): GameState {
-  if (!hasOfflineCourse(state.vibingCourses) || state.phase !== 'playing') return state
-
-  const capped = Math.min(Math.max(0, elapsedSec), MAX_OFFLINE_SECONDS)
-  if (capped < MIN_OFFLINE_APPLY_SEC) return state
-
-  const advanced = advanceOfflineChunks(state, capped, at)
-  return finalizeOfflineProgress(state, advanced, capped, at)
-}
-
-function advanceOfflineChunks(state: GameState, cappedSec: number, at: number): GameState {
-  let advanced = state
-  let remaining = cappedSec
-  while (remaining > 0) {
-    const chunk = Math.min(remaining, OFFLINE_CATCHUP_CHUNK_SEC)
-    advanced = advanceTime(advanced, chunk, at)
-    remaining -= chunk
-  }
-  return advanced
-}
-
-function finalizeOfflineProgress(
-  state: GameState,
-  advanced: GameState,
-  cappedSec: number,
-  at: number,
-): GameState {
-  const ctx = ctxFrom(advanced)
-  const awayMinutes = Math.floor(cappedSec / 60)
-  const awayLabel =
-    awayMinutes >= 60
-      ? `${Math.floor(awayMinutes / 60)}h ${awayMinutes % 60}m`
-      : `${awayMinutes}m`
-
-  return withCtx(
-    {
-      ...advanced,
-      events: pushEvent(
-        ctx,
-        state.meta,
-        advanced.events,
-        'system',
-        `Away for ${awayLabel}. Offline Agent hallucinated the elapsed time.`,
-        at,
-      ),
-    },
-    ctx,
-    at,
-  )
-}
-
-/** Async offline catch-up that yields so the UI can paint during long absences. */
-export async function applyOfflineProgressAsync(
-  state: GameState,
-  elapsedSec: number,
-  at: number,
-): Promise<GameState> {
-  if (!hasOfflineCourse(state.vibingCourses) || state.phase !== 'playing') return state
-
-  const capped = Math.min(Math.max(0, elapsedSec), MAX_OFFLINE_SECONDS)
-  if (capped < MIN_OFFLINE_APPLY_SEC) return state
-
-  let advanced = state
-  let remaining = capped
-  while (remaining > 0) {
-    const frameDeadline = performance.now() + OFFLINE_CATCHUP_FRAME_BUDGET_MS
-    while (remaining > 0 && performance.now() < frameDeadline) {
-      const chunk = Math.min(remaining, OFFLINE_CATCHUP_CHUNK_SEC)
-      advanced = advanceTime(advanced, chunk, at)
-      remaining -= chunk
-    }
-    if (remaining > 0) {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-    }
-  }
-
-  return finalizeOfflineProgress(state, advanced, capped, at)
-}
-
-/** Async tab-return catch-up; keeps the UI responsive after long backgrounding. */
-export async function returnFromHiddenAsync(
-  state: GameState,
-  elapsedSec: number,
-  at: number,
-): Promise<GameState> {
-  const progressed = await applyOfflineProgressAsync(state, elapsedSec, at)
-  return syncOfflineSpecialist(progressed, false, at)
 }
 
 /** Auto-assign or unassign the Offline specialist when the app tab hides or shows. */
@@ -2347,6 +2251,15 @@ export function advanceTime(state: GameState, deltaSec: number, at: number): Gam
   }
 
   return tickState
+}
+
+/** Run one simulation interval; returns stepped state (messages reserved for future extraction). */
+export function advanceSimulationDelta(
+  state: GameState,
+  deltaSec: number,
+  at: number,
+): SimulationDeltaResult {
+  return { state: advanceTime(state, deltaSec, at), messages: [] }
 }
 
 export function selectTask(state: GameState, taskId: string | null, at: number): GameState {
