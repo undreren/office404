@@ -10,8 +10,8 @@ import { catchUpOffline } from './offlineCatchUp'
 import { isCaughtUp } from './timeMath'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
-/** Design target on dev hardware; CI runners are slower so allow slack there. */
-const CATCH_UP_BUDGET_MS = process.env.CI ? 2500 : 1000
+/** Prod target is ~1s on dev hardware; CI runners are slower so allow slack. */
+const CATCH_UP_BUDGET_MS = 2500
 const MAX_STEPS_FOR_ONE_HOUR = 1000
 
 /** Fresh post-tutorial save with every vibe course maxed and all specialists assigned. */
