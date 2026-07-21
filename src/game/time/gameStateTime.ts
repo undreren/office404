@@ -1,7 +1,7 @@
 import type { GameState } from '../types'
 import type { AdvanceTimeResult } from './types'
 import { advanceGameStateStep } from './catchUp'
-import { advanceAgentTime, timeToNextAgent } from './composites/agentTime'
+import { advanceAgentTime, buildTimeProbeCache, timeToNextAgent } from './composites/agentTime'
 import { advanceCalendarTime, timeToNextCalendar } from './composites/calendarTime'
 import { advanceLeadPipelineTime, timeToNextLeadPipeline } from './composites/leadTime'
 import { advanceProjectTime, timeToNextProject } from './composites/projectTime'
@@ -17,11 +17,12 @@ export { advanceLeadPipelineTime, timeToNextLeadPipeline } from './composites/le
 export function timeToNextGameState(state: GameState): number {
   if (state.phase !== 'playing') return TIME_NEVER
 
+  const probeCache = buildTimeProbeCache(state)
   const childTimes = [
     timeToNextCalendar(state),
     timeToNextLeadPipeline(state),
     ...state.projects.map((project) => timeToNextProject(project, state)),
-    ...state.agents.map((agent) => timeToNextAgent(agent, state)),
+    ...state.agents.map((agent) => timeToNextAgent(agent, state, probeCache)),
   ]
   const finite = childTimes.filter((t) => Number.isFinite(t))
   if (finite.length === 0) return TIME_NEVER

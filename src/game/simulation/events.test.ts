@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_EVENTS } from '../constants'
 import type { GameEvent } from '../types'
-import { prependEvents } from './events'
+import { foldTickEvents, prependEvents } from './events'
 
 function event(id: string): GameEvent {
   return { id, timestamp: 0, type: 'system', message: id }
@@ -15,5 +15,17 @@ describe('prependEvents', () => {
     expect(next).toHaveLength(MAX_EVENTS)
     expect(next[0]?.id).toBe('evt-new')
     expect(next[MAX_EVENTS - 1]?.id).toBe(`evt-${MAX_EVENTS - 2}`)
+  })
+})
+
+describe('foldTickEvents', () => {
+  it('matches sequential prepends', () => {
+    const existing = [event('evt-0'), event('evt-1')]
+    const entries = [event('evt-a'), event('evt-b'), event('evt-c')]
+    let sequential = existing
+    for (const entry of entries) {
+      sequential = prependEvents(sequential, entry)
+    }
+    expect(foldTickEvents(existing, entries)).toEqual(sequential)
   })
 })

@@ -5,10 +5,27 @@ import {
   dispatchRefineTarget,
   stackIndexOnTask,
 } from '../../projects'
-import type { Agent, GameState } from '../../types'
+import type { Agent, GameState, Project, Task } from '../../types'
 import { agentOutputTokensPerSec, contextTokensForState } from '../../simulation/tokenSimulation'
 import type { AdvanceTimeResult } from '../types'
 import { earliestAfter, stepBoundaryMs, wallMsForSimSec } from '../timeMath'
+
+export type TimeProbeCache = {
+  tasksById: Map<string, Task>
+  projectsById: Map<string, Project>
+}
+
+export function buildTimeProbeCache(state: GameState): TimeProbeCache {
+  const tasksById = new Map<string, Task>()
+  const projectsById = new Map<string, Project>()
+  for (const project of state.projects) {
+    projectsById.set(project.id, project)
+    for (const task of project.tasks) {
+      tasksById.set(task.id, task)
+    }
+  }
+  return { tasksById, projectsById }
+}
 
 function compactionEndMs(state: GameState, agent: Agent): number | null {
   if (agent.status !== 'compacting' || agent.compactingRemainingSec <= 0) return null
@@ -59,9 +76,14 @@ function taskRoleCompleteMs(
   return state.snapshotAt + wallMsForSimSec(state, simSec)
 }
 
-function refineCompleteMs(state: GameState, agent: Agent, agents: Agent[]): number | null {
+function refineCompleteMs(
+  state: GameState,
+  agent: Agent,
+  agents: Agent[],
+  cache: TimeProbeCache,
+): number | null {
   if (agent.job !== 'refine' || !agent.projectId) return null
-  const project = state.projects.find((p) => p.id === agent.projectId)
+  const project = cache.projectsById.get(agent.projectId)
   if (!project || project.status !== 'active' || project.isLocked) return null
 
   const perTask = agentsPerTaskForProject(project, 'refine', agents, state.vibingCourseTiers)
@@ -79,7 +101,7 @@ function refineCompleteMs(state: GameState, agent: Agent, agents: Agent[]): numb
   return taskRoleCompleteMs(state, agent, agents, savedProgress, required, targetId)
 }
 
-function agentEventBoundaries(state: GameState, agent: Agent): number[] {
+function agentEventBoundaries(state: GameState, agent: Agent, cache: TimeProbeCache): number[] {
   const boundaries: number[] = []
   const contextTokens = contextTokensForState(state)
   const compactDuration = compactionDurationSec(state.meta)
@@ -94,12 +116,12 @@ function agentEventBoundaries(state: GameState, agent: Agent): number[] {
   if (overflow != null) boundaries.push(overflow)
 
   if (agent.job === 'refine') {
-    const at = refineCompleteMs(state, agent, state.agents)
+    const at = refineCompleteMs(state, agent, state.agents, cache)
     if (at != null) boundaries.push(at)
   }
 
   if (agent.job === 'code' && agent.taskId) {
-    const task = state.projects.flatMap((p) => p.tasks).find((t) => t.id === agent.taskId)
+    const task = cache.tasksById.get(agent.taskId)
     if (task) {
       const required = taskTokensRequired(task.storyPointsRequired, 'code')
       const at = taskRoleCompleteMs(
@@ -115,7 +137,7 @@ function agentEventBoundaries(state: GameState, agent: Agent): number[] {
   }
 
   if (agent.job === 'review' && agent.taskId) {
-    const task = state.projects.flatMap((p) => p.tasks).find((t) => t.id === agent.taskId)
+    const task = cache.tasksById.get(agent.taskId)
     if (task) {
       const required = taskTokensRequired(task.storyPointsRequired, 'review')
       const earned = task.reviewJobProgress ?? 0
@@ -125,7 +147,7 @@ function agentEventBoundaries(state: GameState, agent: Agent): number[] {
   }
 
   if (agent.job === 'test' && agent.taskId) {
-    const task = state.projects.flatMap((p) => p.tasks).find((t) => t.id === agent.taskId)
+    const task = cache.tasksById.get(agent.taskId)
     if (task) {
       const required = taskTokensRequired(task.storyPointsRequired, 'test')
       const at = taskRoleCompleteMs(
@@ -148,8 +170,9 @@ function agentEventBoundaries(state: GameState, agent: Agent): number[] {
 }
 
 /** Earliest wall-clock ms when this agent emits a time-driven simulation event. */
-export function timeToNextAgent(agent: Agent, state: GameState): number {
-  return earliestAfter(agentEventBoundaries(state, agent), state.snapshotAt)
+export function timeToNextAgent(agent: Agent, state: GameState, cache?: TimeProbeCache): number {
+  const probeCache = cache ?? buildTimeProbeCache(state)
+  return earliestAfter(agentEventBoundaries(state, agent, probeCache), state.snapshotAt)
 }
 
 /** Probe when this agent would next emit a time-driven simulation event. */
