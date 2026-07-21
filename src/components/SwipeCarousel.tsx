@@ -29,6 +29,8 @@ export function SwipeCarousel({
     onIndexChange,
     enabled,
   })
+  const header = headers[index] ?? headers[0]
+  const slide = slides[index] ?? slides[0]
 
   return (
     <section className={`panel swipe-carousel ${panelClassName}`.trim()}>
@@ -38,36 +40,27 @@ export function SwipeCarousel({
         onTouchEnd={onTouchEnd}
       >
         <div className="swipe-carousel__viewport">
-          <div
-            className="swipe-carousel__track"
-            style={{ transform: `translateX(-${index * 100}%)` }}
-          >
-            {headers.map((header, i) => (
-              <div key={header.title} className="swipe-carousel__slide" aria-hidden={i !== index}>
-                <div className="swipe-carousel__header">
-                  <div className="swipe-carousel__titles">
-                    <h2>{header.title}</h2>
-                    {header.subtitle && (
-                      <p className="swipe-carousel__subtitle">{header.subtitle}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="swipe-carousel__body">{slides[i]}</div>
+          <div className="swipe-carousel__slide">
+            <div className="swipe-carousel__header">
+              <div className="swipe-carousel__titles">
+                <h2>{header?.title}</h2>
+                {header?.subtitle && <p className="swipe-carousel__subtitle">{header.subtitle}</p>}
               </div>
-            ))}
+            </div>
+            <div className="swipe-carousel__body">{slide}</div>
           </div>
         </div>
       </div>
       {enabled && (
         <div className="swipe-carousel__footer">
           <div className="swipe-carousel__dots" role="tablist" aria-label="Slide navigation">
-            {headers.map((slide, i) => (
+            {headers.map((slideHeader, i) => (
               <button
-                key={slide.title}
+                key={slideHeader.title}
                 type="button"
                 role="tab"
                 aria-selected={i === index}
-                aria-label={slide.title}
+                aria-label={slideHeader.title}
                 className={`swipe-carousel__dot ${i === index ? 'swipe-carousel__dot--active' : ''}`}
                 onClick={() => onIndexChange(i)}
               />

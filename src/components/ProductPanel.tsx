@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { formatCash } from '../game/cash'
 import { formatStoryPoints } from '../game/mechanics'
 import { maxProductProjectSlots, effectiveMrr } from '../game/prestige'
@@ -8,6 +8,7 @@ import { activateProductFeatureMsg } from '../game/messages'
 import type { ProductBacklogItem, Project } from '../game/types'
 import { useTabNav } from '../context/TabNavContext'
 import { useGameDispatchPurchase, useGameState } from '../runtime/GameRuntime'
+import { FocusedSlotCarousel } from './FocusedSlotCarousel'
 import { ProjectCard } from './ProjectsPanel'
 
 function ProductBacklogCard({
@@ -53,7 +54,6 @@ export function ProductPanel() {
   const { productIndex, setProductIndex } = useTabNav()
   const { meta, mrr, productBacklog, projects, productFeaturesShipped } = state
   const displayMrr = effectiveMrr(mrr, meta)
-  const columnsRef = useRef<HTMLDivElement>(null)
   const unlocked = canAccessProduct(meta)
   const maxSlots = unlocked ? maxProductProjectSlots(meta) : 0
 
@@ -62,14 +62,6 @@ export function ProductPanel() {
     const clamped = Math.min(productIndex, Math.max(0, maxSlots - 1))
     if (clamped !== productIndex) setProductIndex(clamped)
   }, [maxSlots, productIndex, setProductIndex, unlocked])
-
-  useEffect(() => {
-    if (!unlocked) return
-    const container = columnsRef.current
-    if (!container) return
-    const column = container.querySelector<HTMLElement>(`[data-product-slot="${productIndex}"]`)
-    column?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'start' })
-  }, [productIndex, unlocked])
 
   if (!unlocked) {
     return (
@@ -87,6 +79,17 @@ export function ProductPanel() {
   const activeCount = countActiveProductProjects(projects)
   const slotsAvailable = activeCount < maxSlots
 
+  const slotLabels = Array.from({ length: maxSlots }, (_, slot) => {
+    const project = activeProjects[slot]
+    const queued = !project ? queuedItems[slot - activeProjects.length] : undefined
+    return project?.blurb ?? queued?.title ?? `Slot ${slot + 1}`
+  })
+
+  const slot = Math.min(productIndex, Math.max(0, maxSlots - 1))
+  const project = activeProjects[slot]
+  const queued = !project ? queuedItems[slot - activeProjects.length] : undefined
+  const columnLabel = slotLabels[slot] ?? `Slot ${slot + 1}`
+
   return (
     <section className="panel product-panel">
       <header className="project-columns__header">
@@ -102,59 +105,49 @@ export function ProductPanel() {
         </p>
       </header>
 
-      <div
-        ref={columnsRef}
-        className="project-columns"
-        role="list"
-        aria-label="In-house product slots"
+      <FocusedSlotCarousel
+        index={slot}
+        count={maxSlots}
+        onIndexChange={setProductIndex}
+        listAriaLabel="In-house product slots"
+        navItems={slotLabels.map((title) => ({ title }))}
       >
-        {Array.from({ length: maxSlots }, (_, slot) => {
-          const project = activeProjects[slot]
-          const queued = !project ? queuedItems[slot - activeProjects.length] : undefined
-          const columnLabel = project?.blurb ?? queued?.title ?? `Slot ${slot + 1}`
-          const isFocused = productIndex === slot
+        <section
+          data-product-slot={slot}
+          className={`project-column project-column--focused ${project && isReadyToDeliver(project) ? 'project-column--deliverable' : ''}`}
+          role="listitem"
+          aria-label={columnLabel}
+        >
+          <header className="project-column__header">
+            <h3>{project?.blurb ?? queued?.title ?? 'Open slot'}</h3>
+            {project && <p className="project-column__subtitle">In-House Product · MRR or bust.</p>}
+            {queued && !project && (
+              <p className="project-column__subtitle">
+                {formatStoryPoints(queued.storyPoints)} SP · queued
+              </p>
+            )}
+            {!project && !queued && (
+              <p className="project-column__subtitle">Waiting for the next feature in backlog.</p>
+            )}
+          </header>
 
-          return (
-            <section
-              key={slot}
-              data-product-slot={slot}
-              className={`project-column ${isFocused ? 'project-column--focused' : ''} ${project && isReadyToDeliver(project) ? 'project-column--deliverable' : ''}`}
-              role="listitem"
-              aria-label={columnLabel}
-              onClick={() => setProductIndex(slot)}
-            >
-              <header className="project-column__header">
-                <h3>{project?.blurb ?? queued?.title ?? 'Open slot'}</h3>
-                {project && <p className="project-column__subtitle">In-House Product · MRR or bust.</p>}
-                {queued && !project && (
-                  <p className="project-column__subtitle">
-                    {formatStoryPoints(queued.storyPoints)} SP · queued
-                  </p>
-                )}
-                {!project && !queued && (
-                  <p className="project-column__subtitle">Waiting for the next feature in backlog.</p>
-                )}
-              </header>
-
-              <div className="project-column__body">
-                {project && <ProjectCard project={project} />}
-                {queued && !project && (
-                  <ProductBacklogCard
-                    item={queued}
-                    canStart={slotsAvailable}
-                    onStart={() => dispatchPurchase(activateProductFeatureMsg(Date.now(), queued.id))}
-                  />
-                )}
-                {!project && !queued && (
-                  <p className="empty-slot" aria-label="No queued feature for this slot.">
-                    No queued feature for this slot.
-                  </p>
-                )}
-              </div>
-            </section>
-          )
-        })}
-      </div>
+          <div className="project-column__body">
+            {project && <ProjectCard project={project} />}
+            {queued && !project && (
+              <ProductBacklogCard
+                item={queued}
+                canStart={slotsAvailable}
+                onStart={() => dispatchPurchase(activateProductFeatureMsg(Date.now(), queued.id))}
+              />
+            )}
+            {!project && !queued && (
+              <p className="empty-slot" aria-label="No queued feature for this slot.">
+                No queued feature for this slot.
+              </p>
+            )}
+          </div>
+        </section>
+      </FocusedSlotCarousel>
     </section>
   )
 }
