@@ -43,6 +43,6 @@ export function catchUpOffline(state: GameState, at: number): GameState {
 
   const wallEnd = state.snapshotAt + Math.min(elapsedSec, MAX_OFFLINE_SECONDS) * 1000
   const before = state
-  const caught = catchUpTo(state, wallEnd)
+  const caught = catchUpTo(state, wallEnd, { silent: true })
   return finalizeOfflineAwayEvent({ ...caught, snapshotAt: at }, before, at)
 }

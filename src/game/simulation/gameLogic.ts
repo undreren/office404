@@ -151,7 +151,6 @@ import { findCheapestProcurementPurchase, procurementEventMessage } from '../pro
 import { VIBING_COURSES, isVibingCourseVisible, PRODUCT_OWNER_COURSE_ID, vibingCourseCost } from '../upgrades'
 import { createRngSeed } from '../rng'
 import { ctxFrom, uid, withCtx, type SimCtx } from './simCtx'
-import type { SimulationDeltaResult } from './simulationDelta'
 import { pushEvent } from './events'
 import { TickEmitter } from '../time/simulation/tickEmitter'
 
@@ -2221,10 +2220,14 @@ export function advanceSimulationDelta(
   state: GameState,
   deltaSec: number,
   at: number,
-): SimulationDeltaResult {
-  const emitter = new TickEmitter()
+  options?: import('./simulationDelta').AdvanceSimulationOptions,
+): import('./simulationDelta').SimulationDeltaResult {
+  const emitter = new TickEmitter({
+    buildMessages: !options?.eventsOnly,
+    silent: options?.silent,
+  })
   const stepped = advanceTimeCore(state, deltaSec, at, emitter)
-  return { state: stepped, messages: emitter.messages }
+  return { state: stepped, messages: emitter.messages, events: emitter.events }
 }
 
 /** @deprecated Prefer advanceSimulationDelta — applies tick event messages inline. */

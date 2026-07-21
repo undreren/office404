@@ -29,6 +29,16 @@ export function prependEvents(events: GameEvent[], entry: GameEvent): GameEvent[
   return [entry, ...events].slice(0, MAX_EVENTS)
 }
 
+/** Fold tick-emitted events onto a log in emission order (same result as sequential prepends). */
+export function foldTickEvents(events: GameEvent[], entries: readonly GameEvent[]): GameEvent[] {
+  if (entries.length === 0) return events
+  let next = events
+  for (const entry of entries) {
+    next = prependEvents(next, entry)
+  }
+  return next
+}
+
 /** Append one event to state (player actions and legacy tick paths). */
 export function pushEvent(
   ctx: SimCtx,
