@@ -8,7 +8,7 @@ import { MODEL_TIERS } from '../game/models'
 import { createInitialState, reconcileSpecialistAgents, syncProductBacklog } from '../game/simulation/gameLogic'
 import { ctxFrom } from '../game/simulation/simCtx'
 
-const SAVE_VERSION = 15
+const SAVE_VERSION = 16
 
 function migrateAssignedSpecialistRoles(state: GameState): GameState {
   if (state.assignedSpecialistRoles) return state
@@ -58,7 +58,7 @@ function normalizeLoadedState(state: GameState): GameState {
     migrated.leads,
   )
   const synced = reconcileSpecialistAgents({ ...migrated, projects, leads }, ctx)
-  return syncProductBacklog(synced, ctx)
+  return syncProductBacklog({ ...synced, events: [] }, ctx)
 }
 
 function migrateV7State(old: Record<string, unknown>): GameState {
@@ -160,11 +160,12 @@ function migrateState(state: GameState, fromVersion: number): GameState {
 }
 
 export function partializeSave(state: GameState): PersistedSave {
+  const { events: _events, ...persistedState } = state
   return {
     version: SAVE_VERSION,
     meta: state.meta,
     state: {
-      ...state,
+      ...persistedState,
       projects: repairStaleCodingAssignments(state.projects, state.agents),
     },
   }
@@ -178,7 +179,7 @@ export function parsePersistedSave(raw: unknown): GameState | null {
     if ('meta' in parsed && parsed.state) {
       const version = parsed.version ?? SAVE_VERSION
       if (version > SAVE_VERSION) return null
-      const state = version < SAVE_VERSION ? migrateState(parsed.state, version) : parsed.state
+      const state = version < SAVE_VERSION ? migrateState(parsed.state as GameState, version) : (parsed.state as GameState)
       return normalizeLoadedState({ ...state, meta: parsed.meta ?? createDefaultMeta() })
     }
     const legacy = parsed as { state?: GameState; version?: number }

@@ -1,7 +1,7 @@
 /** Simulation tick interval — 30 Hz for fluid UI; pacing scales via deltaSec. */
 export const TICK_INTERVAL_MS = 1000 / 30
 export const SAVE_KEY = 'office404-save-v8'
-export const MAX_EVENTS = 50
+export const MAX_EVENTS = 20
 
 /** 60 real seconds = 1 in-game day */
 export const SECONDS_PER_GAME_DAY = 60

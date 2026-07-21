@@ -297,10 +297,12 @@ export interface GameState {
   maxClientProjects?: number
 }
 
+export type PersistedGameState = Omit<GameState, 'events'>
+
 export interface PersistedSave {
   version: number
   meta: MetaProgress
-  state: GameState
+  state: PersistedGameState
 }
 
 export type { MetaProgress }

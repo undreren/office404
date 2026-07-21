@@ -92,7 +92,7 @@ describe('persist', () => {
     expect(saved.meta.retirementCount).toBe(0)
   })
 
-  it('round-trips base64 export with events', () => {
+  it('does not persist incident log events across save round-trip', () => {
     const state = createInitialState(1000, 42)
     state.events = [
       {
@@ -102,12 +102,15 @@ describe('persist', () => {
         message: 'Day zero. The cardboard box has Wi-Fi.',
       },
     ]
+    const saved = partializeSave(state)
+    expect(saved.state).not.toHaveProperty('events')
+
     const code = encodeSaveExport(state)
     expect(code.startsWith('o404:v')).toBe(true)
     const loaded = decodeSaveImport(code)
     expect(loaded).not.toBeNull()
     expect(loaded!.cash).toBe(state.cash)
-    expect(loaded!.events).toEqual(state.events)
+    expect(loaded!.events).toEqual([])
     expect(loaded!.meta).toEqual(state.meta)
   })
 

@@ -50,8 +50,7 @@ export function SaveBackupPanel() {
         Save backup
       </h3>
       <p className="hint">
-        Export full game state and incident log as base64 for debugging. Import replaces your
-        current save.
+        Export full game state as base64 for debugging. Import replaces your current save.
       </p>
 
       <div className="save-backup__actions">
@@ -117,8 +116,8 @@ export function SaveBackupPanel() {
           <div className="game-overlay__card">
             <h2>Import save?</h2>
             <p>
-              This replaces your current agency, roster, projects, and incident log with the
-              imported save. Prestige meta from the import is kept. This cannot be undone.
+              This replaces your current agency, roster, and projects with the imported save.
+              Prestige meta from the import is kept. This cannot be undone.
             </p>
             <div className="game-overlay__actions">
               <button
