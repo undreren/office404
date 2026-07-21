@@ -24,21 +24,31 @@ function AppShell() {
         <GameOverlay />
 
         <main className="main">
-          <div className={`tab-view ${activeTab === 'status' ? 'tab-view--active' : ''}`}>
-            <StatusPanel />
-          </div>
-          <div className={`tab-view ${activeTab === 'shop' ? 'tab-view--active' : ''}`}>
-            <UpgradesPanel />
-          </div>
-          <div className={`tab-view ${activeTab === 'projects' ? 'tab-view--active' : ''}`}>
-            <ProjectsPanel />
-          </div>
-          <div className={`tab-view ${activeTab === 'product' ? 'tab-view--active' : ''}`}>
-            <ProductPanel />
-          </div>
-          <div className={`tab-view ${activeTab === 'hallucinations' ? 'tab-view--active' : ''}`}>
-            <HallucinationsPanel />
-          </div>
+          {activeTab === 'status' && (
+            <div className="tab-view tab-view--active">
+              <StatusPanel />
+            </div>
+          )}
+          {activeTab === 'shop' && (
+            <div className="tab-view tab-view--active">
+              <UpgradesPanel />
+            </div>
+          )}
+          {activeTab === 'projects' && (
+            <div className="tab-view tab-view--active">
+              <ProjectsPanel />
+            </div>
+          )}
+          {activeTab === 'product' && (
+            <div className="tab-view tab-view--active">
+              <ProductPanel />
+            </div>
+          )}
+          {activeTab === 'hallucinations' && (
+            <div className="tab-view tab-view--active">
+              <HallucinationsPanel />
+            </div>
+          )}
         </main>
 
         <BottomNav />

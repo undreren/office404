@@ -1,4 +1,5 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SAVE_KEY } from '../game/constants'
@@ -32,7 +33,8 @@ describe('ProductPanel slot carousel', () => {
     localStorage.clear()
   })
 
-  it('renders one column per product slot with queued start cards', async () => {
+  it('renders only the focused product slot and navigates with dots', async () => {
+    const user = userEvent.setup()
     const state = {
       ...createInitialState(1000, 42),
       tutorialDone: true,
@@ -61,8 +63,13 @@ describe('ProductPanel slot carousel', () => {
       expect(screen.getByRole('list', { name: 'In-house product slots' })).toBeInTheDocument()
     })
 
-    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Start Auth module' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start Billing module' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'Billing module' }))
+
     expect(screen.getByRole('button', { name: 'Start Billing module' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start Auth module' })).not.toBeInTheDocument()
   })
 })

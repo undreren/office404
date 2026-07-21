@@ -1751,6 +1751,30 @@ body {
   scroll-snap-type: x mandatory;
 }
 
+.project-columns--focused-slot {
+  overflow-x: hidden;
+  scroll-snap-type: none;
+}
+
+.project-columns--swipeable {
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.project-columns--focused-slot .project-column {
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: none;
+  scroll-snap-align: none;
+  scroll-snap-stop: normal;
+}
+
+.projects-panel .swipe-carousel__footer,
+.product-panel .swipe-carousel__footer {
+  flex-shrink: 0;
+  padding-top: 0.5rem;
+}
+
 .project-column {
   flex: 0 0 min(100%, 22rem);
   min-width: 16rem;

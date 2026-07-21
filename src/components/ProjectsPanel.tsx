@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import {
   activeClientProjectInSlot,
   agentContextDisplayPct,
@@ -50,6 +50,7 @@ import {
 import type { Agent, AgentJob, Lead, Project, Requirement, StaffJob, Task } from '../game/types'
 import { useGameDispatchAt, useGameState } from '../runtime/GameRuntime'
 import { useTabNav } from '../context/TabNavContext'
+import { FocusedSlotCarousel } from './FocusedSlotCarousel'
 
 const STAFF_JOBS: { job: StaffJob; label: string }[] = [
   { job: 'refine', label: 'Refine' },
@@ -790,17 +791,31 @@ export function ProjectsPanel() {
     useGameState()
   const { projectIndex, setProjectIndex, acceptLead } = useTabNav()
   const dispatchAt = useGameDispatchAt()
-  const columnsRef = useRef<HTMLDivElement>(null)
   const slotState = { meta, vibingCourseTiers, maxClientProjects }
   const columnCount = tutorialDone ? clientProjectBoardSlots(slotState, projects, leads) : 1
   const canAcceptLeads = hasOpenClientProjectSlot(slotState, agents, projects)
 
   useEffect(() => {
-    const container = columnsRef.current
-    if (!container) return
-    const column = container.querySelector<HTMLElement>(`[data-slot-index="${projectIndex}"]`)
-    column?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
-  }, [projectIndex])
+    if (projectIndex < columnCount) return
+    setProjectIndex(Math.max(0, columnCount - 1))
+  }, [columnCount, projectIndex, setProjectIndex])
+
+  const slotLabels = Array.from({ length: columnCount }, (_, slot) => {
+    const project =
+      activeClientProjectInSlot(projects, slot) ??
+      (!tutorialDone ? projects.find((p) => p.isTutorial) : undefined)
+    const lead = !project && tutorialDone ? availableLeadInSlot(leads, slot) : undefined
+    if (project) return project.clientName
+    if (lead) return `Lead: ${lead.clientName}`
+    return `Column ${slot + 1}`
+  })
+
+  const slot = Math.min(projectIndex, Math.max(0, columnCount - 1))
+  const project =
+    activeClientProjectInSlot(projects, slot) ??
+    (!tutorialDone ? projects.find((p) => p.isTutorial) : undefined)
+  const lead = !project && tutorialDone ? availableLeadInSlot(leads, slot) : undefined
+  const columnLabel = slotLabels[slot] ?? `Column ${slot + 1}`
 
   return (
     <section className="panel projects-panel">
@@ -811,62 +826,49 @@ export function ProjectsPanel() {
         </p>
       </header>
 
-      <div ref={columnsRef} className="project-columns" role="list" aria-label="Client project columns">
-        {Array.from({ length: columnCount }, (_, slot) => {
-          const project =
-            activeClientProjectInSlot(projects, slot) ??
-            (!tutorialDone ? projects.find((p) => p.isTutorial) : undefined)
-          const lead = !project && tutorialDone ? availableLeadInSlot(leads, slot) : undefined
-          const columnLabel = project
-            ? project.clientName
-            : lead
-              ? `Lead: ${lead.clientName}`
-              : `Column ${slot + 1}`
-          const isFocused = projectIndex === slot
+      <FocusedSlotCarousel
+        index={slot}
+        count={columnCount}
+        onIndexChange={setProjectIndex}
+        listAriaLabel="Client project columns"
+        navItems={slotLabels.map((title) => ({ title }))}
+      >
+        <section
+          data-slot-index={slot}
+          className={`project-column project-column--focused ${project && isReadyToDeliver(project) ? 'project-column--deliverable' : ''}`}
+          role="listitem"
+          aria-label={columnLabel}
+        >
+          <header className="project-column__header">
+            <h3>{project?.clientName ?? lead?.clientName ?? 'Open slot'}</h3>
+            {project?.clientTagline && (
+              <p className="project-column__subtitle">"{project.clientTagline}"</p>
+            )}
+            {lead?.clientTagline && <p className="project-column__subtitle">"{lead.clientTagline}"</p>}
+            {!project && !lead && tutorialDone && (
+              <p className="project-column__subtitle">Waiting for the next client lead.</p>
+            )}
+          </header>
 
-          return (
-            <section
-              key={slot}
-              data-slot-index={slot}
-              className={`project-column ${isFocused ? 'project-column--focused' : ''} ${project && isReadyToDeliver(project) ? 'project-column--deliverable' : ''}`}
-              role="listitem"
-              aria-label={columnLabel}
-              onClick={() => setProjectIndex(slot)}
-            >
-              <header className="project-column__header">
-                <h3>{project?.clientName ?? lead?.clientName ?? 'Open slot'}</h3>
-                {project?.clientTagline && (
-                  <p className="project-column__subtitle">"{project.clientTagline}"</p>
-                )}
-                {lead?.clientTagline && (
-                  <p className="project-column__subtitle">"{lead.clientTagline}"</p>
-                )}
-                {!project && !lead && tutorialDone && (
-                  <p className="project-column__subtitle">Waiting for the next client lead.</p>
-                )}
-              </header>
-
-              <div className="project-column__body">
-                {project && <ProjectCard project={project} />}
-                {lead && (
-                  <LeadColumnCard
-                    lead={lead}
-                    gameDay={gameDay}
-                    canAccept={canAcceptLeads && reputation >= lead.repRequired}
-                    onAccept={() => acceptLead(lead.id)}
-                    onReject={() => dispatchAt((at) => rejectLeadMsg(at, lead.id))}
-                  />
-                )}
-                {!project && !lead && !tutorialDone && (
-                  <p className="empty-slot" aria-label="Finish your first project to unlock leads.">
-                    Finish your first project to unlock leads.
-                  </p>
-                )}
-              </div>
-            </section>
-          )
-        })}
-      </div>
+          <div className="project-column__body">
+            {project && <ProjectCard project={project} />}
+            {lead && (
+              <LeadColumnCard
+                lead={lead}
+                gameDay={gameDay}
+                canAccept={canAcceptLeads && reputation >= lead.repRequired}
+                onAccept={() => acceptLead(lead.id)}
+                onReject={() => dispatchAt((at) => rejectLeadMsg(at, lead.id))}
+              />
+            )}
+            {!project && !lead && !tutorialDone && (
+              <p className="empty-slot" aria-label="Finish your first project to unlock leads.">
+                Finish your first project to unlock leads.
+              </p>
+            )}
+          </div>
+        </section>
+      </FocusedSlotCarousel>
     </section>
   )
 }
